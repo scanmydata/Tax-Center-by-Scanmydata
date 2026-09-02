@@ -36,7 +36,7 @@ class AppContainer(context: Context) {
      * Η ουρά λήψης ζει εδώ, όχι σε ViewModel: μια παρτίδα κρατάει δεκάδες λεπτά
      * και δεν πρέπει να ακυρώνεται επειδή ο χρήστης άλλαξε οθόνη.
      */
-    val fetch: FetchController by lazy { FetchController(app, processRunner, repository, assets) }
+    val fetch: FetchController by lazy { FetchController(app, processRunner, repository, assets, mail) }
 
     val driveBackup: DriveBackup by lazy { DriveBackup(app, db) }
 }

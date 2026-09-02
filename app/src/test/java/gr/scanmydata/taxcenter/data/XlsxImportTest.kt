@@ -54,18 +54,15 @@ class XlsxImportTest {
         assertFalse(Normalize.validAfm("12345678"))
     }
 
-    @Test
-    fun `το κλειδί myDATA είναι ακριβώς 32 hex`() {
-        assertTrue(Normalize.validSubscriptionKey("0123456789abcdef0123456789ABCDEF"))
-        assertFalse(Normalize.validSubscriptionKey("0123456789abcdef"))
-        assertFalse(Normalize.validSubscriptionKey("zzz3456789abcdef0123456789abcdef"))
-    }
-
     // ---------------------------------------------------------- ColumnAliases
 
     @Test
-    fun `η παγίδα του e-timologio δεν περνά ως κλειδί myDATA`() {
-        // Αυτό είναι ΤΟ bug που θα έδινε 403 σε κάθε πελάτη, σιωπηλά.
+    fun `οι στήλες άλλων προϊόντων δεν χαρτογραφούνται ποτέ`() {
+        // Το export έχει και στήλες που ανήκουν σε ΑΛΛΑ προγράμματα. Ένα
+        // substring match στο «subscription key» θα άρπαζε το κλειδί του
+        // e-timologio — το bug που θα έδινε 403 σε κάθε πελάτη, σιωπηλά.
+        // Ο denylist μένει ακόμη κι αφού βγήκαν τα πεδία myDATA: οι στήλες
+        // υπάρχουν στο αρχείο και πρέπει να αναφέρονται ως αγνοημένες.
         assertNull(ColumnAliases.match("Subscription key e-timologio"))
         assertNull(ColumnAliases.match("Όνομα χρήστη e-timologio"))
         assertNull(ColumnAliases.match("Συνθηματικό e-timologio"))
@@ -73,10 +70,12 @@ class XlsxImportTest {
     }
 
     @Test
-    fun `το συνθηματικό myDATA δεν συγχέεται με το κλειδί API`() {
+    fun `οι στήλες myDATA δεν εισάγονται πια`() {
+        // Τα πεδία myDATA αφαιρέθηκαν: καμία διαδικασία δεν τα χρησιμοποιεί,
+        // και ένα κλειδί API που δεν χρειάζεται είναι μόνο ρίσκο.
+        assertNull(ColumnAliases.match("Api myData"))
+        assertNull(ColumnAliases.match("Όνομα χρήστη myData"))
         assertNull(ColumnAliases.match("Συνθηματικό myData"))
-        assertEquals(ColumnAliases.Field.MYDATA_KEY, ColumnAliases.match("Api myData"))
-        assertEquals(ColumnAliases.Field.MYDATA_USER, ColumnAliases.match("Όνομα χρήστη myData"))
     }
 
     @Test
@@ -148,7 +147,7 @@ class XlsxImportTest {
         val map = ColumnAliases.mapHeaderRow(headers)
         assertEquals(ColumnAliases.Field.AFM, map["B"])
         assertEquals(ColumnAliases.Field.NAME, map["C"])
-        assertEquals(ColumnAliases.Field.MYDATA_KEY, map["BI"])
+        assertNull("οι στήλες myDATA δεν εισάγονται πια", map["BI"])
         assertNull("η στήλη του e-timologio δεν πρέπει να χαρτογραφηθεί", map["BL"])
         assertNull("η στήλη Κωδικός δεν μας αφορά", map["A"])
     }

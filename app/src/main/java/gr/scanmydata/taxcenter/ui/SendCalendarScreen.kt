@@ -80,6 +80,9 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var failedOnly by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
+    // Τα φίλτρα είναι κλειστά εξ ορισμού. Έπαιρναν τέσσερις σειρές μόνιμα, και
+    // σε τηλέφωνο έμεναν δύο-τρεις γραμμές για τη λίστα — που είναι η ουσία.
+    var showFilters by remember { mutableStateOf(false) }
 
     val range = remember(anchor, weekView) { visibleRange(anchor, weekView) }
     val all: List<SendEntity> by container.db.sends()
@@ -120,48 +123,76 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             FilterChip(selected = !weekView, onClick = { weekView = false }, label = { Text("Μήνας") })
             FilterChip(selected = weekView, onClick = { weekView = true }, label = { Text("Εβδομάδα") })
+            Spacer(Modifier.weight(1f))
+            val activeFilters = listOf(
+                kindFilter.isNotBlank(),
+                failedOnly,
+                query.isNotBlank(),
+            ).count { it }
+            TextButton(onClick = { showFilters = !showFilters }) {
+                Text(if (activeFilters > 0) "Φίλτρα ($activeFilters)" else "Φίλτρα")
+            }
         }
 
-        Spacer(Modifier.height(8.dp))
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = kindFilter.isBlank(),
-                onClick = { kindFilter = "" },
-                label = { Text("Όλα") },
-            )
-            FilterChip(
-                selected = kindFilter == SendEntity.KIND_DOCUMENTS,
-                onClick = { kindFilter = SendEntity.KIND_DOCUMENTS },
-                label = { Text("Έντυπα") },
-            )
-            FilterChip(
-                selected = kindFilter == SendEntity.KIND_CREDENTIALS,
-                onClick = { kindFilter = SendEntity.KIND_CREDENTIALS },
-                label = { Text("Στοιχεία") },
-            )
-            FilterChip(
-                selected = failedOnly,
-                onClick = { failedOnly = !failedOnly },
-                label = { Text("Μόνο αποτυχίες") },
+        if (showFilters) {
+            Spacer(Modifier.height(4.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = kindFilter.isBlank(),
+                    onClick = { kindFilter = "" },
+                    label = { Text("Όλα") },
+                )
+                FilterChip(
+                    selected = kindFilter == SendEntity.KIND_DOCUMENTS,
+                    onClick = { kindFilter = SendEntity.KIND_DOCUMENTS },
+                    label = { Text("Έντυπα") },
+                )
+                FilterChip(
+                    selected = kindFilter == SendEntity.KIND_CREDENTIALS,
+                    onClick = { kindFilter = SendEntity.KIND_CREDENTIALS },
+                    label = { Text("Στοιχεία") },
+                )
+                FilterChip(
+                    selected = failedOnly,
+                    onClick = { failedOnly = !failedOnly },
+                    label = { Text("Μόνο αποτυχίες") },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Φίλτρο πελάτη (ΑΦΜ ή επωνυμία)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
 
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Φίλτρο πελάτη (ΑΦΜ ή επωνυμία)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        Spacer(Modifier.height(6.dp))
+        // Σύνοψη της περιόδου: το «πόσες απέτυχαν» είναι η μόνη ερώτηση που
+        // θέλει άμεση απάντηση όταν ανοίγεις το ημερολόγιο.
+        Text(
+            buildString {
+                append(sends.size).append(" αποστολές")
+                val failed = sends.count { it.failed }
+                if (failed > 0) append("  ·  ").append(failed).append(" απέτυχαν")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (sends.any { it.failed }) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         WeekdayHeader()
         CalendarGrid(
             days = calendarDays(anchor, weekView),
@@ -174,15 +205,20 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(12.dp))
         val listed = selected?.let { byDay[it].orEmpty() } ?: sends
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (selected != null) {
-                    "${listed.size} αποστολές — ${selected!!.format(dayFormatter)}"
-                } else {
-                    "${listed.size} αποστολές"
-                },
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (selected != null) selected!!.format(dayFormatter) else "Όλη η περίοδος",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    if (listed.isEmpty()) "καμία αποστολή" else "${listed.size} αποστολές",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+            }
+            if (selected != null) {
+                TextButton(onClick = { selected = null }) { Text("Όλη η περίοδος") }
+            }
             TextButton(
                 enabled = sends.isNotEmpty(),
                 onClick = {
@@ -204,7 +240,7 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.height(6.dp))
-        LazyColumn {
+        LazyColumn(Modifier.weight(1f)) {
             items(listed, key = { it.id }) { send ->
                 SendRow(
                     send = send,
@@ -346,15 +382,25 @@ private fun DayCell(
             )
             if (sends.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
+                // Αριθμός και όχι κουκκίδα: «3 αποστολές» και «30 αποστολές»
+                // έδειχναν ακριβώς το ίδιο, και ο λογιστής άνοιγε κάθε μέρα
+                // ξεχωριστά για να δει αν άξιζε.
                 Box(
                     Modifier
-                        .size(if (sends.size > 3) 8.dp else 6.dp)
                         .clip(CircleShape)
                         .background(
                             if (hasFailure) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.primary,
-                        ),
-                )
+                        )
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        sends.size.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (hasFailure) MaterialTheme.colorScheme.onError
+                        else MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             }
         }
     }

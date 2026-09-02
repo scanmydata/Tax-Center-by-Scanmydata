@@ -149,6 +149,9 @@ interface AuditDao {
     @Query("SELECT * FROM audit_log ORDER BY ts DESC LIMIT :limit")
     suspend fun recent(limit: Int = 500): List<AuditEntity>
 
+    @Query("SELECT * FROM audit_log ORDER BY ts DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 500): Flow<List<AuditEntity>>
+
     @Query("SELECT * FROM audit_log ORDER BY ts")
     suspend fun all(): List<AuditEntity>
 }

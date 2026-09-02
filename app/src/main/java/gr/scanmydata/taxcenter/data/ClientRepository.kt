@@ -27,6 +27,8 @@ class ClientRepository(
 
     suspend fun byAfm(afm: String): ClientEntity? = db.clients().byAfm(afm)
 
+    suspend fun byId(id: Long): ClientEntity? = db.clients().byId(id)
+
     suspend fun existingAfms(): Set<String> = db.clients().all().map { it.afm }.toSet()
 
     // ------------------------------------------------------------- εισαγωγή
@@ -222,6 +224,58 @@ class ClientRepository(
         db.audit().log(AuditEntity(ts = now, action = "DELETE", afm = client.afm, detail = "οριστική διαγραφή"))
     }
 
+    /**
+     * Μαζική οριστική διαγραφή. **Ένα** αντίγραφο για όλη την παρτίδα.
+     *
+     * Το αντίγραφο ανά πελάτη θα ήταν σπατάλη χώρου και χρόνου· το αντίγραφο
+     * *πριν* την παρτίδα είναι αυτό που έχει σημασία, γιατί εκεί μπορεί να γίνει
+     * το λάθος («διάλεξα όλους αντί για τους τρεις»).
+     */
+    suspend fun deleteClients(clients: List<ClientEntity>): Int {
+        if (clients.isEmpty()) return 0
+        val now = System.currentTimeMillis()
+        backupDatabase("delete-bulk")
+        for (client in clients) {
+            File(context.filesDir, "runs/${client.afm}").deleteRecursively()
+            db.clients().hardDelete(client.id)
+            db.audit().log(
+                AuditEntity(ts = now, action = "DELETE", afm = client.afm, detail = "μαζική οριστική διαγραφή"),
+            )
+        }
+        return clients.size
+    }
+
+    /**
+     * Σβήνει **μόνο τα έγγραφα** — ο πελάτης, οι κωδικοί και το ιστορικό μένουν.
+     *
+     * Άλλη δουλειά από τη διαγραφή πελάτη, γι' αυτό και χωριστή ενέργεια: εδώ ο
+     * λογιστής καθαρίζει χώρο ή παλιά PDF, δεν τερματίζει σχέση. Το να είναι
+     * διακόπτης μέσα στη διαγραφή πελάτη θα έκανε εύκολο να πατηθεί κατά λάθος
+     * το πιο καταστροφικό από τα δύο.
+     */
+    suspend fun deleteDocumentsOf(clients: List<ClientEntity>): Int {
+        var removed = 0
+        val now = System.currentTimeMillis()
+        for (client in clients) {
+            val documents = db.documents().forClient(client.id)
+            if (documents.isEmpty()) continue
+            for (document in documents) {
+                File(context.filesDir, document.relativePath).delete()
+            }
+            db.documents().deleteByIds(documents.map { it.id })
+            removed += documents.size
+            db.audit().log(
+                AuditEntity(
+                    ts = now,
+                    action = "DELETE_DOCUMENTS",
+                    afm = client.afm,
+                    detail = "${documents.size} έγγραφα",
+                ),
+            )
+        }
+        return removed
+    }
+
     // --------------------------------------------------------------- backup
 
     /**
@@ -257,7 +311,6 @@ class ClientRepository(
             Field.TAXIS_USER, Field.TAXIS_PASS, Field.TAXIS_KLIDARITHMOS,
             Field.IKA_EMPLOYER_USER, Field.IKA_EMPLOYER_PASS,
             Field.IKA_INSURED_USER, Field.IKA_INSURED_PASS,
-            Field.MYDATA_USER, Field.MYDATA_KEY,
         )
     }
 }

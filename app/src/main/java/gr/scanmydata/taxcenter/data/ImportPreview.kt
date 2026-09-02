@@ -71,7 +71,7 @@ object ImportPreview {
     private val SECRET_FIELDS = setOf(
         Field.TAXIS_PASS, Field.TAXIS_KLIDARITHMOS,
         Field.IKA_EMPLOYER_PASS, Field.IKA_INSURED_PASS,
-        Field.MYDATA_KEY, Field.AMKA,
+        Field.AMKA,
     )
 
     /** Πόσες γραμμές ψάχνουμε για επικεφαλίδες πριν τα παρατήσουμε. */
@@ -149,17 +149,6 @@ object ImportPreview {
         }
         if (occurrences > 1) {
             warnings += "$occurrences γραμμές για το ίδιο ΑΦΜ — συγχωνεύτηκαν"
-        }
-
-        // Κλειδί myDATA που δεν έχει τη σωστή μορφή είναι σχεδόν πάντα λάθος
-        // στήλη. Το πετάμε αντί να προκαλέσουμε 403 σε κάθε κλήση.
-        val key = values[Field.MYDATA_KEY]
-        if (!key.isNullOrBlank() && !Normalize.validSubscriptionKey(key)) {
-            warnings += "το κλειδί myDATA δεν είναι 32 δεκαεξαδικά — αγνοήθηκε"
-            values.remove(Field.MYDATA_KEY)
-        }
-        if (!values[Field.MYDATA_KEY].isNullOrBlank() && values[Field.MYDATA_USER].isNullOrBlank()) {
-            warnings += "κλειδί myDATA χωρίς όνομα χρήστη"
         }
 
         val amka = values[Field.AMKA]

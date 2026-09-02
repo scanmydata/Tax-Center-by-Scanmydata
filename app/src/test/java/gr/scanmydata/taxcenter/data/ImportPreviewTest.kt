@@ -81,35 +81,20 @@ class ImportPreviewTest {
     }
 
     @Test
-    fun `το κλειδί του e-timologio δεν μπαίνει ποτέ ως myDATA`() {
+    fun `οι στήλες άλλων προϊόντων αναφέρονται ως αγνοημένες`() {
         val result = ImportPreview.build(
             sheet(
                 mapOf(
                     "B" to "123456783",
-                    "BG" to "aadeuser",
-                    "BI" to "0123456789abcdef0123456789abcdef",
                     "BL" to "ffffffffffffffffffffffffffffffff", // e-timologio!
                 ),
             ),
             existingAfms = emptySet(),
         )
-        val row = result.rows.single()
-        assertEquals("0123456789abcdef0123456789abcdef", row.values[Field.MYDATA_KEY])
         assertTrue(
             "η στήλη e-timologio έπρεπε να αναφερθεί ως αγνοημένη",
             result.ignoredColumns.any { it.first.contains("e-timologio") },
         )
-    }
-
-    @Test
-    fun `κλειδί myDATA με λάθος μορφή πετιέται με προειδοποίηση`() {
-        val result = ImportPreview.build(
-            sheet(mapOf("B" to "123456783", "BG" to "aadeuser", "BI" to "όχι-κλειδί")),
-            existingAfms = emptySet(),
-        )
-        val row = result.rows.single()
-        assertNull("το άκυρο κλειδί έπρεπε να αφαιρεθεί", row.values[Field.MYDATA_KEY])
-        assertTrue(row.warnings.any { it.contains("32 δεκαεξαδικά") })
     }
 
     @Test

@@ -372,8 +372,6 @@ fun ClientEditScreen(
         SecretField("Κλειδάριθμος", credentials, Field.TAXIS_KLIDARITHMOS, revealSecrets)
         SecretField("Όνομα χρήστη ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_USER, reveal = true)
         SecretField("Συνθηματικό ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_PASS, revealSecrets)
-        SecretField("Όνομα χρήστη myDATA", credentials, Field.MYDATA_USER, reveal = true)
-        SecretField("Subscription key myDATA", credentials, Field.MYDATA_KEY, revealSecrets)
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()

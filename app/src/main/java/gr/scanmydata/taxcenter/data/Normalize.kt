@@ -77,10 +77,6 @@ object Normalize {
         return day in 1..31 && month in 1..12
     }
 
-    /** Το myDATA subscription key είναι ακριβώς 32 δεκαεξαδικά. */
-    fun validSubscriptionKey(key: String?): Boolean =
-        key != null && key.length == 32 && key.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
-
     private val DOTS = Regex("[.·]")
     private val NON_ALNUM = Regex("[^\\p{L}\\p{N}]+")
     private val SPACES = Regex("\\s{2,}")

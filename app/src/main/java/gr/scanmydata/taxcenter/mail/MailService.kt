@@ -30,6 +30,7 @@ class MailService(
     private val repository: ClientRepository,
     private val settings: Settings = Settings(context),
     private val gmail: GmailSender = GmailSender(),
+    private val templates: MailTemplateStore = MailTemplateStore(context),
 ) {
 
     class NoRecipient(afm: String) : Exception("Ο πελάτης $afm δεν έχει διεύθυνση email.")
@@ -64,15 +65,33 @@ class MailService(
             includeSecrets = includeSecrets,
             officeName = settings.officeName,
             signature = settings.signatureFor(SendEntity.KIND_CREDENTIALS),
+            template = templates.credentials,
         )
 
+
+        // Το ημερολόγιο πρέπει να λέει τι **πράγματι** στάλθηκε. Αν το πρότυπο
+        // έχει σβήσει το ΑΜΚΑ, δεν έχει νόημα να γράφεται ότι στάλθηκε.
+        val template = templates.credentials
         val items = buildList {
-            add("ΑΦΜ")
-            if (amka.isNotBlank()) add("ΑΜΚΑ")
-            if (credentials[Field.TAXIS_USER].orEmpty().isNotBlank()) add("Όνομα χρήστη TAXISnet")
+            if (template.has(MailTemplateStore.CredentialField.AFM)) add("ΑΦΜ")
+            if (template.has(MailTemplateStore.CredentialField.AMKA) && amka.isNotBlank()) add("ΑΜΚΑ")
+            if (template.has(MailTemplateStore.CredentialField.DOY) && client.doy.isNotBlank()) add("ΔΟΥ")
+            if (template.has(MailTemplateStore.CredentialField.TAXIS_USER) &&
+                credentials[Field.TAXIS_USER].orEmpty().isNotBlank()
+            ) {
+                add("Όνομα χρήστη TAXISnet")
+            }
             if (includeSecrets) {
-                if (credentials[Field.TAXIS_PASS].orEmpty().isNotBlank()) add("Συνθηματικό TAXISnet")
-                if (credentials[Field.TAXIS_KLIDARITHMOS].orEmpty().isNotBlank()) add("Κλειδάριθμος")
+                if (template.has(MailTemplateStore.CredentialField.TAXIS_PASS) &&
+                    credentials[Field.TAXIS_PASS].orEmpty().isNotBlank()
+                ) {
+                    add("Συνθηματικό TAXISnet")
+                }
+                if (template.has(MailTemplateStore.CredentialField.KLIDARITHMOS) &&
+                    credentials[Field.TAXIS_KLIDARITHMOS].orEmpty().isNotBlank()
+                ) {
+                    add("Κλειδάριθμος")
+                }
             }
         }
 
@@ -96,6 +115,16 @@ class MailService(
 
     // ------------------------------------------------------------- έντυπα
 
+    /**
+     * Τα έγγραφα ενός πελάτη που δημιουργήθηκαν από μια χρονική στιγμή και μετά.
+     *
+     * Το χρησιμοποιεί η «λήψη και αποστολή»: στέλνεται **μόνο ό,τι κατέβηκε
+     * τώρα**. Χωρίς αυτό το φίλτρο, μια λήψη του φετινού Ε1 θα ξανάστελνε και
+     * όλα τα περσινά έντυπα που ήδη έχει ο πελάτης στο γραμματοκιβώτιό του.
+     */
+    suspend fun documentsSince(clientId: Long, since: Long): List<DocumentEntity> =
+        db.documents().forClient(clientId).filter { it.createdAt >= since }
+
     /** Στέλνει φορολογικά έντυπα ως συνημμένα. */
     suspend fun sendDocuments(
         accessToken: String,
@@ -116,6 +145,7 @@ class MailService(
             note = note,
             officeName = settings.officeName,
             signature = settings.signatureFor(SendEntity.KIND_DOCUMENTS),
+            template = templates.documents,
         )
 
         val send = deliver(

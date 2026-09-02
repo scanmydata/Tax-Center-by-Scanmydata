@@ -2,8 +2,10 @@ package gr.scanmydata.taxcenter.engine
 
 import android.content.Context
 import android.view.ViewGroup
+import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ClientRepository
 import gr.scanmydata.taxcenter.data.db.ClientEntity
+import gr.scanmydata.taxcenter.mail.MailService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +34,7 @@ class FetchController(
     private val runner: ProcessRunner,
     private val repository: ClientRepository,
     private val assets: EngineAssets,
+    private val mail: MailService,
 ) {
 
     enum class Status { PENDING, RUNNING, OK, FAILED, CANCELLED }
@@ -44,8 +47,10 @@ class FetchController(
         val status: Status = Status.PENDING,
         val detail: String = "",
         val fileCount: Int = 0,
+        /** Η λήψη πέτυχε αλλά η αυτόματη αποστολή όχι — άλλο πράγμα από αποτυχία. */
+        val sendFailed: Boolean = false,
     ) {
-        val key: String get() = "$afm/$configId"
+        val key: String get() = "$afm/$configId/$configTitle"
     }
 
     /** Ποιο πεδίο της καρτέλας προτείνεται να αλλάξει. */
@@ -107,27 +112,44 @@ class FetchController(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
 
+    /**
+     * Μία γραμμή της ουράς: η εργασία του engine μαζί με το όνομα που βλέπει ο
+     * χρήστης. Η ετικέτα δεν προκύπτει από το config — ένα `aade-income` μπορεί
+     * να είναι «Ε1 2025» ή «Ε2 2023», και ο λογιστής πρέπει να ξεχωρίζει ποιο
+     * απέτυχε.
+     */
+    data class Plan(
+        val job: ProcessRunner.Job,
+        val label: String,
+        val producesDocuments: Boolean = true,
+    )
+
     /** Κρατιέται για την «επανάληψη αποτυχιών»: τα items είναι index-aligned. */
-    private var lastJobs: List<ProcessRunner.Job> = emptyList()
+    private var lastPlans: List<Plan> = emptyList()
 
     /** Η διαδρομή εξόδου του βήματος που τρέχει αυτή τη στιγμή. */
     @Volatile
     private var currentOutDir: File = context.filesDir
 
-    fun start(jobs: List<ProcessRunner.Job>) {
-        if (_state.value.running || jobs.isEmpty()) return
+    /**
+     * @param autoSendToken όταν δοθεί, μόλις τελειώσει η παρτίδα στέλνεται σε
+     *   κάθε πελάτη **ένα** email με τα έντυπα που κατέβηκαν *σε αυτή* την
+     *   εκτέλεση. Ένα email ανά πελάτη, ποτέ κοινοποίηση σε τρίτο.
+     */
+    fun start(plans: List<Plan>, autoSendToken: String? = null) {
+        if (_state.value.running || plans.isEmpty()) return
 
-        lastJobs = jobs
-        val titles = assets.catalog().associate { it.id to it.title }
+        lastPlans = plans
+        val startedAt = System.currentTimeMillis()
         _state.value = State(
             running = true,
-            startedAt = System.currentTimeMillis(),
-            items = jobs.map {
+            startedAt = startedAt,
+            items = plans.map {
                 Item(
-                    afm = it.client.afm,
-                    clientName = it.client.displayName,
-                    configId = it.configId,
-                    configTitle = titles[it.configId].orEmpty().ifBlank { it.configId },
+                    afm = it.job.client.afm,
+                    clientName = it.job.client.displayName,
+                    configId = it.job.configId,
+                    configTitle = it.label,
                 )
             },
         )
@@ -142,7 +164,8 @@ class FetchController(
             )
             val browserConfigs = assets.catalog().filter { it.needsBrowser }.map { it.id }.toSet()
             try {
-                jobs.forEachIndexed { index, item ->
+                plans.forEachIndexed { index, plan ->
+                    val item = plan.job
                     currentOutDir = runner.outputDir(item)
                     val needsBrowser = item.configId in browserConfigs
                     mark(index, Status.RUNNING, "")
@@ -160,10 +183,11 @@ class FetchController(
                     mark(
                         index = index,
                         status = if (outcome.ok) Status.OK else Status.FAILED,
-                        detail = if (outcome.ok) "" else outcome.reason,
+                        detail = if (outcome.ok) "" else describe(outcome.reason),
                         fileCount = outcome.files.count { it.endsWith(".pdf", ignoreCase = true) },
                     )
                 }
+                if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt)
             } finally {
                 browser.shutdown()
                 _state.value = _state.value.copy(
@@ -183,6 +207,59 @@ class FetchController(
         }
     }
 
+    /**
+     * Στέλνει ό,τι κατέβηκε **σε αυτή** την παρτίδα.
+     *
+     * Το φίλτρο `createdAt >= startedAt` είναι το κρίσιμο σημείο: χωρίς αυτό,
+     * μια λήψη του Ε1 θα ξανάστελνε και τα περσινά έντυπα που ήδη έχει ο
+     * πελάτης. Ο λογιστής ζήτησε «κατέβασε και στείλε», όχι «στείλε ό,τι έχεις».
+     *
+     * Οι αποτυχίες αποστολής δεν ρίχνουν την παρτίδα — καταγράφονται στο
+     * ημερολόγιο και εμφανίζονται στη λίστα.
+     */
+    private suspend fun autoSend(accessToken: String, plans: List<Plan>, startedAt: Long) {
+        val clients = plans.filter { it.producesDocuments }
+            .map { it.job.client }
+            .distinctBy { it.id }
+            .filter { it.id != 0L }
+
+        var index = 0
+        for (client in clients) {
+            index++
+            val fresh = repository.byId(client.id) ?: client
+            val documents = mail.documentsSince(client.id, startedAt)
+            if (documents.isEmpty()) continue
+            FetchService.update(
+                context = context,
+                text = "Αποστολή $index/${clients.size} · ${fresh.displayName}",
+                done = index,
+                total = clients.size,
+            )
+            val detail = runCatching { mail.sendDocuments(accessToken, fresh, documents) }
+            val message = when {
+                detail.isFailure -> detail.exceptionOrNull()?.message.orEmpty()
+                detail.getOrNull()?.failed == true -> detail.getOrNull()?.error.orEmpty()
+                else -> ""
+            }
+            markSend(client.id, documents.size, message)
+        }
+    }
+
+    /** Σημειώνει το αποτέλεσμα της αυτόματης αποστολής στις γραμμές του πελάτη. */
+    private fun markSend(clientId: Long, count: Int, error: String) {
+        val plansById = lastPlans.withIndex().filter { it.value.job.client.id == clientId }
+        val items = _state.value.items.toMutableList()
+        for ((index, _) in plansById) {
+            val current = items.getOrNull(index) ?: continue
+            if (current.status != Status.OK) continue
+            items[index] = current.copy(
+                detail = if (error.isBlank()) "στάλθηκαν $count έντυπα" else "αποστολή απέτυχε: $error",
+                sendFailed = error.isNotBlank(),
+            )
+        }
+        _state.value = _state.value.copy(items = items)
+    }
+
     fun cancel() {
         job?.cancel()
     }
@@ -199,7 +276,7 @@ class FetchController(
         val retry = _state.value.items
             .mapIndexedNotNull { index, item ->
                 if (item.status == Status.FAILED || item.status == Status.CANCELLED) {
-                    lastJobs.getOrNull(index)
+                    lastPlans.getOrNull(index)
                 } else {
                     null
                 }
@@ -262,7 +339,7 @@ class FetchController(
         )
         val outcome = runner.run(listOf(job)).first()
         if (!outcome.ok) return Profile(error = describe(outcome.reason))
-        return try {
+        val profile = try {
             val json = JSONObject(outcome.out.orEmpty())
             Profile(
                 afm = json.optString("afm").trim(),
@@ -274,7 +351,23 @@ class FetchController(
                 active = json.optBoolean("active", true),
             )
         } catch (e: Exception) {
-            Profile(error = "Η απάντηση του Μητρώου δεν διαβάστηκε.")
+            return Profile(error = "Η απάντηση του Μητρώου δεν διαβάστηκε.")
+        }
+
+        // Ιδιώτης ή ατομική σημαίνει ότι υπάρχει ΑΜΚΑ — οπότε το φέρνουμε
+        // αμέσως, χωρίς δεύτερο πάτημα. Είναι δεύτερη σύνδεση σε **άλλη** πύλη
+        // (το amka.gr μπαίνει με GSIS OAuth2, όχι με το OAM της ΑΑΔΕ), γι' αυτό
+        // δεν έρχεται μαζί με τα υπόλοιπα.
+        //
+        // Αν αποτύχει, **δεν** χαλάει η άντληση: τα στοιχεία μητρώου έχουν ήδη
+        // βρεθεί και είναι το κύριο ζητούμενο. Μπαίνει σημείωμα και το κουμπί
+        // δίπλα στο πεδίο μένει για δεύτερη προσπάθεια.
+        if (!ClientKind.hasAmka(profile.kind)) return profile
+        val amka = lookupAmka(user, pass)
+        return if (amka.startsWith("!")) {
+            profile.copy(amkaNote = amka.removePrefix("!"))
+        } else {
+            profile.copy(amka = amka)
         }
     }
 
@@ -316,6 +409,9 @@ class FetchController(
         val kind: String = "",
         val doy: String = "",
         val email: String = "",
+        val amka: String = "",
+        /** Γιατί δεν ήρθε ο ΑΜΚΑ, όταν έπρεπε να υπάρχει. Δεν είναι σφάλμα. */
+        val amkaNote: String = "",
         val active: Boolean = true,
         val error: String = "",
     ) {

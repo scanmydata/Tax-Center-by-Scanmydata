@@ -7,19 +7,25 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.db.ClientEntity
+import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.google.GoogleAuthorizer
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +43,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Λίστα πελατών, με αναζήτηση και αποστολή στοιχείων.
+ * Λίστα πελατών: αναζήτηση, ενέργειες ανά πελάτη, μαζική διαγραφή.
+ *
+ * Το πάτημα σε γραμμή δεν ανοίγει κατευθείαν την καρτέλα. Ανοίγει **επιλογές**:
+ * τις περισσότερες φορές ο λογιστής θέλει να στείλει κάτι, όχι να διορθώσει
+ * στοιχεία, και η διαδρομή «καρτέλα → πίσω → οθόνη εγγράφων → βρες τον ίδιο
+ * πελάτη» ήταν τρία βήματα για τη συχνότερη ενέργεια.
  */
 @Composable
 fun ClientsScreen(
@@ -51,13 +63,24 @@ fun ClientsScreen(
         .collectAsState(initial = emptyList())
 
     var query by remember { mutableStateOf("") }
-    var sendTarget by remember { mutableStateOf<ClientEntity?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    val picked = remember { mutableStateListOf<Long>() }
+
+    var actionsFor by remember { mutableStateOf<ClientEntity?>(null) }
+    var sendDetailsFor by remember { mutableStateOf<ClientEntity?>(null) }
+    var sendDocumentsFor by remember { mutableStateOf<ClientEntity?>(null) }
+    var clientDocuments by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
+    var confirmBulk by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
 
     val filtered = remember(clients, query) {
         val q = query.trim().lowercase()
         if (q.isEmpty()) clients
         else clients.filter { it.afm.contains(q) || it.displayName.lowercase().contains(q) }
+    }
+    val selected = remember(clients, picked.toList()) {
+        val byId = clients.associateBy { it.id }
+        picked.mapNotNull { byId[it] }
     }
 
     Column(modifier.padding(16.dp)) {
@@ -69,10 +92,28 @@ fun ClientsScreen(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        Text(
-            "${filtered.size} πελάτες",
-            style = MaterialTheme.typography.labelMedium,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (selecting) "${picked.size} επιλεγμένοι" else "${filtered.size} πελάτες",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (selecting) {
+                TextButton(onClick = {
+                    if (picked.size == filtered.size) picked.clear()
+                    else {
+                        picked.clear()
+                        picked.addAll(filtered.map { it.id })
+                    }
+                }) {
+                    Text(if (picked.size == filtered.size && filtered.isNotEmpty()) "Κανένας" else "Όλοι")
+                }
+            }
+            TextButton(onClick = {
+                selecting = !selecting
+                picked.clear()
+            }) { Text(if (selecting) "Άκυρο" else "Επιλογή") }
+        }
 
         if (status.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
@@ -80,24 +121,73 @@ fun ClientsScreen(
         }
 
         Spacer(Modifier.height(8.dp))
-        LazyColumn {
+        LazyColumn(Modifier.weight(1f)) {
             items(filtered, key = { it.id }) { client ->
                 ClientRow(
                     client = client,
-                    onOpen = { onOpenClient(client.id) },
-                    onSendDetails = { sendTarget = client },
+                    selecting = selecting,
+                    checked = client.id in picked,
+                    onClick = {
+                        if (selecting) {
+                            if (client.id in picked) picked.remove(client.id) else picked.add(client.id)
+                        } else {
+                            actionsFor = client
+                        }
+                    },
                 )
+            }
+        }
+
+        if (selecting && picked.isNotEmpty()) {
+            HorizontalDivider()
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(onClick = { confirmBulk = true }) {
+                    Text("Διαγραφή ${picked.size}")
+                }
             }
         }
     }
 
-    sendTarget?.let { client ->
+    // ------------------------------------------------------------ ενέργειες
+
+    actionsFor?.let { client ->
+        ClientActionsDialog(
+            client = client,
+            onDismiss = { actionsFor = null },
+            onOpenCard = {
+                actionsFor = null
+                onOpenClient(client.id)
+            },
+            onSendDetails = {
+                actionsFor = null
+                sendDetailsFor = client
+            },
+            onSendDocuments = {
+                actionsFor = null
+                scope.launch {
+                    clientDocuments = withContext(Dispatchers.IO) {
+                        container.db.documents().forClient(client.id)
+                    }
+                    if (clientDocuments.isEmpty()) {
+                        status = "Ο ${client.displayName} δεν έχει ληφθέντα έντυπα."
+                    } else {
+                        sendDocumentsFor = client
+                    }
+                }
+            },
+        )
+    }
+
+    sendDetailsFor?.let { client ->
         SendOwnDetailsDialog(
             client = client,
             defaultIncludeSecrets = container.settings.includePasswordsInClientEmail,
-            onDismiss = { sendTarget = null },
+            onDismiss = { sendDetailsFor = null },
             onConfirm = { includeSecrets ->
-                sendTarget = null
+                sendDetailsFor = null
                 scope.launch {
                     status = "Αποστολή σε ${client.effectiveEmail}…"
                     status = try {
@@ -115,19 +205,91 @@ fun ClientsScreen(
             },
         )
     }
+
+    sendDocumentsFor?.let { client ->
+        SelectDocumentsDialog(
+            client = client,
+            documents = clientDocuments,
+            onDismiss = { sendDocumentsFor = null },
+            onConfirm = { documents, note ->
+                sendDocumentsFor = null
+                scope.launch {
+                    status = "Αποστολή ${documents.size} εντύπων…"
+                    status = try {
+                        val token = authorizer.accessToken()
+                        val send = withContext(Dispatchers.IO) {
+                            container.mail.sendDocuments(token, client, documents, note)
+                        }
+                        if (send.failed) "Απέτυχε: ${send.error}"
+                        else "Στάλθηκαν ${documents.size} έντυπα στον ${client.displayName}."
+                    } catch (e: GoogleAuthorizer.ConsentRequired) {
+                        "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
+                    } catch (e: Exception) {
+                        "Απέτυχε: ${e.message}"
+                    }
+                }
+            },
+        )
+    }
+
+    if (confirmBulk) {
+        BulkDeleteDialog(
+            clients = selected,
+            onDismiss = { confirmBulk = false },
+            onDeleteAll = {
+                confirmBulk = false
+                scope.launch {
+                    status = "Διαγραφή…"
+                    val count = withContext(Dispatchers.IO) {
+                        container.repository.deleteClients(selected)
+                    }
+                    picked.clear()
+                    selecting = false
+                    status = "Διαγράφηκαν $count πελάτες."
+                }
+            },
+            onDeleteDocuments = {
+                confirmBulk = false
+                scope.launch {
+                    status = "Διαγραφή εγγράφων…"
+                    val count = withContext(Dispatchers.IO) {
+                        container.repository.deleteDocumentsOf(selected)
+                    }
+                    picked.clear()
+                    selecting = false
+                    status = "Διαγράφηκαν $count έγγραφα. Οι πελάτες παρέμειναν."
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun ClientRow(client: ClientEntity, onOpen: () -> Unit, onSendDetails: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onOpen)) {
+private fun ClientRow(
+    client: ClientEntity,
+    selecting: Boolean,
+    checked: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selecting) {
+                Checkbox(checked = checked, onCheckedChange = { onClick() })
+                Spacer(Modifier.height(0.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(client.displayName, style = MaterialTheme.typography.titleSmall)
-                Text(client.afm, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Text(
+                    buildString {
+                        append(client.afm)
+                        if (client.kind.isNotBlank()) append("  ·  ").append(client.kind)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
                 Text(
                     client.effectiveEmail.ifBlank { "— χωρίς email —" },
                     style = MaterialTheme.typography.bodySmall,
@@ -135,11 +297,118 @@ private fun ClientRow(client: ClientEntity, onOpen: () -> Unit, onSendDetails: (
                     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 )
             }
-            TextButton(onClick = onSendDetails, enabled = client.effectiveEmail.isNotBlank()) {
-                Text("Στοιχεία")
-            }
         }
     }
+}
+
+/** Τι μπορεί να γίνει με έναν πελάτη, χωρίς να ανοίξει η καρτέλα του. */
+@Composable
+private fun ClientActionsDialog(
+    client: ClientEntity,
+    onDismiss: () -> Unit,
+    onOpenCard: () -> Unit,
+    onSendDetails: () -> Unit,
+    onSendDocuments: () -> Unit,
+) {
+    val hasEmail = client.effectiveEmail.isNotBlank()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(client.displayName) },
+        text = {
+            Column {
+                Text(
+                    "ΑΦΜ ${client.afm}" + if (client.doy.isNotBlank()) " · ${client.doy}" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    client.effectiveEmail.ifBlank { "— χωρίς διεύθυνση email —" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (hasEmail) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    else MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(14.dp))
+                TextButton(onClick = onOpenCard, modifier = Modifier.fillMaxWidth()) {
+                    Text("Άνοιγμα καρτέλας", modifier = Modifier.weight(1f))
+                }
+                TextButton(
+                    onClick = onSendDocuments,
+                    enabled = hasEmail,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Αποστολή εντύπων", modifier = Modifier.weight(1f))
+                }
+                TextButton(
+                    onClick = onSendDetails,
+                    enabled = hasEmail,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Αποστολή στοιχείων & κωδικών", modifier = Modifier.weight(1f))
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Κλείσιμο") } },
+    )
+}
+
+/**
+ * Μαζική διαγραφή, με **δύο ξεχωριστά κουμπιά** αντί για διακόπτη.
+ *
+ * «Σβήσε τα έγγραφα» και «σβήσε τους πελάτες» δεν είναι παραλλαγές της ίδιας
+ * ενέργειας: το πρώτο ελευθερώνει χώρο, το δεύτερο τερματίζει σχέση και είναι
+ * μη αναστρέψιμο. Ένα checkbox μέσα σε ένα κουμπί «Διαγραφή» θα έκανε εύκολο
+ * να γίνει το δεύτερο ενώ εννοούσες το πρώτο.
+ */
+@Composable
+private fun BulkDeleteDialog(
+    clients: List<ClientEntity>,
+    onDismiss: () -> Unit,
+    onDeleteAll: () -> Unit,
+    onDeleteDocuments: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Διαγραφή — ${clients.size} πελάτες") },
+        text = {
+            Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                clients.forEach { client ->
+                    Text(
+                        "• ${client.displayName} (${client.afm})",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Μόνο τα έγγραφα", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Σβήνονται τα ληφθέντα PDF και οι εγγραφές τους. Οι πελάτες, οι " +
+                        "κωδικοί και το ιστορικό αποστολών μένουν.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Οριστική διαγραφή πελατών",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    "Σβήνονται καρτέλες, διαπιστευτήρια, έγγραφα και αρχεία. Το αρχείο " +
+                        "ενεργειών μένει — είναι αυτό που αποδεικνύει ότι η διαγραφή έγινε. " +
+                        "Η ενέργεια δεν αναιρείται· κρατιέται αντίγραφο της βάσης πριν.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDeleteAll) {
+                Text("Οριστική διαγραφή", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Άκυρο") }
+                TextButton(onClick = onDeleteDocuments) { Text("Μόνο έγγραφα") }
+            }
+        },
+    )
 }
 
 /**
@@ -167,7 +436,8 @@ private fun SendOwnDetailsDialog(
                 Text("Προς: ${client.effectiveEmail}", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Θα σταλούν το ΑΦΜ, το ΑΜΚΑ και το όνομα χρήστη TAXISnet.",
+                    "Θα σταλούν τα πεδία που έχεις ορίσει στο πρότυπο — από προεπιλογή " +
+                        "ΑΦΜ, ΑΜΚΑ και όνομα χρήστη TAXISnet.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(12.dp))

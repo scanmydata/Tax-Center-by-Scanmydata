@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -34,6 +35,7 @@ import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
+import gr.scanmydata.taxcenter.mail.MailTemplateStore
 import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,7 +56,6 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var lockEnabled by remember { mutableStateOf(settings.lockEnabled) }
     var blockScreenshots by remember { mutableStateOf(settings.blockScreenshots) }
     var retention by remember { mutableStateOf(settings.retentionMonths.toString()) }
-    var exportStatus by remember { mutableStateOf("") }
     var updateStatus by remember { mutableStateOf("") }
     var updateBusy by remember { mutableStateOf(false) }
     var passphrase by remember { mutableStateOf("") }
@@ -67,12 +68,46 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var signature by remember { mutableStateOf(settings.signature) }
     var signatureDocuments by remember { mutableStateOf(settings.signatureDocuments) }
     var signatureCredentials by remember { mutableStateOf(settings.signatureCredentials) }
+    val templateStore = remember { MailTemplateStore(context) }
+    var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
 
         Text("Google", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(googleStatus, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(8.dp))
+        // Ποιος λογαριασμός στέλνει, ρητά και μπροστά. Σε γραφείο με
+        // περισσότερους από έναν λογαριασμούς Google, το «είμαι συνδεδεμένος»
+        // δεν λέει τίποτα — το «από ποιον φεύγουν τα email» λέει.
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (settings.googleConnected) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.errorContainer
+                },
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    if (settings.googleConnected) "Ενεργό προφίλ αποστολής" else "Καμία σύνδεση",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    settings.senderEmail.ifBlank { "Χωρίς σύνδεση δεν φεύγει κανένα email." },
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (googleStatus.startsWith("Απέτυχε")) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        googleStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Button(onClick = {
             scope.launch {
@@ -141,6 +176,24 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             minLines = 2,
             modifier = Modifier.fillMaxWidth(),
         )
+
+        Spacer(Modifier.height(16.dp))
+        Text("Πρότυπα μηνυμάτων", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "Θέμα, κείμενα, και ποια πεδία μπαίνουν σε κάθε μήνυμα.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { editingTemplate = TemplateKind.DOCUMENTS }) {
+                Text("Έντυπα")
+            }
+            OutlinedButton(onClick = { editingTemplate = TemplateKind.CREDENTIALS }) {
+                Text("Στοιχεία & κωδικοί")
+            }
+        }
 
         Spacer(Modifier.height(20.dp))
         HorizontalDivider()
@@ -217,35 +270,14 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         )
 
         Spacer(Modifier.height(12.dp))
-        Button(onClick = {
-            scope.launch {
-                exportStatus = "Εξαγωγή…"
-                exportStatus = try {
-                    val file = withContext(Dispatchers.IO) { Exports.auditCsv(context, container.db) }
-                    Exports.share(context, file, "text/csv", "Αρχείο δραστηριοτήτων")
-                    "Εξήχθησαν ${file.length() / 1024} KB."
-                } catch (e: Exception) {
-                    "Απέτυχε: ${e.message}"
-                }
-            }
-        }) { Text("Εξαγωγή αρχείου δραστηριοτήτων (CSV)") }
-        Spacer(Modifier.height(4.dp))
         Text(
-            "Το αρχείο του άρθρου 30: ποιος, πότε, ποιου πελάτη δεδομένα, ποια " +
-                "ενέργεια. Ποτέ τιμές — καμία στήλη δεν περιέχει κωδικό.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
+            "Το αρχείο δραστηριοτήτων του άρθρου 30 — και η εξαγωγή του σε CSV — " +
+                "βρίσκεται στο «Ιστορικό & αρχείο», μαζί με το ιστορικό εκτελέσεων.
 
-        if (exportStatus.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text(exportStatus, style = MaterialTheme.typography.bodyMedium)
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Η εξαγωγή δεδομένων ενός πελάτη (φορητότητα, άρθρο 20) και η οριστική " +
-                "διαγραφή του (άρθρο 17) γίνονται από την καρτέλα του.",
+" +
+                "Η εξαγωγή δεδομένων ενός πελάτη (φορητότητα, άρθρο 20) και η οριστική " +
+                "διαγραφή του (άρθρο 17) γίνονται από την καρτέλα του· η μαζική " +
+                "διαγραφή από τη λίστα πελατών.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
@@ -418,6 +450,14 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 }) { Text("Επαναφορά") }
             },
             dismissButton = { TextButton(onClick = { restoreTarget = null }) { Text("Άκυρο") } },
+        )
+    }
+
+    editingTemplate?.let { kind ->
+        TemplateEditorDialog(
+            kind = kind,
+            store = templateStore,
+            onDismiss = { editingTemplate = null },
         )
     }
 }

@@ -8,20 +8,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,6 +31,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -53,7 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import gr.scanmydata.taxcenter.data.db.ClientEntity
-import gr.scanmydata.taxcenter.engine.ConfigInfo
+import gr.scanmydata.taxcenter.engine.DocumentCatalog
 import gr.scanmydata.taxcenter.engine.FetchController
 import gr.scanmydata.taxcenter.engine.ProcessRunner
 import gr.scanmydata.taxcenter.google.GoogleAuthorizer
@@ -64,15 +66,15 @@ import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 /**
- * Επιλογή ενέργειας × πελατών, και μετά η πρόοδος της παρτίδας.
+ * Επιλογή εντύπων × πελατών, και μετά η πρόοδος της παρτίδας.
  *
  * Η οθόνη **δεν κρατά** την εκτέλεση: τη δίνει στο [FetchController], που ζει
  * όσο η εφαρμογή. Ο λογιστής μπορεί να φύγει, να δει έναν πελάτη και να
  * επιστρέψει — η παρτίδα συνεχίζει.
  *
  * Το ορατό WebView εμφανίζεται μόνο όσο τρέχει διαδικασία που το χρειάζεται
- * (σήμερα `aade-enfia`). Είναι εκεί ακριβώς για να μπορεί ο χρήστης να λύσει
- * OTP ή CAPTCHA με το χέρι — **δεν παρακάμπτονται**.
+ * (σήμερα ΕΝΦΙΑ/Ε9). Είναι εκεί ακριβώς για να μπορεί ο χρήστης να λύσει OTP ή
+ * CAPTCHA με το χέρι — **δεν παρακάμπτονται**.
  */
 @Composable
 fun FetchScreen(container: AppContainer, modifier: Modifier = Modifier) {
@@ -92,9 +94,24 @@ private enum class Action(val label: String) {
     CREDENTIALS("Αποστολή κωδικών στους πελάτες"),
 }
 
+/**
+ * Μία επιλογή εντύπου, **με δικές της παραμέτρους**.
+ *
+ * Το έτος ανήκει εδώ και όχι στην παρτίδα. «Ε1 του 2025 και Ε9 του 2027 μαζί»
+ * είναι καθημερινό αίτημα — με ένα κοινό πεδίο έτους χρειαζόταν δύο χωριστές
+ * εκτελέσεις, δηλαδή δύο συνδέσεις στο GSIS ανά πελάτη.
+ *
+ * Το [uid] υπάρχει για να μπορεί το ίδιο έντυπο να μπει δύο φορές με άλλο έτος.
+ */
+private data class Pick(
+    val uid: Long,
+    val itemId: String,
+    val year: String,
+    val month: String = "",
+)
+
 // --------------------------------------------------------------- επιλογή
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FetchSelection(container: AppContainer, modifier: Modifier) {
     val scope = rememberCoroutineScope()
@@ -102,20 +119,19 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
 
     val clients: List<ClientEntity> by container.repository.observeClients()
         .collectAsState(initial = emptyList())
-    val configs: List<ConfigInfo> = remember { container.assets.catalog() }
+
+    val defaultYear = remember { (Calendar.getInstance().get(Calendar.YEAR) - 1).toString() }
 
     var action by remember { mutableStateOf(Action.FETCH) }
     var query by remember { mutableStateOf("") }
     val pickedClients = remember { mutableStateListOf<Long>() }
-    val pickedConfigs = remember { mutableStateListOf<String>() }
+    val picks = remember { mutableStateListOf<Pick>() }
+    var nextUid by remember { mutableStateOf(1L) }
+    var autoSend by remember { mutableStateOf(false) }
     var includeSecrets by remember { mutableStateOf(container.settings.includePasswordsInClientEmail) }
     var confirmSend by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
-    var year by remember {
-        // Προεπιλογή το προηγούμενο έτος: τον περισσότερο χρόνο ο λογιστής
-        // κατεβάζει τα έντυπα της χρήσης που δηλώνεται τώρα.
-        mutableStateOf((Calendar.getInstance().get(Calendar.YEAR) - 1).toString())
-    }
+    var busy by remember { mutableStateOf(false) }
 
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -135,12 +151,10 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
         val byId = clients.associateBy { it.id }
         pickedClients.mapNotNull { byId[it] }
     }
-    val needsYear = configs.any { it.id in pickedConfigs && FetchController.acceptsYear(it) }
-    val jobCount = pickedClients.size * pickedConfigs.size
     val recipients = selected.filter { it.effectiveEmail.isNotBlank() }
 
     val ready = when (action) {
-        Action.FETCH -> jobCount > 0
+        Action.FETCH -> picks.isNotEmpty() && selected.isNotEmpty()
         Action.CREDENTIALS -> recipients.isNotEmpty()
     }
 
@@ -149,10 +163,7 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
 
             item {
                 Spacer(Modifier.height(12.dp))
-                PickerDropdown(
-                    label = "Ενέργεια",
-                    text = action.label,
-                ) { dismiss ->
+                PickerDropdown(label = "Ενέργεια", text = action.label) { dismiss ->
                     Action.entries.forEach { option ->
                         DropdownMenuItem(
                             text = { Text(option.label) },
@@ -168,80 +179,53 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
 
             if (action == Action.FETCH) {
                 item {
-                    // Dropdown αντί για λίστα με 19 checkbox: ο κατάλογος
-                    // μεγαλώνει με κάθε νέα πύλη, και έσπρωχνε τους πελάτες —
-                    // το μισό της δουλειάς — κάτω από τη μέση της οθόνης.
-                    PickerDropdown(
-                        label = "Έντυπα",
-                        text = when (pickedConfigs.size) {
-                            0 -> "— διάλεξε —"
-                            1 -> configs.firstOrNull { it.id == pickedConfigs.first() }
-                                ?.title.orEmpty().ifBlank { pickedConfigs.first() }
-                            else -> "${pickedConfigs.size} επιλεγμένα"
+                    DocumentPicker { item ->
+                        picks.add(
+                            Pick(
+                                uid = nextUid++,
+                                itemId = item.id,
+                                year = if (item.needsYear) defaultYear else "",
+                            ),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                items(picks.toList(), key = { it.uid }) { pick ->
+                    PickCard(
+                        pick = pick,
+                        onChange = { updated ->
+                            val index = picks.indexOfFirst { it.uid == updated.uid }
+                            if (index >= 0) picks[index] = updated
                         },
-                    ) {
-                        configs.forEach { cfg ->
-                            DropdownMenuItem(
-                                leadingIcon = {
-                                    Checkbox(
-                                        checked = cfg.id in pickedConfigs,
-                                        onCheckedChange = null,
-                                    )
-                                },
-                                text = {
-                                    Column {
-                                        Text(cfg.title.ifBlank { cfg.id })
-                                        Text(
-                                            buildString {
-                                                append(cfg.portal)
-                                                if (cfg.needsBrowser) {
-                                                    append("  ·  χρειάζεται ορατό browser")
-                                                }
-                                            },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                        )
-                                    }
-                                },
-                                // Το μενού μένει ανοιχτό: σχεδόν πάντα
-                                // επιλέγονται περισσότερα από ένα έντυπα.
-                                onClick = {
-                                    if (cfg.id in pickedConfigs) pickedConfigs.remove(cfg.id)
-                                    else pickedConfigs.add(cfg.id)
-                                },
-                            )
-                        }
-                    }
+                        onRemove = { picks.removeAll { it.uid == pick.uid } },
+                    )
+                }
 
-                    if (pickedConfigs.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        // FlowRow και όχι Row: με έξι-εφτά επιλεγμένα έντυπα τα
-                        // chips βγαίνουν εκτός οθόνης και δεν φαίνεται τι έχεις
-                        // διαλέξει — που είναι όλο το νόημά τους.
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            pickedConfigs.toList().forEach { id ->
-                                AssistChip(
-                                    onClick = { pickedConfigs.remove(id) },
-                                    label = {
-                                        Text(
-                                            configs.firstOrNull { it.id == id }?.title.orEmpty()
-                                                .ifBlank { id }
-                                                .take(28),
-                                        )
-                                    },
-                                )
-                            }
-                        }
+                item {
+                    if (picks.isEmpty()) {
+                        Text(
+                            "Δεν έχεις διαλέξει έντυπα. Κάθε έντυπο κρατά **δικό του** " +
+                                "έτος, οπότε μπορείς να ζητήσεις Ε1 του 2025 και Ε9 του " +
+                                "2027 στην ίδια εκτέλεση.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        )
                     }
-
-                    if (needsYear) {
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = year,
-                            onValueChange = { year = it.filter(Char::isDigit).take(4) },
-                            label = { Text("Έτος") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = autoSend, onCheckedChange = { autoSend = it })
+                        Text(
+                            "  Αποστολή με email μόλις κατέβουν",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (autoSend) {
+                        Text(
+                            "Ένα μήνυμα ανά πελάτη, με τα έντυπα **αυτής** της εκτέλεσης " +
+                                "— όχι με ό,τι έχει ήδη λάβει.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         )
                     }
                     Spacer(Modifier.height(6.dp))
@@ -293,6 +277,7 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
                     title = client.displayName,
                     subtitle = buildString {
                         append(client.afm)
+                        if (client.kind.isNotBlank()) append("  ·  ${client.kind}")
                         if (!client.active) append("  ·  ανενεργός")
                         if (client.effectiveEmail.isBlank()) append("  ·  χωρίς email")
                     },
@@ -307,7 +292,7 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
         }
 
         if (status.isNotBlank()) {
-            Text(status, style = MaterialTheme.typography.bodyMedium)
+            Text(status, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(6.dp))
         }
 
@@ -326,33 +311,40 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
                             (selected.size - recipients.size).let {
                                 if (it > 0) " · $it χωρίς email" else ""
                             }
-                    jobCount == 0 -> "Διάλεξε έντυπα και πελάτες"
-                    else -> "$jobCount εκτελέσεις"
+                    picks.isEmpty() || selected.isEmpty() -> "Διάλεξε έντυπα και πελάτες"
+                    else -> "${picks.size} έντυπα × ${selected.size} πελάτες"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
             Button(
-                enabled = ready,
+                enabled = ready && !busy,
                 onClick = {
                     when (action) {
                         Action.CREDENTIALS -> confirmSend = true
-                        Action.FETCH -> {
-                            val extras = if (needsYear && year.isNotBlank()) {
-                                mapOf("year" to year)
-                            } else {
-                                emptyMap()
+                        Action.FETCH -> scope.launch {
+                            busy = true
+                            status = "Προετοιμασία…"
+                            val built = withContext(Dispatchers.IO) {
+                                buildPlans(container, selected, picks.toList())
                             }
-                            val jobs = selected.flatMap { client ->
-                                pickedConfigs.map { configId ->
-                                    ProcessRunner.Job(
-                                        client = client,
-                                        configId = configId,
-                                        extraInputs = extras,
-                                    )
+                            val token = if (autoSend) {
+                                runCatching { authorizer.accessToken() }.getOrNull()
+                            } else {
+                                null
+                            }
+                            busy = false
+                            when {
+                                built.plans.isEmpty() ->
+                                    status = "Καμία εκτέλεση: " + built.describeSkipped()
+                                autoSend && token == null ->
+                                    status = "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις " +
+                                        "για την αυτόματη αποστολή."
+                                else -> {
+                                    status = built.describeSkipped()
+                                    container.fetch.start(built.plans, autoSendToken = token)
                                 }
                             }
-                            container.fetch.start(jobs)
                         }
                     }
                 },
@@ -407,6 +399,166 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
     }
 }
 
+// ------------------------------------------------------- χτίσιμο της ουράς
+
+private class BuiltPlans(
+    val plans: List<FetchController.Plan>,
+    /** Λόγος → πόσα ζεύγη πελάτη-εντύπου παραλείφθηκαν. */
+    val skipped: Map<String, Int>,
+) {
+    fun describeSkipped(): String =
+        if (skipped.isEmpty()) ""
+        else skipped.entries.joinToString(" · ") { "${it.value} ${it.key}" }
+}
+
+/**
+ * Φτιάχνει την ουρά, **παραλείποντας** ό,τι δεν έχει νόημα.
+ *
+ * Δύο φίλτρα, και τα δύο σιωπηλά μέχρι τώρα:
+ *
+ *  * **Είδος υπόχρεου.** Το έντυπο Ν είναι μόνο για νομικά πρόσωπα, τα
+ *    ειδοποιητήρια ΕΦΚΑ μόνο για όσους έχουν ΑΜΚΑ. Χωρίς φίλτρο, μια παρτίδα
+ *    «όλοι οι πελάτες» άνοιγε δεκάδες περιττές συνεδρίες GSIS που θα απέτυχαν.
+ *  * **Διαπιστευτήρια.** Η καρτέλα εργοδότη θέλει κωδικούς ΙΚΑ εργοδότη, όχι
+ *    TAXISnet — και οι περισσότεροι πελάτες δεν έχουν καθόλου.
+ *
+ * Οι παραλείψεις **αναφέρονται**: μια σιωπηλή παράλειψη μοιάζει με σφάλμα.
+ */
+private suspend fun buildPlans(
+    container: AppContainer,
+    clients: List<ClientEntity>,
+    picks: List<Pick>,
+): BuiltPlans {
+    val plans = ArrayList<FetchController.Plan>()
+    val skipped = LinkedHashMap<String, Int>()
+    fun skip(reason: String) {
+        skipped[reason] = (skipped[reason] ?: 0) + 1
+    }
+
+    for (client in clients) {
+        for (pick in picks) {
+            val item = DocumentCatalog.byId(pick.itemId) ?: continue
+            if (!item.matches(client.kind)) {
+                skip("δεν ισχύουν για το είδος του πελάτη")
+                continue
+            }
+            val missing = FetchController.missingCredentials(
+                repository = container.repository,
+                client = client,
+                configId = item.configId,
+            )
+            if (missing.isNotEmpty()) {
+                skip("χωρίς τα απαιτούμενα διαπιστευτήρια")
+                continue
+            }
+            val inputs = HashMap(item.inputs)
+            if (item.needsYear && pick.year.isNotBlank()) inputs["year"] = pick.year
+            if (item.needsMonth && pick.month.isNotBlank()) inputs["month"] = pick.month
+            plans += FetchController.Plan(
+                job = ProcessRunner.Job(
+                    client = client,
+                    configId = item.configId,
+                    extraInputs = inputs,
+                ),
+                label = buildString {
+                    append(item.label)
+                    if (pick.year.isNotBlank()) append(" ").append(pick.year)
+                    if (pick.month.isNotBlank()) append("/").append(pick.month)
+                },
+                producesDocuments = item.producesDocuments,
+            )
+        }
+    }
+    return BuiltPlans(plans, skipped)
+}
+
+// --------------------------------------------------------- επιλογή εντύπων
+
+/** Το μενού προσθήκης εντύπου, χωρισμένο σε ομάδες. */
+@Composable
+private fun DocumentPicker(onPick: (DocumentCatalog.Item) -> Unit) {
+    PickerDropdown(label = "Πρόσθεσε έντυπο", text = "— διάλεξε —") { dismiss ->
+        DocumentCatalog.GROUPS.forEach { group ->
+            val items = DocumentCatalog.inGroup(group)
+            if (items.isEmpty()) return@forEach
+            Text(
+                group,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp),
+            )
+            items.forEach { item ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(item.label)
+                            if (item.note.isNotBlank()) {
+                                Text(
+                                    item.note,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        onPick(item)
+                        dismiss()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Μία επιλεγμένη γραμμή, με το έτος της. */
+@Composable
+private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit) {
+    val item = DocumentCatalog.byId(pick.itemId) ?: return
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Row(
+            Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(item.label, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    item.group,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                )
+            }
+            if (item.needsYear) {
+                OutlinedTextField(
+                    value = pick.year,
+                    onValueChange = { onChange(pick.copy(year = it.filter(Char::isDigit).take(4))) },
+                    label = { Text("Έτος") },
+                    singleLine = true,
+                    modifier = Modifier.width(96.dp),
+                )
+            }
+            if (item.needsMonth) {
+                Spacer(Modifier.width(6.dp))
+                OutlinedTextField(
+                    value = pick.month,
+                    onValueChange = { onChange(pick.copy(month = it.filter(Char::isDigit).take(2))) },
+                    label = { Text("Μήνας") },
+                    singleLine = true,
+                    modifier = Modifier.width(84.dp),
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Filled.Close, contentDescription = "Αφαίρεση")
+            }
+        }
+    }
+}
+
 /** Οι επιλογές της αποστολής κωδικών, με την προειδοποίηση μπροστά. */
 @Composable
 private fun CredentialsOptions(includeSecrets: Boolean, onChange: (Boolean) -> Unit) {
@@ -418,7 +570,7 @@ private fun CredentialsOptions(includeSecrets: Boolean, onChange: (Boolean) -> U
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                "Σε κάθε πελάτη στέλνεται **ένα ξεχωριστό** μήνυμα με τα δικά του " +
+                "Σε κάθε πελάτη στέλνεται ένα ξεχωριστό μήνυμα με τα δικά του " +
                     "στοιχεία: ΑΦΜ, ΑΜΚΑ και όνομα χρήστη TAXISnet. Κανείς δεν " +
                     "βλέπει τα στοιχεία κανενός άλλου.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -608,15 +760,17 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                             when (item.status) {
                                 FetchController.Status.PENDING -> "σε αναμονή"
                                 FetchController.Status.RUNNING -> "εκτελείται…"
-                                FetchController.Status.OK -> "✓ ${item.fileCount} έντυπα"
+                                FetchController.Status.OK ->
+                                    "✓ ${item.fileCount} έντυπα" +
+                                        if (item.detail.isNotBlank()) " · ${item.detail}" else ""
                                 FetchController.Status.FAILED -> "✗ ${item.detail}"
                                 FetchController.Status.CANCELLED -> "διακόπηκε"
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (item.status == FetchController.Status.FAILED) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            color = when {
+                                item.status == FetchController.Status.FAILED || item.sendFailed ->
+                                    MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             },
                         )
                     }

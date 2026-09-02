@@ -26,7 +26,6 @@ object ColumnAliases {
         TAXIS_USER, TAXIS_PASS, TAXIS_KLIDARITHMOS,
         IKA_EMPLOYER_USER, IKA_EMPLOYER_PASS,
         IKA_INSURED_USER, IKA_INSURED_PASS,
-        MYDATA_USER, MYDATA_KEY,
     }
 
     /**
@@ -51,8 +50,6 @@ object ColumnAliases {
         Field.IKA_INSURED_USER to setOf("ονομα χρηστη ασφαλισμενου ικα"),
         Field.IKA_INSURED_PASS to setOf("συνθηματικο ασφαλισμενου ικα"),
 
-        Field.MYDATA_USER to setOf("ονομα χρηστη mydata", "ονομα χρηστη my data", "aade user id", "aade user"),
-        Field.MYDATA_KEY to setOf("api mydata", "api my data", "ocp apim subscription key"),
     )
 
     /**

@@ -91,6 +91,23 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putString(KEY_OFFICE_NAME, v).apply()
 
     /**
+     * Έχει ολοκληρωθεί η πρώτη εκκίνηση;
+     *
+     * Στο πρώτο άνοιγμα δεν υπάρχει τίποτα να προστατευτεί — ούτε πελάτης, ούτε
+     * κωδικός, ούτε έγγραφο. Ένα prompt δακτυλικού αποτυπώματος πριν καν δει ο
+     * χρήστης τι είναι η εφαρμογή δεν προσθέτει ασφάλεια, μόνο εμπόδιο. Το
+     * κλείδωμα ενεργοποιείται από τη δεύτερη εκκίνηση.
+     */
+    var firstRunCompleted: Boolean
+        get() = prefs.getBoolean(KEY_FIRST_RUN_DONE, false)
+        set(v) = prefs.edit().putBoolean(KEY_FIRST_RUN_DONE, v).apply()
+
+    /** Έχει δει ο χρήστης τη σύντομη ξενάγηση; */
+    var tourSeen: Boolean
+        get() = prefs.getBoolean(KEY_TOUR_SEEN, false)
+        set(v) = prefs.edit().putBoolean(KEY_TOUR_SEEN, v).apply()
+
+    /**
      * Ξεκλείδωμα με βιομετρικά ή τον κωδικό της συσκευής.
      *
      * **Ανοιχτό εξ ορισμού.** Η βάση είναι κρυπτογραφημένη at rest, αλλά αυτό
@@ -133,6 +150,8 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putInt(KEY_RETENTION_MONTHS, v).apply()
 
     private companion object {
+        const val KEY_FIRST_RUN_DONE = "first_run_completed"
+        const val KEY_TOUR_SEEN = "tour_seen"
         const val KEY_LOCK = "lock_enabled"
         const val KEY_LOCK_GRACE = "lock_grace_seconds"
         const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"

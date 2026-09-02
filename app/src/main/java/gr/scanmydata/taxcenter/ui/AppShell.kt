@@ -4,15 +4,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -23,18 +20,20 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -44,8 +43,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.R
-import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.gdpr.Retention
+import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,8 +63,11 @@ fun AppShell(container: AppContainer) {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val appContext = LocalContext.current.applicationContext
+    var showTour by remember { mutableStateOf(!container.settings.tourSeen) }
+    var update by remember { mutableStateOf<UpdateChecker.Release?>(null) }
 
     // Η πολιτική διατήρησης τρέχει μία φορά ανά εκκίνηση, μετά το ξεκλείδωμα.
     // Όχι στο Application.onCreate: εκεί θα άνοιγε τη βάση SQLCipher πριν καν
@@ -76,15 +78,30 @@ fun AppShell(container: AppContainer) {
         }
     }
 
+    /**
+     * Έλεγχος ενημέρωσης σε κάθε άνοιγμα.
+     *
+     * Ένα ανώνυμο GET στο δημόσιο API του GitHub — δεν στέλνεται τίποτα από τη
+     * συσκευή ή τους πελάτες. Η αποτυχία αγνοείται σιωπηλά: η εφαρμογή
+     * σχεδιάστηκε να δουλεύει και χωρίς δίκτυο, και ένα μήνυμα «δεν βρέθηκε
+     * ενημέρωση» σε κάθε εκκίνηση θα ήταν θόρυβος.
+     *
+     * Η **εγκατάσταση** δεν γίνεται ποτέ μόνη της: εμφανίζεται ειδοποίηση και
+     * αποφασίζει ο χρήστης.
+     */
+    LaunchedEffect(Unit) {
+        val release = withContext(Dispatchers.IO) {
+            runCatching { UpdateChecker.latest() }.getOrNull()
+        } ?: return@LaunchedEffect
+        if (UpdateChecker.isNewer(release.version)) update = release
+    }
+
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
-    val current = Destination.entries.firstOrNull { it.route == route } ?: Destination.Clients
+    val current = Destination.entries.firstOrNull { it.route == route } ?: Destination.NewClient
     // Η καρτέλα υπάρχοντος πελάτη (`client/<id>`) δεν είναι θέση του μενού και
     // δεν έχει δική της ετικέτα· η νέα καρτέλα έχει.
-    val title = when {
-        route?.startsWith("$CLIENT_ROUTE/") == true -> "Καρτέλα πελάτη"
-        else -> current.label
-    }
+    val title = if (route?.startsWith("$CLIENT_ROUTE/") == true) "Καρτέλα πελάτη" else current.label
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -166,66 +183,61 @@ fun AppShell(container: AppContainer) {
                         onDone = { navController.popBackStack() },
                     )
                 }
-                // Δική της διαδρομή αντί για `client/0`: έτσι το συρτάρι
-                // φωτίζει τη σωστή θέση και η κεφαλίδα λέει «Νέος πελάτης».
                 composable(Destination.NewClient.route) {
-                    ClientEditScreen(
+                    NewClientScreen(
                         container = container,
-                        clientId = 0L,
                         onDone = { navController.navigate(Destination.Clients.route) },
                     )
                 }
-                composable(Destination.Import.route) { ImportScreen(container) }
                 composable(Destination.Fetch.route) { FetchScreen(container) }
                 composable(Destination.Documents.route) { DocumentsScreen(container) }
                 composable(Destination.Calendar.route) { SendCalendarScreen(container) }
-                composable(Destination.Logs.route) { RunLogsScreen(container) }
+                composable(Destination.Logs.route) { LogsScreen(container) }
+                composable(Destination.Help.route) { HelpScreen(container) }
                 composable(Destination.SettingsScreen.route) { SettingsScreen(container) }
             }
         }
     }
-}
 
-/**
- * Ιστορικό εκτελέσεων.
- *
- * Ο runner θα έγραφε `run.log` δίπλα στα PDF· εδώ οι γραμμές είναι στη βάση,
- * καθαρισμένες από τον `Redactor`, και ο φάκελος του πελάτη μένει καθαρός.
- */
-@Composable
-fun RunLogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
-    val logs: List<RunLogEntity> by container.db.runLogs().observeRecent()
-        .collectAsState(initial = emptyList())
+    if (showTour) {
+        TourDialog(onFinish = {
+            showTour = false
+            container.settings.tourSeen = true
+        })
+    }
 
-    LazyColumn(modifier.padding(16.dp)) {
-        items(logs, key = { it.id }) { log ->
-            Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                Column(Modifier.padding(10.dp)) {
+    update?.let { release ->
+        AlertDialog(
+            onDismissRequest = { update = null },
+            title = { Text("Διαθέσιμη ενημέρωση ${release.tag}") },
+            text = {
+                Column {
                     Text(
-                        "${log.configId} — ${log.afm}",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        buildString {
-                            append(if (log.ok) "✓ " else "✗ ")
-                            append(if (log.ok) "${log.fileCount} αρχεία" else log.reason)
-                            append(" · ${log.durationMs / 1000}s")
-                        },
+                        "Τρέχεις την ${BuildConfig.VERSION_NAME}.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (log.ok) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        else MaterialTheme.colorScheme.error,
                     )
-                    if (log.lines.isNotBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            log.lines.lines().takeLast(6).joinToString("\n"),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        release.notes.lines().take(8).joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
-            }
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    update = null
+                    scope.launch {
+                        val apk = withContext(Dispatchers.IO) {
+                            runCatching { UpdateChecker.download(context, release) }.getOrNull()
+                        }
+                        if (apk != null) UpdateChecker.install(context, apk)
+                    }
+                }) { Text("Λήψη και εγκατάσταση") }
+            },
+            dismissButton = {
+                TextButton(onClick = { update = null }) { Text("Αργότερα") }
+            },
+        )
     }
 }
 

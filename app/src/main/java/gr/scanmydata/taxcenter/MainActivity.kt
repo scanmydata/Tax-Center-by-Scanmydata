@@ -36,6 +36,15 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         applyScreenshotPolicy()
 
+        // Στο πρώτο άνοιγμα δεν ζητάμε ταυτοποίηση: δεν υπάρχει ακόμη ούτε
+        // πελάτης ούτε κωδικός να προστατευτεί, και ένα prompt δακτυλικού
+        // αποτυπώματος πριν καν δει ο χρήστης τι είναι η εφαρμογή είναι εμπόδιο
+        // χωρίς αντίκρισμα. Από τη δεύτερη εκκίνηση ισχύει κανονικά.
+        if (!container.settings.firstRunCompleted) {
+            AppLock.unlock()
+            container.settings.firstRunCompleted = true
+        }
+
         setContent {
             TaxCenterTheme {
                 var ready by remember { mutableStateOf(false) }

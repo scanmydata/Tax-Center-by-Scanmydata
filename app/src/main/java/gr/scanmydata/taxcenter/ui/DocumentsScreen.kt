@@ -244,8 +244,12 @@ private fun ClientDocumentsCard(
     }
 }
 
+/**
+ * Χρησιμοποιείται και από τη λίστα πελατών: το «στείλε τα έντυπα αυτού του
+ * πελάτη» είναι η ίδια ενέργεια, από άλλη αφετηρία.
+ */
 @Composable
-private fun SelectDocumentsDialog(
+internal fun SelectDocumentsDialog(
     client: ClientEntity,
     documents: List<DocumentEntity>,
     onDismiss: () -> Unit,

@@ -1,7 +1,6 @@
 package gr.scanmydata.taxcenter.engine
 
 import android.util.Base64
-import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -9,6 +8,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPInputStream
+import java.util.zip.InflaterInputStream
 
 /**
  * Η μεταφορά HTTP για τον JS engine.
@@ -51,26 +52,8 @@ class HttpBridge(
         .writeTimeout(60, TimeUnit.SECONDS)
         // Τα PDF της ΑΑΔΕ παράγονται on demand και αργούν.
         .callTimeout(180, TimeUnit.SECONDS)
-        .addInterceptor(NoTransparentGzip)
         .retryOnConnectionFailure(true)
         .build()
-
-    /**
-     * Ο OkHttp προσθέτει από μόνος του `Accept-Encoding: gzip` και αποσυμπιέζει
-     * διάφανα — αλλά μόνο όταν δεν έχει οριστεί ρητά. Ο engine δεν το ορίζει,
-     * οπότε η συμπεριφορά ταιριάζει με του Node. Το μόνο που εξασφαλίζουμε εδώ
-     * είναι ότι δεν στέλνουμε `br`, που κάποιοι ADF servers χειρίζονται άσχημα.
-     */
-    private object NoTransparentGzip : Interceptor {
-        override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
-            val req = chain.request()
-            return if (req.header("Accept-Encoding") == null) {
-                chain.proceed(req.newBuilder().header("Accept-Encoding", "gzip, deflate").build())
-            } else {
-                chain.proceed(req)
-            }
-        }
-    }
 
     /**
      * Εκτελεί ένα αίτημα. Το [requestJson] έχει τη μορφή που στέλνει το
@@ -116,23 +99,65 @@ class HttpBridge(
             out.put("status", response.code)
             out.put("url", response.request.url.toString())
 
+            val bytes = decoded(response)
+            // Αν αποσυμπιέσαμε εμείς, οι κεφαλίδες συμπίεσης δεν περιγράφουν
+            // πια το σώμα που παραδίδουμε. Φεύγουν, ώστε να μην παραπλανήσουν
+            // κάποιον μελλοντικό καταναλωτή.
+            val decompressed = response.header("Content-Encoding")
+                ?.lowercase()
+                ?.let { it.contains("gzip") || it.contains("deflate") } == true
+
             val flat = JSONObject()
             val setCookies = JSONArray()
             for ((name, value) in response.headers) {
-                if (name.equals("Set-Cookie", ignoreCase = true)) {
-                    setCookies.put(value)
-                } else {
+                val lower = name.lowercase()
+                when {
+                    lower == "set-cookie" -> setCookies.put(value)
+                    decompressed && (lower == "content-encoding" || lower == "content-length") -> Unit
                     // Τελευταία τιμή κερδίζει· ο engine διαβάζει μόνο
                     // content-type και location, που δεν επαναλαμβάνονται.
-                    flat.put(name.lowercase(), value)
+                    else -> flat.put(lower, value)
                 }
             }
             out.put("headers", flat)
             out.put("setCookie", setCookies)
-
-            val bytes = response.body?.bytes() ?: ByteArray(0)
             out.put("bodyB64", Base64.encodeToString(bytes, Base64.NO_WRAP))
             return out.toString()
+        }
+    }
+
+    /**
+     * Το σώμα, αποσυμπιεσμένο.
+     *
+     * Ο OkHttp αποσυμπιέζει **μόνο** όταν έβαλε ο ίδιος το `Accept-Encoding`.
+     * Αν το βάλει ο καλών, θεωρεί ότι ξέρει τι κάνει και δίνει τα bytes ωμά —
+     * αφήνοντας και το `Content-Encoding` στην απάντηση. Αυτό το χρησιμοποιούμε
+     * ως σήμα: κεφαλίδα παρούσα σημαίνει «δεν το άγγιξε κανείς».
+     *
+     * Ιστορικό, γιατί αξίζει να μείνει γραμμένο: εδώ υπήρχε interceptor που
+     * πρόσθετε `Accept-Encoding: gzip, deflate` «για να μη στέλνουμε br».
+     * Ακριβώς αυτό ακύρωνε τη διάφανη αποσυμπίεση. Το αποτέλεσμα δεν ήταν
+     * σφάλμα δικτύου αλλά **δεδομένα-σκουπίδια**: το `amka.gr` επιστρέφει το
+     * token του gzipped, το token έφτανε να ξεκινά με τα magic bytes `1f 8b`,
+     * και το επόμενο αίτημα έσκαγε με «unexpected char 0x1f at 6 in
+     * authorization value». Κάθε πύλη που συμπιέζει έσπαγε το ίδιο σιωπηλά.
+     */
+    private fun decoded(response: okhttp3.Response): ByteArray {
+        val bytes = response.body?.bytes() ?: return ByteArray(0)
+        val encoding = response.header("Content-Encoding")?.lowercase()?.trim() ?: return bytes
+        if (bytes.isEmpty()) return bytes
+        return try {
+            when {
+                encoding.contains("gzip") ->
+                    GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
+                encoding.contains("deflate") ->
+                    InflaterInputStream(bytes.inputStream()).use { it.readBytes() }
+                else -> bytes
+            }
+        } catch (e: Exception) {
+            // Λάθος δηλωμένη κωδικοποίηση συμβαίνει. Τα ωμά bytes είναι
+            // καλύτερα από εξαίρεση που κόβει ολόκληρη τη διαδικασία.
+            bytes
         }
     }
 
