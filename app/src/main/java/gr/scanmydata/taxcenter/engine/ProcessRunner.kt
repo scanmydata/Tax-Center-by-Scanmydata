@@ -232,8 +232,7 @@ class ProcessRunner(
                 ok = result.ok,
                 reason = result.reason,
                 fileCount = fileCount,
-                lines = result.log.joinToString("
-"),
+                lines = result.log.joinToString(System.lineSeparator()),
             ),
         )
     }
