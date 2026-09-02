@@ -264,7 +264,15 @@ class ProcessRunner(
                 ok = result.ok,
                 reason = result.reason,
                 fileCount = fileCount,
-                lines = result.log.joinToString(System.lineSeparator()),
+                // Οι αναλυτικές γραμμές κρατιούνται **μόνο** με ανοιχτά τα
+                // διαγνωστικά: περιέχουν τα URL των πυλών, δηλαδή τον χάρτη των
+                // endpoints. Καμία αξία για τον λογιστή, κάθε λόγος να μη
+                // βρίσκονται σε μια βάση που ταξιδεύει σε αντίγραφα ασφαλείας.
+                lines = if (settings.diagnostics) {
+                    result.log.joinToString(System.lineSeparator())
+                } else {
+                    ""
+                },
             ),
         )
     }

@@ -144,6 +144,7 @@ fun ClientEditScreen(
         else -> ""
     }
     val hasAmka = kind.isBlank() || ClientKind.hasAmka(kind)
+    val canBeEmployer = ClientKind.normalise(kind) != ClientKind.PRIVATE
     val taxisUser = credentials[Field.TAXIS_USER].orEmpty()
     val taxisPass = credentials[Field.TAXIS_PASS].orEmpty()
 
@@ -370,8 +371,15 @@ fun ClientEditScreen(
         Spacer(Modifier.height(8.dp))
 
         SecretField("Κλειδάριθμος", credentials, Field.TAXIS_KLIDARITHMOS, revealSecrets)
-        SecretField("Όνομα χρήστη ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_USER, reveal = true)
-        SecretField("Συνθηματικό ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_PASS, revealSecrets)
+
+        // Ο ιδιώτης δεν είναι εργοδότης — δεν έχει ΑΜΕ, δεν έχει καρτέλα
+        // εργοδότη, δεν υπάρχουν κωδικοί ΙΚΑ εργοδότη να καταχωρήσει. Τα πεδία
+        // δεν είναι απλώς άχρηστα εκεί: γεμίζουν τη φόρμα και κάνουν κάποιον να
+        // αναρωτηθεί τι ξέχασε να συμπληρώσει.
+        if (canBeEmployer) {
+            SecretField("Όνομα χρήστη ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_USER, reveal = true)
+            SecretField("Συνθηματικό ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_PASS, revealSecrets)
+        }
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()

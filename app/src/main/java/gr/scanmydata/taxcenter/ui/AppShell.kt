@@ -98,10 +98,13 @@ fun AppShell(container: AppContainer) {
 
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
-    val current = Destination.entries.firstOrNull { it.route == route } ?: Destination.NewClient
+    // Το `route` κρατά και τα optional query args («fetch?client={client}»)·
+    // η σύγκριση γίνεται στο κομμάτι πριν το «?».
+    val base = route?.substringBefore('?')
+    val current = Destination.entries.firstOrNull { it.route == base } ?: Destination.NewClient
     // Η καρτέλα υπάρχοντος πελάτη (`client/<id>`) δεν είναι θέση του μενού και
     // δεν έχει δική της ετικέτα· η νέα καρτέλα έχει.
-    val title = if (route?.startsWith("$CLIENT_ROUTE/") == true) "Καρτέλα πελάτη" else current.label
+    val title = if (base?.startsWith("$CLIENT_ROUTE/") == true) "Καρτέλα πελάτη" else current.label
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -171,16 +174,18 @@ fun AppShell(container: AppContainer) {
                     ClientsScreen(
                         container = container,
                         onOpenClient = { id -> navController.navigate("$CLIENT_ROUTE/$id") },
+                        onFetchFor = { id -> navController.navigate("fetch?client=$id") },
                     )
                 }
                 composable(
                     route = "$CLIENT_ROUTE/{id}",
                     arguments = listOf(navArgument("id") { type = NavType.LongType }),
                 ) { entry ->
-                    ClientEditScreen(
+                    ClientCardScreen(
                         container = container,
                         clientId = entry.arguments?.getLong("id") ?: 0L,
                         onDone = { navController.popBackStack() },
+                        onFetchFor = { id -> navController.navigate("fetch?client=$id") },
                     )
                 }
                 composable(Destination.NewClient.route) {
@@ -189,12 +194,36 @@ fun AppShell(container: AppContainer) {
                         onDone = { navController.navigate(Destination.Clients.route) },
                     )
                 }
-                composable(Destination.Fetch.route) { FetchScreen(container) }
+                // Optional query arg: το μενού πλοηγεί στο σκέτο «fetch», ενώ
+                // η καρτέλα πελάτη στο «fetch?client=<id>» για να έρθει ο
+                // πελάτης ήδη επιλεγμένος.
+                composable(
+                    route = "${Destination.Fetch.route}?client={client}",
+                    arguments = listOf(
+                        navArgument("client") {
+                            type = NavType.LongType
+                            defaultValue = 0L
+                        },
+                    ),
+                ) { entry ->
+                    FetchScreen(
+                        container = container,
+                        preselectedClient = entry.arguments?.getLong("client") ?: 0L,
+                    )
+                }
                 composable(Destination.Documents.route) { DocumentsScreen(container) }
                 composable(Destination.Calendar.route) { SendCalendarScreen(container) }
-                composable(Destination.Logs.route) { LogsScreen(container) }
                 composable(Destination.Help.route) { HelpScreen(container) }
-                composable(Destination.SettingsScreen.route) { SettingsScreen(container) }
+                composable(Destination.SettingsScreen.route) {
+                    SettingsScreen(
+                        container = container,
+                        onOpenLogs = { navController.navigate(LOGS_ROUTE) },
+                    )
+                }
+                // Το αρχείο ενεργειών δεν είναι θέση του μενού: ανοίγει από τις
+                // Ρυθμίσεις. Δεν είναι καθημερινή δουλειά — είναι κάτι που
+                // ανοίγεις όταν σου το ζητήσουν.
+                composable(LOGS_ROUTE) { LogsScreen(container) }
             }
         }
     }
@@ -243,3 +272,6 @@ fun AppShell(container: AppContainer) {
 
 /** Η καρτέλα πελάτη δεν είναι θέση του μενού — ανοίγει από τη λίστα. */
 private const val CLIENT_ROUTE = "client"
+
+/** Ούτε το αρχείο ενεργειών — ανοίγει από τις Ρυθμίσεις. */
+private const val LOGS_ROUTE = "logs"

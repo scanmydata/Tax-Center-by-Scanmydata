@@ -43,14 +43,21 @@ import kotlinx.coroutines.withContext
 import kotlin.system.exitProcess
 
 @Composable
-fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    container: AppContainer,
+    onOpenLogs: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val settings = container.settings
     val scope = rememberCoroutineScope()
     val authorizer = rememberGoogleAuthorizer()
 
-    var googleStatus by remember { mutableStateOf(
-        if (settings.googleConnected) "Συνδεδεμένο: ${settings.senderEmail}" else "Δεν έχει συνδεθεί",
-    ) }
+    var googleStatus by remember { mutableStateOf("") }
+    // Ξεχωριστή κατάσταση από τις ρυθμίσεις, ώστε η κάρτα να ανανεώνεται μόλις
+    // γυρίσει η σύνδεση — το `Settings` είναι SharedPreferences και δεν
+    // ειδοποιεί το Compose από μόνο του.
+    var connected by remember { mutableStateOf(settings.googleConnected) }
+    var account by remember { mutableStateOf(settings.senderEmail) }
     val context = LocalContext.current
     var diagnostics by remember { mutableStateOf(settings.diagnostics) }
     var lockEnabled by remember { mutableStateOf(settings.lockEnabled) }
@@ -80,7 +87,7 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         // δεν λέει τίποτα — το «από ποιον φεύγουν τα email» λέει.
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = if (settings.googleConnected) {
+                containerColor = if (connected) {
                     MaterialTheme.colorScheme.secondaryContainer
                 } else {
                     MaterialTheme.colorScheme.errorContainer
@@ -90,39 +97,69 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         ) {
             Column(Modifier.padding(12.dp)) {
                 Text(
-                    if (settings.googleConnected) "Ενεργό προφίλ αποστολής" else "Καμία σύνδεση",
+                    if (connected) "Ενεργό προφίλ αποστολής" else "Καμία σύνδεση",
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    settings.senderEmail.ifBlank { "Χωρίς σύνδεση δεν φεύγει κανένα email." },
+                    when {
+                        !connected -> "Χωρίς σύνδεση δεν φεύγει κανένα email."
+                        account.isNotBlank() -> account
+                        // Συνδεδεμένος αλλά χωρίς όνομα λογαριασμού: το email
+                        // έρχεται από χωριστή κλήση στο userinfo και μπορεί να
+                        // μην έχει γίνει ακόμη. Η αποστολή δουλεύει ούτως ή άλλως.
+                        else -> "Συνδεδεμένο (το όνομα του λογαριασμού θα φανεί μετά την πρώτη αποστολή)"
+                    },
                     style = MaterialTheme.typography.titleSmall,
                 )
-                if (googleStatus.startsWith("Απέτυχε")) {
+                if (googleStatus.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         googleStatus,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = if (googleStatus.startsWith("Απέτυχε")) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        },
                     )
                 }
             }
         }
         Spacer(Modifier.height(8.dp))
-        Button(onClick = {
-            scope.launch {
-                googleStatus = try {
-                    authorizer.accessToken()
-                    "Συνδεδεμένο: ${settings.senderEmail}"
-                } catch (e: Exception) {
-                    "Απέτυχε: ${e.message}"
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = {
+                scope.launch {
+                    googleStatus = "Σύνδεση…"
+                    googleStatus = try {
+                        authorizer.accessToken()
+                        connected = settings.googleConnected
+                        account = settings.senderEmail
+                        ""
+                    } catch (e: Exception) {
+                        "Απέτυχε: ${e.message}"
+                    }
                 }
+            }) { Text(if (connected) "Ανανέωση" else "Σύνδεση με Google") }
+
+            if (connected) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        authorizer.forget()
+                        connected = false
+                        account = ""
+                        googleStatus = "Αποσυνδέθηκε. Πάτα «Σύνδεση» για να διαλέξεις λογαριασμό."
+                    }
+                }) { Text("Αλλαγή λογαριασμού") }
             }
-        }) { Text("Σύνδεση με Google") }
+        }
         Spacer(Modifier.height(4.dp))
         Text(
             "Ζητούνται μόνο δικαιώματα αποστολής email και πρόσβασης στα αρχεία που " +
-                "δημιουργεί η ίδια η εφαρμογή. Δεν διαβάζεται το γραμματοκιβώτιό σας.",
+                "δημιουργεί η ίδια η εφαρμογή. Δεν διαβάζεται το γραμματοκιβώτιό σας.\n\n" +
+                "Η «αλλαγή λογαριασμού» ξεχνά την επιλογή σε αυτή τη συσκευή. Η " +
+                "εξουσιοδότηση που έχει ήδη δοθεί στην εφαρμογή ανακαλείται μόνο από " +
+                "τις ρυθμίσεις του λογαριασμού Google.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
@@ -270,9 +307,11 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         )
 
         Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onOpenLogs) { Text("Αρχείο ενεργειών (άρθρο 30)") }
+        Spacer(Modifier.height(4.dp))
         Text(
-            "Το αρχείο δραστηριοτήτων του άρθρου 30 — και η εξαγωγή του σε CSV — " +
-                "βρίσκεται στο «Ιστορικό & αρχείο», μαζί με το ιστορικό εκτελέσεων.\n\n" +
+            "Ποιος, πότε, ποιου πελάτη δεδομένα, ποια ενέργεια — ποτέ τιμές. Από εκεί " +
+                "γίνεται και η εξαγωγή σε CSV και η εκκαθάριση.\n\n" +
                 "Η εξαγωγή δεδομένων ενός πελάτη (φορητότητα, άρθρο 20) και η οριστική " +
                 "διαγραφή του (άρθρο 17) γίνονται από την καρτέλα του· η μαζική " +
                 "διαγραφή από τη λίστα πελατών.",

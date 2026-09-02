@@ -154,6 +154,17 @@ interface AuditDao {
 
     @Query("SELECT * FROM audit_log ORDER BY ts")
     suspend fun all(): List<AuditEntity>
+
+    /**
+     * Καθαρίζει το αρχείο ενεργειών.
+     *
+     * Υπάρχει επειδή το ζήτησε ο υπεύθυνος επεξεργασίας, όχι επειδή είναι
+     * αθώο: το αρχείο του άρθρου 30 είναι ακριβώς αυτό που αποδεικνύει σε
+     * έλεγχο τι έγινε και πότε. Η οθόνη το λέει ρητά πριν το εκτελέσει, και η
+     * ίδια η διαγραφή αφήνει μια εγγραφή πίσω της.
+     */
+    @Query("DELETE FROM audit_log WHERE ts < :before")
+    suspend fun wipeBefore(before: Long): Int
 }
 
 @Dao
@@ -185,6 +196,9 @@ interface SendDao {
     @Query("SELECT * FROM sends WHERE clientId = :clientId ORDER BY sentAt DESC LIMIT :limit")
     suspend fun forClient(clientId: Long, limit: Int = 100): List<SendEntity>
 
+    @Query("SELECT * FROM sends WHERE clientId = :clientId ORDER BY sentAt DESC LIMIT :limit")
+    fun observeForClient(clientId: Long, limit: Int = 200): Flow<List<SendEntity>>
+
     @Query("SELECT * FROM sends ORDER BY sentAt DESC LIMIT :limit")
     fun observeRecent(limit: Int = 200): Flow<List<SendEntity>>
 }
@@ -203,4 +217,7 @@ interface RunLogDao {
 
     @Query("DELETE FROM run_logs WHERE startedAt < :before")
     suspend fun deleteOlderThan(before: Long): Int
+
+    @Query("DELETE FROM run_logs")
+    suspend fun wipe(): Int
 }

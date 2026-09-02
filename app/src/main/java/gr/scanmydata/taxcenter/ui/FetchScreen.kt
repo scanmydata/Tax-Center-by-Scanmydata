@@ -77,12 +77,16 @@ import java.util.Calendar
  * CAPTCHA με το χέρι — **δεν παρακάμπτονται**.
  */
 @Composable
-fun FetchScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun FetchScreen(
+    container: AppContainer,
+    preselectedClient: Long = 0L,
+    modifier: Modifier = Modifier,
+) {
     val controller = container.fetch
     val state by controller.state.collectAsState()
 
     if (state.idle) {
-        FetchSelection(container, modifier)
+        FetchSelection(container, preselectedClient, modifier)
     } else {
         FetchProgress(container, modifier)
     }
@@ -106,14 +110,15 @@ private enum class Action(val label: String) {
 private data class Pick(
     val uid: Long,
     val itemId: String,
-    val year: String,
-    val month: String = "",
+    /** Πολλαπλά έτη: «Ε1 για 2023, 2024 και 2025» είναι μία επιλογή, τρεις λήψεις. */
+    val years: List<String> = emptyList(),
+    val months: List<String> = emptyList(),
 )
 
 // --------------------------------------------------------------- επιλογή
 
 @Composable
-private fun FetchSelection(container: AppContainer, modifier: Modifier) {
+private fun FetchSelection(container: AppContainer, preselectedClient: Long, modifier: Modifier) {
     val scope = rememberCoroutineScope()
     val authorizer = rememberGoogleAuthorizer()
 
@@ -132,6 +137,14 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
     var confirmSend by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+
+    // Όταν ερχόμαστε από την καρτέλα ενός πελάτη, έρχεται ήδη επιλεγμένος: το
+    // «λήψη εντύπων για αυτόν» δεν πρέπει να καταλήγει σε λίστα 400 ονομάτων.
+    LaunchedEffect(preselectedClient) {
+        if (preselectedClient != 0L && preselectedClient !in pickedClients) {
+            pickedClients.add(preselectedClient)
+        }
+    }
 
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -184,22 +197,29 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
                             Pick(
                                 uid = nextUid++,
                                 itemId = item.id,
-                                year = if (item.needsYear) defaultYear else "",
+                                years = if (item.needsYear) listOf(defaultYear) else emptyList(),
                             ),
                         )
                     }
                     Spacer(Modifier.height(8.dp))
-                }
 
-                items(picks.toList(), key = { it.uid }) { pick ->
-                    PickCard(
-                        pick = pick,
-                        onChange = { updated ->
-                            val index = picks.indexOfFirst { it.uid == updated.uid }
-                            if (index >= 0) picks[index] = updated
-                        },
-                        onRemove = { picks.removeAll { it.uid == pick.uid } },
-                    )
+                    // Οι επιλογές είναι λίγες (τρεις-τέσσερις) και ζουν σε απλή
+                    // Column αντί για `items` με κλειδιά. Το keyed `items` έριχνε
+                    // την εφαρμογή στη δεύτερη αφαίρεση, και ούτε χρειάζεται:
+                    // δεν πρόκειται ποτέ για λίστα που θέλει ανακύκλωση.
+                    picks.toList().forEach { pick ->
+                        PickCard(
+                            pick = pick,
+                            onChange = { updated ->
+                                val index = picks.indexOfFirst { it.uid == updated.uid }
+                                if (index >= 0) picks[index] = updated
+                            },
+                            // `remove(element)` και όχι `removeAll { }`: το δεύτερο
+                            // περνά από τον iterator του SnapshotStateList, που δεν
+                            // υποστηρίζει αφαίρεση εν κινήσει.
+                            onRemove = { picks.remove(pick) },
+                        )
+                    }
                 }
 
                 item {
@@ -312,7 +332,15 @@ private fun FetchSelection(container: AppContainer, modifier: Modifier) {
                                 if (it > 0) " · $it χωρίς email" else ""
                             }
                     picks.isEmpty() || selected.isEmpty() -> "Διάλεξε έντυπα και πελάτες"
-                    else -> "${picks.size} έντυπα × ${selected.size} πελάτες"
+                    else -> {
+                        val perClient = picks.sumOf { pick ->
+                            val item = DocumentCatalog.byId(pick.itemId)
+                            val years = if (item?.needsYear == true) pick.years.size.coerceAtLeast(1) else 1
+                            val months = if (item?.needsMonth == true) pick.months.size.coerceAtLeast(1) else 1
+                            years * months
+                        }
+                        "${perClient * selected.size} εκτελέσεις"
+                    }
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
@@ -451,22 +479,31 @@ private suspend fun buildPlans(
                 skip("χωρίς τα απαιτούμενα διαπιστευτήρια")
                 continue
             }
-            val inputs = HashMap(item.inputs)
-            if (item.needsYear && pick.year.isNotBlank()) inputs["year"] = pick.year
-            if (item.needsMonth && pick.month.isNotBlank()) inputs["month"] = pick.month
-            plans += FetchController.Plan(
-                job = ProcessRunner.Job(
-                    client = client,
-                    configId = item.configId,
-                    extraInputs = inputs,
-                ),
-                label = buildString {
-                    append(item.label)
-                    if (pick.year.isNotBlank()) append(" ").append(pick.year)
-                    if (pick.month.isNotBlank()) append("/").append(pick.month)
-                },
-                producesDocuments = item.producesDocuments,
-            )
+            // Μία επιλογή με τρία έτη γίνεται τρεις εκτελέσεις. Οι πύλες
+            // δέχονται ένα έτος τη φορά — η ομαδοποίηση είναι δική μας ευκολία,
+            // όχι κάτι που ξέρει η ΑΑΔΕ.
+            val years = if (item.needsYear) pick.years.ifEmpty { listOf("") } else listOf("")
+            val months = if (item.needsMonth) pick.months.ifEmpty { listOf("") } else listOf("")
+            for (year in years) {
+                for (month in months) {
+                    val inputs = HashMap(item.inputs)
+                    if (year.isNotBlank()) inputs["year"] = year
+                    if (month.isNotBlank()) inputs["month"] = month
+                    plans += FetchController.Plan(
+                        job = ProcessRunner.Job(
+                            client = client,
+                            configId = item.configId,
+                            extraInputs = inputs,
+                        ),
+                        label = buildString {
+                            append(item.label)
+                            if (year.isNotBlank()) append(" ").append(year)
+                            if (month.isNotBlank()) append("/").append(month)
+                        },
+                        producesDocuments = item.producesDocuments,
+                    )
+                }
+            }
         }
     }
     return BuiltPlans(plans, skipped)
@@ -511,7 +548,14 @@ private fun DocumentPicker(onPick: (DocumentCatalog.Item) -> Unit) {
     }
 }
 
-/** Μία επιλεγμένη γραμμή, με το έτος της. */
+/**
+ * Μία επιλεγμένη γραμμή, με τα έτη της.
+ *
+ * Τα έτη είναι **λίστα** και επιλέγονται από μενού, όχι πληκτρολογούνται. Δύο
+ * λόγοι: «Ε1 για 2023, 2024 και 2025» είναι μία σκέψη και δεν πρέπει να γίνεται
+ * τρεις γραμμές, και ένα ελεύθερο πεδίο δέχεται «202» ή «20255» — που φτάνουν
+ * στην πύλη και γυρίζουν κενό αποτέλεσμα χωρίς εξήγηση.
+ */
 @Composable
 private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit) {
     val item = DocumentCatalog.byId(pick.itemId) ?: return
@@ -521,40 +565,85 @@ private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit)
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
-        Row(
-            Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(item.label, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    item.group,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                )
+        Column(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.label, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        item.group,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    )
+                }
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Filled.Close, contentDescription = "Αφαίρεση")
+                }
             }
             if (item.needsYear) {
-                OutlinedTextField(
-                    value = pick.year,
-                    onValueChange = { onChange(pick.copy(year = it.filter(Char::isDigit).take(4))) },
-                    label = { Text("Έτος") },
-                    singleLine = true,
-                    modifier = Modifier.width(96.dp),
+                Spacer(Modifier.height(4.dp))
+                MultiPicker(
+                    label = "Έτη",
+                    options = YEARS,
+                    selected = pick.years,
+                    onToggle = { value ->
+                        val updated = if (value in pick.years) pick.years - value else pick.years + value
+                        onChange(pick.copy(years = updated.sortedDescending()))
+                    },
                 )
             }
             if (item.needsMonth) {
-                Spacer(Modifier.width(6.dp))
-                OutlinedTextField(
-                    value = pick.month,
-                    onValueChange = { onChange(pick.copy(month = it.filter(Char::isDigit).take(2))) },
-                    label = { Text("Μήνας") },
-                    singleLine = true,
-                    modifier = Modifier.width(84.dp),
+                Spacer(Modifier.height(6.dp))
+                MultiPicker(
+                    label = "Μήνες (κενό = ο πιο πρόσφατος)",
+                    options = MONTHS.map { it.first },
+                    display = { value -> MONTHS.first { it.first == value }.second },
+                    selected = pick.months,
+                    onToggle = { value ->
+                        val updated = if (value in pick.months) pick.months - value else pick.months + value
+                        onChange(pick.copy(months = updated.sortedBy { m -> m.toInt() }))
+                    },
                 )
             }
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Filled.Close, contentDescription = "Αφαίρεση")
-            }
+        }
+    }
+}
+
+/** Τα έτη που προσφέρονται: το τρέχον και τα δέκα προηγούμενα. */
+private val YEARS: List<String> = Calendar.getInstance().get(Calendar.YEAR).let { now ->
+    (now downTo now - 10).map { it.toString() }
+}
+
+private val MONTHS: List<Pair<String, String>> = listOf(
+    "1" to "Ιανουάριος", "2" to "Φεβρουάριος", "3" to "Μάρτιος", "4" to "Απρίλιος",
+    "5" to "Μάιος", "6" to "Ιούνιος", "7" to "Ιούλιος", "8" to "Αύγουστος",
+    "9" to "Σεπτέμβριος", "10" to "Οκτώβριος", "11" to "Νοέμβριος", "12" to "Δεκέμβριος",
+)
+
+/** Μενού πολλαπλής επιλογής που μένει ανοιχτό όσο διαλέγεις. */
+@Composable
+private fun MultiPicker(
+    label: String,
+    options: List<String>,
+    selected: List<String>,
+    onToggle: (String) -> Unit,
+    display: (String) -> String = { it },
+) {
+    PickerDropdown(
+        label = label,
+        text = when {
+            selected.isEmpty() -> "— κανένα —"
+            selected.size <= 3 -> selected.joinToString(", ", transform = display)
+            else -> "${selected.size} επιλεγμένα"
+        },
+    ) {
+        options.forEach { option ->
+            DropdownMenuItem(
+                leadingIcon = {
+                    Checkbox(checked = option in selected, onCheckedChange = null)
+                },
+                text = { Text(display(option)) },
+                onClick = { onToggle(option) },
+            )
         }
     }
 }

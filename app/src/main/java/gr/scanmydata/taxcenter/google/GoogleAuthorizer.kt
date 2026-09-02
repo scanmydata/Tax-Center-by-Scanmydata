@@ -15,7 +15,12 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.Scopes
 import com.google.android.gms.common.api.Scope
 import gr.scanmydata.taxcenter.data.Settings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -51,7 +56,56 @@ class GoogleAuthorizer(
      * Πετάει [ConsentRequired] όταν χρειάζεται UI αλλά δεν υπάρχει launcher —
      * π.χ. όταν καλείται από background εργασία.
      */
-    suspend fun accessToken(): String = suspendCancellableCoroutine { cont ->
+    suspend fun accessToken(): String {
+        val token = authorize()
+        // Το email δεν έρχεται με το token. Το `AuthorizationResult` δίνει
+        // `toGoogleSignInAccount()`, αλλά το πεδίο `email` του είναι κενό όταν
+        // δεν έχει ζητηθεί sign-in — και εμείς ζητάμε **εξουσιοδότηση**, όχι
+        // ταυτοποίηση. Γι' αυτό η οθόνη έλεγε «καμία σύνδεση» ενώ η αποστολή
+        // δούλευε μια χαρά.
+        //
+        // Το σωστό είναι μία κλήση στο userinfo με το ίδιο token, ακριβώς αυτό
+        // που δίνει το scope `email`. Γίνεται μία φορά και δεν εμποδίζει τίποτα:
+        // αν αποτύχει, χάνουμε το όνομα του λογαριασμού, όχι την αποστολή.
+        if (Settings(context).senderEmail.isBlank()) {
+            runCatching { fetchEmail(token) }
+        }
+        return token
+    }
+
+    /**
+     * Ξεχνά τον τρέχοντα λογαριασμό, ώστε η επόμενη σύνδεση να ρωτήσει ξανά.
+     *
+     * Το `signOut` του Identity καθαρίζει την αποθηκευμένη επιλογή του
+     * λογαριασμού· η ίδια η **εξουσιοδότηση** που έχει δοθεί στην εφαρμογή
+     * ανακαλείται μόνο από τις ρυθμίσεις του λογαριασμού Google. Αυτό το λέμε
+     * στον χρήστη αντί να το υπονοούμε.
+     */
+    suspend fun forget() {
+        val settings = Settings(context)
+        settings.googleConnected = false
+        settings.senderEmail = ""
+        runCatching {
+            suspendCancellableCoroutine<Unit> { cont ->
+                Identity.getSignInClient(context).signOut()
+                    .addOnCompleteListener { cont.resume(Unit) }
+            }
+        }
+    }
+
+    private suspend fun fetchEmail(token: String) = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("https://www.googleapis.com/oauth2/v3/userinfo")
+            .header("Authorization", "Bearer $token")
+            .build()
+        OkHttpClient().newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@withContext
+            val email = JSONObject(response.body?.string().orEmpty()).optString("email").trim()
+            if (email.isNotEmpty()) Settings(context).senderEmail = email
+        }
+    }
+
+    private suspend fun authorize(): String = suspendCancellableCoroutine { cont ->
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(SCOPES.map { Scope(it) })
             .build()
@@ -103,7 +157,11 @@ class GoogleAuthorizer(
     private fun remember(result: AuthorizationResult) {
         val settings = Settings(context)
         settings.googleConnected = true
-        result.toGoogleSignInAccount()?.email?.let { settings.senderEmail = it }
+        // Όταν τύχει και υπάρχει, το κρατάμε αμέσως· αλλιώς το συμπληρώνει το
+        // `fetchEmail`. Δεν στηριζόμαστε σε αυτό — συνήθως είναι κενό.
+        result.toGoogleSignInAccount()?.email
+            ?.takeIf { it.isNotBlank() }
+            ?.let { settings.senderEmail = it }
     }
 
     class ConsentRequired : Exception("Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις.")

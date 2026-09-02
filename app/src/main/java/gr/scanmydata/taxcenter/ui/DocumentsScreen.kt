@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.db.ClientEntity
@@ -69,6 +70,11 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var status by remember { mutableStateOf("") }
     var sendTarget by remember { mutableStateOf<ClientEntity?>(null) }
     var bulkConfirm by remember { mutableStateOf(false) }
+    // Πολλαπλή επιλογή εγγράφων, διασχίζοντας πελάτες. Το «σβήσε τα περσινά»
+    // δεν σταματά στα όρια ενός πελάτη.
+    val pickedDocuments = remember { mutableStateListOf<Long>() }
+    var confirmDeleteDocs by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val byClient = remember(clients, documents, onlyUnsent, query) {
         val q = query.trim().lowercase()
@@ -111,6 +117,12 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             ) { Text("Μαζική αποστολή") }
         }
 
+        Text(
+            "Πάτημα σε έντυπο το ανοίγει· παρατεταμένο πάτημα το επιλέγει.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+        )
+
         if (status.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
             Text(status, style = MaterialTheme.typography.bodyMedium)
@@ -126,15 +138,68 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             )
         }
 
-        LazyColumn {
+        LazyColumn(Modifier.weight(1f)) {
             items(byClient, key = { it.first.id }) { (client, docs) ->
                 ClientDocumentsCard(
                     client = client,
                     documents = docs,
+                    picked = pickedDocuments,
                     onSend = { sendTarget = client },
+                    onOpen = { doc -> status = DocumentActions.open(context, doc) },
+                    onToggle = { doc ->
+                        if (doc.id in pickedDocuments) pickedDocuments.remove(doc.id)
+                        else pickedDocuments.add(doc.id)
+                    },
                 )
             }
         }
+
+        if (pickedDocuments.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${pickedDocuments.size} επιλεγμένα",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { pickedDocuments.clear() }) { Text("Άκυρο") }
+                TextButton(onClick = { confirmDeleteDocs = true }) {
+                    Text("Διαγραφή", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+
+    if (confirmDeleteDocs) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteDocs = false },
+            title = { Text("Διαγραφή ${pickedDocuments.size} εντύπων") },
+            text = {
+                Text(
+                    "Τα αρχεία σβήνονται από τη συσκευή και δεν ανακτώνται. Οι " +
+                        "καρτέλες των πελατών και το ιστορικό αποστολών δεν θίγονται — " +
+                        "αν χρειαστούν ξανά, κατεβαίνουν από την πύλη.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeleteDocs = false
+                    scope.launch {
+                        val targets = documents.filter { it.id in pickedDocuments }
+                        val count = withContext(Dispatchers.IO) {
+                            DocumentActions.delete(context, container.db, targets)
+                        }
+                        pickedDocuments.clear()
+                        status = "Διαγράφηκαν $count έντυπα."
+                    }
+                }) { Text("Διαγραφή", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteDocs = false }) { Text("Άκυρο") }
+            },
+        )
     }
 
     // ------------------------------------------------- αποστολή ενός πελάτη
@@ -208,8 +273,14 @@ private suspend fun sendOne(
 private fun ClientDocumentsCard(
     client: ClientEntity,
     documents: List<DocumentEntity>,
+    picked: List<Long>,
     onSend: () -> Unit,
+    onOpen: (DocumentEntity) -> Unit,
+    onToggle: (DocumentEntity) -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    val shown = if (expanded) documents else documents.take(4)
+
     Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -226,19 +297,23 @@ private fun ClientDocumentsCard(
                     Text("Αποστολή (${documents.size})")
                 }
             }
-            documents.take(4).forEach { doc ->
-                Text(
-                    "· ${doc.fileName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+            Spacer(Modifier.height(4.dp))
+            shown.forEach { doc ->
+                DocumentRow(
+                    document = doc,
+                    checked = doc.id in picked,
+                    selecting = picked.isNotEmpty(),
+                    onClick = { if (picked.isNotEmpty()) onToggle(doc) else onOpen(doc) },
+                    onLongClick = { onToggle(doc) },
                 )
             }
             if (documents.size > 4) {
-                Text(
-                    "… και άλλα ${documents.size - 4}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(
+                        if (expanded) "Λιγότερα"
+                        else "… και άλλα ${documents.size - 4}",
+                    )
+                }
             }
         }
     }

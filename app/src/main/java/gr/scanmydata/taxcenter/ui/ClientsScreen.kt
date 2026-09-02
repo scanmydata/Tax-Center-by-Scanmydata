@@ -1,6 +1,7 @@
 package gr.scanmydata.taxcenter.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +56,7 @@ import kotlinx.coroutines.withContext
 fun ClientsScreen(
     container: AppContainer,
     onOpenClient: (Long) -> Unit = {},
+    onFetchFor: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -134,6 +137,13 @@ fun ClientsScreen(
                             actionsFor = client
                         }
                     },
+                    // Παρατεταμένο πάτημα ξεκινά την επιλογή. Το κουμπί
+                    // «Επιλογή» μένει, αλλά κανείς δεν το ψάχνει: η κίνηση που
+                    // ξέρουν όλοι από τα αρχεία και τις φωτογραφίες είναι αυτή.
+                    onLongClick = {
+                        selecting = true
+                        if (client.id in picked) picked.remove(client.id) else picked.add(client.id)
+                    },
                 )
             }
         }
@@ -171,12 +181,15 @@ fun ClientsScreen(
                     clientDocuments = withContext(Dispatchers.IO) {
                         container.db.documents().forClient(client.id)
                     }
-                    if (clientDocuments.isEmpty()) {
-                        status = "Ο ${client.displayName} δεν έχει ληφθέντα έντυπα."
-                    } else {
-                        sendDocumentsFor = client
-                    }
+                    // Ανοίγει πάντα, ακόμη και άδειος: ένα μήνυμα «δεν έχει
+                    // έντυπα» σε κλειστό dialog αφήνει τον χρήστη να αναρωτιέται
+                    // τι να κάνει. Ο επιλογέας δείχνει τη διέξοδο.
+                    sendDocumentsFor = client
                 }
+            },
+            onFetch = {
+                actionsFor = null
+                onFetchFor(client.id)
             },
         )
     }
@@ -207,6 +220,29 @@ fun ClientsScreen(
     }
 
     sendDocumentsFor?.let { client ->
+        if (clientDocuments.isEmpty()) {
+            AlertDialog(
+                onDismissRequest = { sendDocumentsFor = null },
+                title = { Text("Καθόλου έντυπα") },
+                text = {
+                    Text(
+                        "Δεν έχει κατέβει κανένα έντυπο για τον ${client.displayName}. " +
+                            "Κάνε πρώτα λήψη και μετά στείλε — ή διάλεξε «Λήψη και " +
+                            "αποστολή» στην οθόνη λήψης για να γίνουν μαζί.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        sendDocumentsFor = null
+                        onFetchFor(client.id)
+                    }) { Text("Λήψη εντύπων") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { sendDocumentsFor = null }) { Text("Άκυρο") }
+                },
+            )
+            return@let
+        }
         SelectDocumentsDialog(
             client = client,
             documents = clientDocuments,
@@ -264,14 +300,26 @@ fun ClientsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ClientRow(
     client: ClientEntity,
     selecting: Boolean,
     checked: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick)) {
+    Card(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = if (checked) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -309,6 +357,7 @@ private fun ClientActionsDialog(
     onOpenCard: () -> Unit,
     onSendDetails: () -> Unit,
     onSendDocuments: () -> Unit,
+    onFetch: () -> Unit,
 ) {
     val hasEmail = client.effectiveEmail.isNotBlank()
     AlertDialog(
@@ -329,6 +378,9 @@ private fun ClientActionsDialog(
                 Spacer(Modifier.height(14.dp))
                 TextButton(onClick = onOpenCard, modifier = Modifier.fillMaxWidth()) {
                     Text("Άνοιγμα καρτέλας", modifier = Modifier.weight(1f))
+                }
+                TextButton(onClick = onFetch, modifier = Modifier.fillMaxWidth()) {
+                    Text("Λήψη εντύπων", modifier = Modifier.weight(1f))
                 }
                 TextButton(
                     onClick = onSendDocuments,

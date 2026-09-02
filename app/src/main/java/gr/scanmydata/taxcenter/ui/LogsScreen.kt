@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,13 +9,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,162 +22,98 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.db.AuditEntity
-import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.gdpr.Exports
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Ένα αρχείο, δύο όψεις.
+ * Το αρχείο δραστηριοτήτων επεξεργασίας — άρθρο 30 ΓΚΠΔ.
  *
- * **Εκτελέσεις** — τι έτρεξε σε ποιον πελάτη, πόσο κράτησε, τι κατέβηκε και,
- * όταν απέτυχε, τι είπε η πύλη. Εργαλείο διάγνωσης.
+ * Καταγράφει **τι** έγινε και **σε ποιον**: ποιος, πότε, ποιου πελάτη δεδομένα,
+ * ποια ενέργεια. Ποτέ τιμές — καμία γραμμή δεν περιέχει κωδικό.
  *
- * **Ενέργειες** — το αρχείο δραστηριοτήτων επεξεργασίας του άρθρου 30 ΓΚΠΔ.
- * Νομικό έγγραφο: δεν φιλτράρεται, δεν διαγράφεται, δεν περιέχει ποτέ τιμές
- * — μόνο ποιος, πότε, ποιου πελάτη δεδομένα και ποια ενέργεια.
+ * Δεν είναι θέση του μενού: ανοίγει από τις Ρυθμίσεις. Δεν είναι καθημερινή
+ * δουλειά — είναι κάτι που ανοίγεις όταν σου το ζητήσουν.
  *
- * Ήταν δύο χωριστά σημεία (θέση μενού η μία, κουμπί στις Ρυθμίσεις η άλλη) και
- * κανείς δεν ήξερε ποιο να ανοίξει: και οι δύο απαντούν «τι έγινε και πότε».
+ * **Το ιστορικό εκτελέσεων αφαιρέθηκε από την οθόνη.** Οι γραμμές του log του
+ * engine περιέχουν τα URL των πυλών — ολόκληρο τον χάρτη των endpoints που
+ * χρησιμοποιεί η εφαρμογή. Δεν είναι μυστικό με την αυστηρή έννοια, αλλά δεν
+ * έχει καμία αξία για τον λογιστή και κάθε λόγο να μη φαίνεται σε στιγμιότυπο
+ * οθόνης. Οι εκτελέσεις εξακολουθούν να καταγράφονται στη βάση (τι έτρεξε, σε
+ * ποιον, αν πέτυχε)· οι **αναλυτικές γραμμές** κρατιούνται μόνο όταν είναι
+ * ανοιχτά τα διαγνωστικά.
  */
 @Composable
 fun LogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
-    var tab by remember { mutableStateOf(0) }
-
-    Column(modifier) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Εκτελέσεις") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Ενέργειες") })
-        }
-        when (tab) {
-            0 -> RunLogsTab(container)
-            else -> AuditTab(container)
-        }
-    }
-}
-
-@Composable
-private fun RunLogsTab(container: AppContainer) {
-    val logs: List<RunLogEntity> by container.db.runLogs().observeRecent()
-        .collectAsState(initial = emptyList())
-    var query by remember { mutableStateOf("") }
-    var onlyFailed by remember { mutableStateOf(false) }
-
-    val shown = remember(logs, query, onlyFailed) {
-        val q = query.trim().lowercase()
-        logs.filter { log ->
-            (!onlyFailed || !log.ok) &&
-                (q.isBlank() || log.afm.contains(q) || log.configId.lowercase().contains(q))
-        }
-    }
-
-    Column(Modifier.padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Αναζήτηση σε ΑΦΜ ή διαδικασία") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "${shown.size} εκτελέσεις",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedButton(onClick = { onlyFailed = !onlyFailed }) {
-                Text(if (onlyFailed) "Όλες" else "Μόνο αποτυχίες")
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-
-        LazyColumn {
-            items(shown, key = { it.id }) { log ->
-                Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(
-                            "${log.configId} — ${log.afm}",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            AthensDates.stamp(log.startedAt),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            buildString {
-                                append(if (log.ok) "✓ " else "✗ ")
-                                append(if (log.ok) "${log.fileCount} αρχεία" else log.reason)
-                                append(" · ${log.durationMs / 1000}s")
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (log.ok) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                            else MaterialTheme.colorScheme.error,
-                        )
-                        if (log.lines.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                log.lines.lines().takeLast(6).joinToString("\n"),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AuditTab(container: AppContainer) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val entries: List<AuditEntity> by container.db.audit().observeRecent()
         .collectAsState(initial = emptyList())
-    var status by remember { mutableStateOf("") }
 
-    Column(Modifier.padding(horizontal = 16.dp)) {
+    var query by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var confirmWipe by remember { mutableStateOf(false) }
+
+    val shown = remember(entries, query) {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) entries
+        else entries.filter {
+            it.afm.contains(q) || it.action.lowercase().contains(q) ||
+                it.detail.lowercase().contains(q)
+        }
+    }
+
+    Column(modifier.padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(10.dp))
         Text(
-            "Αρχείο δραστηριοτήτων επεξεργασίας — άρθρο 30 ΓΚΠΔ. Καταγράφει τι " +
-                "έγινε και σε ποιον, ποτέ τιμές. Δεν διαγράφεται από την πολιτική " +
-                "διατήρησης.",
+            "Ποιος, πότε, ποιου πελάτη δεδομένα, ποια ενέργεια. Ποτέ τιμές. Δεν " +
+                "θίγεται από την πολιτική διατήρησης.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
         )
+
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Αναζήτηση σε ΑΦΜ ή ενέργεια") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = {
-            scope.launch {
-                status = "Δημιουργία αρχείου…"
-                status = try {
-                    val file = withContext(Dispatchers.IO) { Exports.auditCsv(context, container.db) }
-                    Exports.share(context, file, "text/csv", "Αρχείο ενεργειών")
-                    "Έτοιμο."
-                } catch (e: Exception) {
-                    "Απέτυχε: ${e.message}"
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = {
+                scope.launch {
+                    status = "Δημιουργία αρχείου…"
+                    status = try {
+                        val file = withContext(Dispatchers.IO) { Exports.auditCsv(context, container.db) }
+                        Exports.share(context, file, "text/csv", "Αρχείο ενεργειών")
+                        "Έτοιμο."
+                    } catch (e: Exception) {
+                        "Απέτυχε: ${e.message}"
+                    }
                 }
-            }
-        }) { Text("Εξαγωγή σε CSV") }
+            }) { Text("Εξαγωγή σε CSV") }
+            OutlinedButton(onClick = { confirmWipe = true }) { Text("Εκκαθάριση") }
+        }
+
         if (status.isNotBlank()) {
             Spacer(Modifier.height(6.dp))
             Text(status, style = MaterialTheme.typography.bodySmall)
         }
-        Spacer(Modifier.height(10.dp))
 
-        LazyColumn {
-            items(entries, key = { it.id }) { entry ->
+        Spacer(Modifier.height(10.dp))
+        Text("${shown.size} εγγραφές", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+
+        LazyColumn(Modifier.weight(1f)) {
+            items(shown, key = { it.id }) { entry ->
                 Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                     Row {
                         Text(
@@ -203,4 +139,84 @@ private fun AuditTab(container: AppContainer) {
             }
         }
     }
+
+    if (confirmWipe) {
+        WipeDialog(
+            onDismiss = { confirmWipe = false },
+            onWipe = { months ->
+                confirmWipe = false
+                scope.launch {
+                    val cutoff = if (months == 0) {
+                        System.currentTimeMillis()
+                    } else {
+                        System.currentTimeMillis() - months * 30L * 24 * 60 * 60 * 1000
+                    }
+                    val removed = withContext(Dispatchers.IO) {
+                        val count = container.db.audit().wipeBefore(cutoff)
+                        container.db.runLogs().wipe()
+                        // Η ίδια η εκκαθάριση καταγράφεται: αλλιώς το αρχείο θα
+                        // έλεγε ψέματα με τη σιωπή του.
+                        container.db.audit().log(
+                            AuditEntity(
+                                ts = System.currentTimeMillis(),
+                                action = "AUDIT_WIPE",
+                                detail = if (months == 0) {
+                                    "εκκαθάριση όλων ($count εγγραφές)"
+                                } else {
+                                    "εκκαθάριση παλαιότερων $months μηνών ($count εγγραφές)"
+                                },
+                            ),
+                        )
+                        count
+                    }
+                    status = "Διαγράφηκαν $removed εγγραφές."
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Η εκκαθάριση του αρχείου, με προειδοποίηση που δεν μασάει τα λόγια της.
+ *
+ * Το αρχείο του άρθρου 30 είναι ακριβώς αυτό που αποδεικνύει σε έλεγχο τι έγινε
+ * και πότε. Η δυνατότητα υπάρχει επειδή ο υπεύθυνος επεξεργασίας ορίζει την
+ * πολιτική διατήρησής του — όχι επειδή είναι αθώα ενέργεια.
+ */
+@Composable
+private fun WipeDialog(onDismiss: () -> Unit, onWipe: (months: Int) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Εκκαθάριση αρχείου") },
+        text = {
+            Column {
+                Text(
+                    "Το αρχείο ενεργειών είναι το τεκμήριο συμμόρφωσης του γραφείου " +
+                        "(άρθρο 30 ΓΚΠΔ): δείχνει ποιανού δεδομένα άγγιξε ποιος και " +
+                        "πότε. Διάγραψέ το μόνο αν αυτό επιβάλλει η δική σου πολιτική " +
+                        "διατήρησης.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Μαζί καθαρίζεται και το ιστορικό εκτελέσεων του engine.\n\n" +
+                        "Η ίδια η εκκαθάριση καταγράφεται — το αρχείο δεν αδειάζει " +
+                        "σιωπηλά.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onWipe(0) }) {
+                Text("Διαγραφή όλων", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Άκυρο") }
+                TextButton(onClick = { onWipe(24) }) { Text("Άνω των 24 μηνών") }
+            }
+        },
+    )
 }

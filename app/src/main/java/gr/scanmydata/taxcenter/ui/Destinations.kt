@@ -40,13 +40,6 @@ enum class Destination(
     Documents("documents", "Έγγραφα", R.drawable.ic_menu_documents),
     Calendar("calendar", "Ημερολόγιο αποστολών", R.drawable.ic_menu_calendar),
 
-    /**
-     * Ένα αρχείο, δύο όψεις: οι **εκτελέσεις** των διαδικασιών και το
-     * **αρχείο ενεργειών** του άρθρου 30. Ήταν χωριστές θέσεις· και οι δύο
-     * απαντούν στην ίδια ερώτηση («τι έγινε και πότε») και ο χρήστης δεν ήξερε
-     * ποια να ανοίξει.
-     */
-    Logs("logs", "Ιστορικό & αρχείο", R.drawable.ic_menu_logs),
     Help("help", "Οδηγίες χρήσης", R.drawable.ic_menu_help),
     SettingsScreen("settings", "Ρυθμίσεις", R.drawable.ic_menu_settings),
 }
