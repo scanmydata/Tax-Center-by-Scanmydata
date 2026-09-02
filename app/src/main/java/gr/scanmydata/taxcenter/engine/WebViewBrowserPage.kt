@@ -165,9 +165,10 @@ class WebViewBrowserPage(
                 evalPage(page, "($fn)(JSON.parse($arg))", callId, cb)
             }
 
+            // Καθαρίζουμε ό,τι έμεινε από προηγούμενο popup, ώστε το awaitPopup
+            // να μη δει παλιό handle και επιστρέψει αμέσως λάθος σελίδα.
             "armPopup" -> {
                 page.popupHandle = null
-                page.pendingPopup = null
                 cb.resolve(callId, "{}")
             }
 
