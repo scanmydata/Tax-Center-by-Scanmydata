@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +39,11 @@ import kotlinx.coroutines.withContext
  * Λίστα πελατών, με αναζήτηση και αποστολή στοιχείων.
  */
 @Composable
-fun ClientsScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun ClientsScreen(
+    container: AppContainer,
+    onOpenClient: (Long) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val scope = rememberCoroutineScope()
     val authorizer = rememberGoogleAuthorizer()
 
@@ -64,7 +69,14 @@ fun ClientsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        Text("${filtered.size} πελάτες", style = MaterialTheme.typography.labelMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${filtered.size} πελάτες",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { onOpenClient(0L) }) { Text("Νέος πελάτης") }
+        }
 
         if (status.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
@@ -74,7 +86,11 @@ fun ClientsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(8.dp))
         LazyColumn {
             items(filtered, key = { it.id }) { client ->
-                ClientRow(client, onSendDetails = { sendTarget = client })
+                ClientRow(
+                    client = client,
+                    onOpen = { onOpenClient(client.id) },
+                    onSendDetails = { sendTarget = client },
+                )
             }
         }
     }
@@ -106,8 +122,8 @@ fun ClientsScreen(container: AppContainer, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ClientRow(client: ClientEntity, onSendDetails: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+private fun ClientRow(client: ClientEntity, onOpen: () -> Unit, onSendDetails: () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onOpen)) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,

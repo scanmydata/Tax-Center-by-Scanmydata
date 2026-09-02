@@ -32,6 +32,19 @@ interface ClientDao {
     @Query("UPDATE clients SET deleted = 1, updatedAt = :now WHERE id = :id")
     suspend fun softDelete(id: Long, now: Long)
 
+    /**
+     * Οι διευθύνσεις γράφονται αυτούσιες — και κενές.
+     *
+     * Είναι η μία εξαίρεση στον κανόνα «κενό δεν σβήνει»: όταν ο λογιστής
+     * αδειάζει το πεδίο στην καρτέλα, εννοεί ότι η διεύθυνση είναι λάθος και
+     * δεν πρέπει να ξανασταλεί τίποτα εκεί.
+     */
+    @Query(
+        "UPDATE clients SET emailAade = :aade, emailManual = :manual, " +
+            "emailPreferred = :preferred, updatedAt = :now WHERE id = :id",
+    )
+    suspend fun setEmails(id: Long, aade: String, manual: String, preferred: String, now: Long)
+
     @Query("DELETE FROM clients WHERE id = :id")
     suspend fun hardDelete(id: Long)
 

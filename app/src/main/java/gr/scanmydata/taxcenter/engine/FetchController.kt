@@ -177,6 +177,30 @@ class FetchController(
         if (retry.isNotEmpty()) start(retry)
     }
 
+    /**
+     * Μία μεμονωμένη αναζήτηση email στο Μητρώο Επικοινωνίας, εκτός ουράς.
+     *
+     * Χρησιμοποιείται από την καρτέλα πελάτη, όπου ο λογιστής θέλει απάντηση
+     * τώρα και όχι παρτίδα. Αν τρέχει ήδη παρτίδα, **αρνείται**: δύο ταυτόχρονες
+     * συνεδρίες στο GSIS κλειδώνουν τον λογαριασμό (`OAM-6`), και το να χαλάσει
+     * μια παρτίδα 40 πελατών για μία διεύθυνση δεν αξίζει.
+     *
+     * Επιστρέφει τη διεύθυνση, ή κείμενο σφάλματος με πρόθεμα `!`.
+     */
+    suspend fun lookupEmail(client: ClientEntity): String {
+        if (_state.value.running) return "!Τρέχει ήδη παρτίδα λήψης — δοκίμασε όταν τελειώσει."
+        val job = ProcessRunner.Job(client = client, configId = CONFIG_EMAIL)
+        val outcome = runner.run(listOf(job)).first()
+        applySideEffects(job, outcome)
+        if (!outcome.ok) return "!${outcome.reason}"
+        val email = try {
+            JSONObject(outcome.out.orEmpty()).optString("email").trim()
+        } catch (e: Exception) {
+            ""
+        }
+        return email.ifBlank { "!Δεν βρέθηκε διεύθυνση στο Μητρώο." }
+    }
+
     /** Καθαρίζει τη λίστα μετά το τέλος, ώστε η οθόνη να ξαναρχίζει καθαρή. */
     fun clear() {
         if (_state.value.running) return

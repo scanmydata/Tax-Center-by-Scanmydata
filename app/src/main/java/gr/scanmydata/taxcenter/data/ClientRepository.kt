@@ -100,10 +100,27 @@ class ClientRepository(
 
     // -------------------------------------------------- μεμονωμένος πελάτης
 
-    /** Δημιουργία ή ενημέρωση από τη χειροκίνητη καρτέλα. */
+    /**
+     * Δημιουργία ή ενημέρωση από τη χειροκίνητη καρτέλα.
+     *
+     * Οι κωδικοί ακολουθούν τον κανόνα της εισαγωγής — κενό δεν σβήνει
+     * αποθηκευμένο, γιατί η φόρμα τους δείχνει μασκαρισμένους και ο χρήστης
+     * συνήθως δεν τους αγγίζει.
+     *
+     * Τα **email** όμως γράφονται αυτούσια, ακόμη και κενά: εκεί το κενό είναι
+     * ρητή πράξη του χρήστη («αυτή η διεύθυνση είναι λάθος, σβήσ' την»), και το
+     * `upsertPreservingBlanks` δεν τα αγγίζει καθόλου.
+     */
     suspend fun saveClient(client: ClientEntity, credentials: Map<Field, String>): Long {
         val now = System.currentTimeMillis()
         val id = db.clients().upsertPreservingBlanks(client, now)
+        db.clients().setEmails(
+            id = id,
+            aade = client.emailAade.trim(),
+            manual = client.emailManual.trim(),
+            preferred = client.emailPreferred.trim(),
+            now = now,
+        )
         for ((field, value) in credentials) {
             if (value.isBlank()) continue
             db.credentials().putIfNotBlank(id, field.name, crypto.enc(value), now)

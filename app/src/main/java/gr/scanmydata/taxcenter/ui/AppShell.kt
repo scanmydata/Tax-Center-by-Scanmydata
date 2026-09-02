@@ -34,10 +34,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.R
 import gr.scanmydata.taxcenter.data.db.RunLogEntity
@@ -59,8 +61,9 @@ fun AppShell(container: AppContainer) {
     val scope = rememberCoroutineScope()
 
     val backStack by navController.currentBackStackEntryAsState()
-    val current = Destination.entries
-        .firstOrNull { it.route == backStack?.destination?.route } ?: Destination.Clients
+    val route = backStack?.destination?.route
+    val current = Destination.entries.firstOrNull { it.route == route } ?: Destination.Clients
+    val title = if (route?.startsWith(CLIENT_ROUTE) == true) "Καρτέλα πελάτη" else current.label
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -102,7 +105,7 @@ fun AppShell(container: AppContainer) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text(current.label) },
+                    title = { Text(title) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Filled.Menu, contentDescription = "Μενού")
@@ -121,7 +124,22 @@ fun AppShell(container: AppContainer) {
                 startDestination = Destination.Clients.route,
                 modifier = Modifier.fillMaxSize().padding(inner),
             ) {
-                composable(Destination.Clients.route) { ClientsScreen(container) }
+                composable(Destination.Clients.route) {
+                    ClientsScreen(
+                        container = container,
+                        onOpenClient = { id -> navController.navigate("$CLIENT_ROUTE/$id") },
+                    )
+                }
+                composable(
+                    route = "$CLIENT_ROUTE/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                ) { entry ->
+                    ClientEditScreen(
+                        container = container,
+                        clientId = entry.arguments?.getLong("id") ?: 0L,
+                        onDone = { navController.popBackStack() },
+                    )
+                }
                 composable(Destination.Import.route) { ImportScreen(container) }
                 composable(Destination.Fetch.route) { FetchScreen(container) }
                 composable(Destination.Documents.route) { DocumentsScreen(container) }
@@ -175,3 +193,6 @@ fun RunLogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Η καρτέλα πελάτη δεν είναι θέση του μενού — ανοίγει από τη λίστα. */
+private const val CLIENT_ROUTE = "client"
