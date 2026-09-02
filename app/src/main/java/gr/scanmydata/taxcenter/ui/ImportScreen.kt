@@ -18,6 +18,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
@@ -49,7 +52,11 @@ import kotlinx.coroutines.withContext
  * από το `timologio-downloader`, όπου έχει αποδειχθεί σωστός σε πραγματική χρήση.
  */
 @Composable
-fun ImportScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun ImportScreen(
+    container: AppContainer,
+    onShowGuide: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -84,7 +91,17 @@ fun ImportScreen(container: AppContainer, modifier: Modifier = Modifier) {
     }
 
     Column(modifier.padding(16.dp)) {
-        Text("Εισαγωγή από Excel", style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Εισαγωγή από Excel", style = MaterialTheme.typography.headlineSmall)
+            if (onShowGuide != null) {
+                IconButton(onClick = onShowGuide) {
+                    Icon(
+                        painter = painterResource(gr.scanmydata.taxcenter.R.drawable.ic_info_outline),
+                        contentDescription = "Πώς εξάγω το αρχείο",
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(4.dp))
         Text(
             "Εξάγετε τους «Κωδικούς Υπόχρεων» από το λογιστικό σας πρόγραμμα ως .xlsx " +

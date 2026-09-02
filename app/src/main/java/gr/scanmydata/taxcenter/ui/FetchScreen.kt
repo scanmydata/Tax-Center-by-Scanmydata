@@ -471,8 +471,19 @@ private suspend fun buildPlans(
         skipped[reason] = (skipped[reason] ?: 0) + 1
     }
 
+    // Η άντληση στοιχείων φέρνει και τον ΑΜΚΑ σε ιδιώτη ή ατομική — όπως κάνει
+    // και η μεμονωμένη άντληση από την καρτέλα. Οι δύο διαδρομές πρέπει να
+    // συμπεριφέρονται ίδια, αλλιώς ο χρήστης μαθαίνει δύο διαφορετικά πράγματα
+    // για το ίδιο κουμπί.
+    val expanded = buildList {
+        addAll(picks)
+        if (picks.any { it.itemId == "profile" } && picks.none { it.itemId == "amka" }) {
+            add(Pick(uid = -1L, itemId = "amka"))
+        }
+    }
+
     for (client in clients) {
-        for (pick in picks) {
+        for (pick in expanded) {
             val item = DocumentCatalog.byId(pick.itemId) ?: continue
             if (!item.matches(client.kind)) {
                 skip("δεν ισχύουν για το είδος του πελάτη")

@@ -52,26 +52,15 @@ fun NewClientScreen(
                 onClick = { tab = 0 },
                 text = { Text("Χειροκίνητα") },
             )
-            Tab(
-                selected = tab == 1,
-                onClick = { tab = 1 },
-                text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Από Excel")
-                        IconButton(onClick = { showGuide = true }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_info_outline),
-                                contentDescription = "Πώς εξάγω το αρχείο",
-                            )
-                        }
-                    }
-                },
-            )
+            // Το «i» ζει δίπλα στον τίτλο της οθόνης εισαγωγής, όχι εδώ: μια
+            // κεφαλίδα καρτέλας είναι στόχος αλλαγής καρτέλας, και ένα δεύτερο
+            // κουμπί μέσα της πατιέται κατά λάθος.
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Από Excel") })
         }
 
         when (tab) {
             0 -> ClientEditScreen(container = container, clientId = 0L, onDone = onDone)
-            else -> ImportScreen(container)
+            else -> ImportScreen(container, onShowGuide = { showGuide = true })
         }
     }
 

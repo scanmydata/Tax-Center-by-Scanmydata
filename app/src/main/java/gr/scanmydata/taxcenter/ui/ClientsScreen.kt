@@ -18,7 +18,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,10 +41,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import gr.scanmydata.taxcenter.R
 import gr.scanmydata.taxcenter.data.db.ClientEntity
-import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.google.GoogleAuthorizer
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
 import kotlinx.coroutines.Dispatchers
@@ -56,7 +65,7 @@ import kotlinx.coroutines.withContext
 fun ClientsScreen(
     container: AppContainer,
     onOpenClient: (Long) -> Unit = {},
-    onFetchFor: (Long) -> Unit = {},
+    onOpenDocuments: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -66,13 +75,10 @@ fun ClientsScreen(
         .collectAsState(initial = emptyList())
 
     var query by remember { mutableStateOf("") }
-    var selecting by remember { mutableStateOf(false) }
     val picked = remember { mutableStateListOf<Long>() }
 
     var actionsFor by remember { mutableStateOf<ClientEntity?>(null) }
     var sendDetailsFor by remember { mutableStateOf<ClientEntity?>(null) }
-    var sendDocumentsFor by remember { mutableStateOf<ClientEntity?>(null) }
-    var clientDocuments by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
     var confirmBulk by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
 
@@ -95,13 +101,17 @@ fun ClientsScreen(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
+        // Καμία λειτουργία «Επιλογή». Η επιλογή ξεκινά και τελειώνει με
+        // παρατεταμένο πάτημα — η κίνηση που ξέρουν όλοι από τα αρχεία και τις
+        // φωτογραφίες. Ένα κουμπί που πρέπει να πατηθεί πρώτα είναι ένα βήμα
+        // παραπάνω για κάτι που κανείς δεν ψάχνει.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (selecting) "${picked.size} επιλεγμένοι" else "${filtered.size} πελάτες",
+                if (picked.isEmpty()) "${filtered.size} πελάτες" else "${picked.size} επιλεγμένοι",
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.weight(1f),
             )
-            if (selecting) {
+            if (picked.isNotEmpty()) {
                 TextButton(onClick = {
                     if (picked.size == filtered.size) picked.clear()
                     else {
@@ -109,13 +119,16 @@ fun ClientsScreen(
                         picked.addAll(filtered.map { it.id })
                     }
                 }) {
-                    Text(if (picked.size == filtered.size && filtered.isNotEmpty()) "Κανένας" else "Όλοι")
+                    Text(if (picked.size == filtered.size) "Κανένας" else "Όλοι")
+                }
+                IconButton(onClick = { confirmBulk = true }) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Διαγραφή επιλεγμένων",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
-            TextButton(onClick = {
-                selecting = !selecting
-                picked.clear()
-            }) { Text(if (selecting) "Άκυρο" else "Επιλογή") }
         }
 
         if (status.isNotBlank()) {
@@ -128,36 +141,33 @@ fun ClientsScreen(
             items(filtered, key = { it.id }) { client ->
                 ClientRow(
                     client = client,
-                    selecting = selecting,
+                    selecting = picked.isNotEmpty(),
                     checked = client.id in picked,
                     onClick = {
-                        if (selecting) {
+                        // Όσο υπάρχει επιλογή, το απλό πάτημα προσθέτει και
+                        // αφαιρεί· χωρίς επιλογή ανοίγει τις ενέργειες.
+                        if (picked.isNotEmpty()) {
                             if (client.id in picked) picked.remove(client.id) else picked.add(client.id)
                         } else {
                             actionsFor = client
                         }
                     },
-                    // Παρατεταμένο πάτημα ξεκινά την επιλογή. Το κουμπί
-                    // «Επιλογή» μένει, αλλά κανείς δεν το ψάχνει: η κίνηση που
-                    // ξέρουν όλοι από τα αρχεία και τις φωτογραφίες είναι αυτή.
                     onLongClick = {
-                        selecting = true
                         if (client.id in picked) picked.remove(client.id) else picked.add(client.id)
                     },
                 )
             }
         }
 
-        if (selecting && picked.isNotEmpty()) {
+        if (picked.isNotEmpty()) {
             HorizontalDivider()
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(onClick = { confirmBulk = true }) {
-                    Text("Διαγραφή ${picked.size}")
-                }
-            }
+            Text(
+                "Παρατεταμένο πάτημα προσθέτει και αφαιρεί. Το κόκκινο εικονίδιο " +
+                    "πάνω δεξιά διαγράφει τους επιλεγμένους.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
         }
     }
 
@@ -175,21 +185,9 @@ fun ClientsScreen(
                 actionsFor = null
                 sendDetailsFor = client
             },
-            onSendDocuments = {
+            onDocuments = {
                 actionsFor = null
-                scope.launch {
-                    clientDocuments = withContext(Dispatchers.IO) {
-                        container.db.documents().forClient(client.id)
-                    }
-                    // Ανοίγει πάντα, ακόμη και άδειος: ένα μήνυμα «δεν έχει
-                    // έντυπα» σε κλειστό dialog αφήνει τον χρήστη να αναρωτιέται
-                    // τι να κάνει. Ο επιλογέας δείχνει τη διέξοδο.
-                    sendDocumentsFor = client
-                }
-            },
-            onFetch = {
-                actionsFor = null
-                onFetchFor(client.id)
+                onOpenDocuments(client.id)
             },
         )
     }
@@ -219,55 +217,6 @@ fun ClientsScreen(
         )
     }
 
-    sendDocumentsFor?.let { client ->
-        if (clientDocuments.isEmpty()) {
-            AlertDialog(
-                onDismissRequest = { sendDocumentsFor = null },
-                title = { Text("Καθόλου έντυπα") },
-                text = {
-                    Text(
-                        "Δεν έχει κατέβει κανένα έντυπο για τον ${client.displayName}. " +
-                            "Κάνε πρώτα λήψη και μετά στείλε — ή διάλεξε «Λήψη και " +
-                            "αποστολή» στην οθόνη λήψης για να γίνουν μαζί.",
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        sendDocumentsFor = null
-                        onFetchFor(client.id)
-                    }) { Text("Λήψη εντύπων") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { sendDocumentsFor = null }) { Text("Άκυρο") }
-                },
-            )
-            return@let
-        }
-        SelectDocumentsDialog(
-            client = client,
-            documents = clientDocuments,
-            onDismiss = { sendDocumentsFor = null },
-            onConfirm = { documents, note ->
-                sendDocumentsFor = null
-                scope.launch {
-                    status = "Αποστολή ${documents.size} εντύπων…"
-                    status = try {
-                        val token = authorizer.accessToken()
-                        val send = withContext(Dispatchers.IO) {
-                            container.mail.sendDocuments(token, client, documents, note)
-                        }
-                        if (send.failed) "Απέτυχε: ${send.error}"
-                        else "Στάλθηκαν ${documents.size} έντυπα στον ${client.displayName}."
-                    } catch (e: GoogleAuthorizer.ConsentRequired) {
-                        "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
-                    } catch (e: Exception) {
-                        "Απέτυχε: ${e.message}"
-                    }
-                }
-            },
-        )
-    }
-
     if (confirmBulk) {
         BulkDeleteDialog(
             clients = selected,
@@ -280,7 +229,6 @@ fun ClientsScreen(
                         container.repository.deleteClients(selected)
                     }
                     picked.clear()
-                    selecting = false
                     status = "Διαγράφηκαν $count πελάτες."
                 }
             },
@@ -292,7 +240,6 @@ fun ClientsScreen(
                         container.repository.deleteDocumentsOf(selected)
                     }
                     picked.clear()
-                    selecting = false
                     status = "Διαγράφηκαν $count έγγραφα. Οι πελάτες παρέμειναν."
                 }
             },
@@ -349,25 +296,41 @@ private fun ClientRow(
     }
 }
 
-/** Τι μπορεί να γίνει με έναν πελάτη, χωρίς να ανοίξει η καρτέλα του. */
+/**
+ * Τι μπορεί να γίνει με έναν πελάτη.
+ *
+ * Δύο ενέργειες αντί για τέσσερις. Η «λήψη εντύπων» και η «αποστολή εντύπων»
+ * ήταν χωριστές γραμμές που κατέληγαν στην ίδια δουλειά και στα ίδια αρχεία —
+ * τώρα είναι μία, και οδηγεί στην καρτέλα «Έγγραφα», όπου υπάρχουν και τα δύο
+ * μαζί με ό,τι έχει ήδη κατέβει.
+ */
 @Composable
 private fun ClientActionsDialog(
     client: ClientEntity,
     onDismiss: () -> Unit,
     onOpenCard: () -> Unit,
     onSendDetails: () -> Unit,
-    onSendDocuments: () -> Unit,
-    onFetch: () -> Unit,
+    onDocuments: () -> Unit,
 ) {
     val hasEmail = client.effectiveEmail.isNotBlank()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(client.displayName) },
+        title = {
+            Column {
+                Text("Καρτέλα", style = MaterialTheme.typography.labelMedium)
+                Text(client.displayName, style = MaterialTheme.typography.titleMedium)
+            }
+        },
         text = {
             Column {
                 Text(
-                    "ΑΦΜ ${client.afm}" + if (client.doy.isNotBlank()) " · ${client.doy}" else "",
+                    buildString {
+                        append("ΑΦΜ ").append(client.afm)
+                        if (client.kind.isNotBlank()) append("  ·  ").append(client.kind)
+                        if (client.doy.isNotBlank()) append("  ·  ").append(client.doy)
+                    },
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 )
                 Text(
                     client.effectiveEmail.ifBlank { "— χωρίς διεύθυνση email —" },
@@ -375,31 +338,69 @@ private fun ClientActionsDialog(
                     color = if (hasEmail) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     else MaterialTheme.colorScheme.error,
                 )
-                Spacer(Modifier.height(14.dp))
-                TextButton(onClick = onOpenCard, modifier = Modifier.fillMaxWidth()) {
-                    Text("Άνοιγμα καρτέλας", modifier = Modifier.weight(1f))
-                }
-                TextButton(onClick = onFetch, modifier = Modifier.fillMaxWidth()) {
-                    Text("Λήψη εντύπων", modifier = Modifier.weight(1f))
-                }
-                TextButton(
-                    onClick = onSendDocuments,
+
+                Spacer(Modifier.height(16.dp))
+                ActionRow(
+                    icon = R.drawable.ic_menu_clients,
+                    title = "Άνοιγμα καρτέλας",
+                    subtitle = "Στοιχεία, διαπιστευτήρια, εντολή",
+                    onClick = onOpenCard,
+                )
+                ActionRow(
+                    icon = R.drawable.ic_menu_documents,
+                    title = "Έντυπα — λήψη και αποστολή",
+                    subtitle = "Ό,τι έχει κατέβει, και λήψη νέων",
+                    onClick = onDocuments,
+                )
+                ActionRow(
+                    icon = R.drawable.ic_menu_send,
+                    title = "Αποστολή στοιχείων & κωδικών",
+                    subtitle = if (hasEmail) "ΑΦΜ, ΑΜΚΑ, χρήστης TAXISnet" else "χρειάζεται email",
                     enabled = hasEmail,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Αποστολή εντύπων", modifier = Modifier.weight(1f))
-                }
-                TextButton(
                     onClick = onSendDetails,
-                    enabled = hasEmail,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Αποστολή στοιχείων & κωδικών", modifier = Modifier.weight(1f))
-                }
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Κλείσιμο") } },
     )
+}
+
+@Composable
+private fun ActionRow(
+    @androidx.annotation.DrawableRes icon: Int,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val alpha = if (enabled) 1f else 0.4f
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f * alpha),
+            )
+        }
+    }
 }
 
 /**

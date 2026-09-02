@@ -60,9 +60,10 @@ fun ClientCardScreen(
     clientId: Long,
     onDone: () -> Unit,
     onFetchFor: (Long) -> Unit,
+    initialTab: Int = 0,
     modifier: Modifier = Modifier,
 ) {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember(clientId, initialTab) { mutableStateOf(initialTab) }
     var client by remember { mutableStateOf<ClientEntity?>(null) }
 
     LaunchedEffect(clientId) {
@@ -139,6 +140,7 @@ private fun ClientDocumentsTab(
                     picked.addAll(documents.map { it.id })
                 }
             }) { Text(if (picked.size == documents.size) "Κανένα" else "Όλα") }
+            TextButton(onClick = onFetch) { Text("Λήψη") }
         }
         Text(
             "Πάτημα ανοίγει το έντυπο· παρατεταμένο πάτημα το επιλέγει.",

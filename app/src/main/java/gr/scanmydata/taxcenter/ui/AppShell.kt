@@ -122,13 +122,36 @@ fun AppShell(container: AppContainer) {
 
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
-    // Το `route` κρατά και τα optional query args («fetch?client={client}»)·
-    // η σύγκριση γίνεται στο κομμάτι πριν το «?».
     val base = route?.substringBefore('?')
-    val current = Destination.entries.firstOrNull { it.route == base } ?: Destination.NewClient
-    // Η καρτέλα υπάρχοντος πελάτη (`client/<id>`) δεν είναι θέση του μενού και
-    // δεν έχει δική της ετικέτα· η νέα καρτέλα έχει.
-    val title = if (base?.startsWith("$CLIENT_ROUTE/") == true) "Καρτέλα πελάτη" else current.label
+
+    // Η «Λήψη εντύπων» έχει δύο διαδρομές — με και χωρίς προεπιλεγμένο πελάτη —
+    // και πρέπει να φωτίζεται στο μενού και στις δύο.
+    val current = Destination.entries.firstOrNull { it.route == base }
+        ?: if (base?.startsWith(Destination.Fetch.route + "/") == true) {
+            Destination.Fetch
+        } else {
+            Destination.NewClient
+        }
+
+    // Το όνομα του ανοιχτού πελάτη, για την κεφαλίδα. Σε οθόνη με τρεις
+    // καρτέλες, το ποιανού είναι πρέπει να φαίνεται χωρίς να γυρίσεις πίσω.
+    val openClientId = backStack?.arguments?.getLong("id") ?: 0L
+    var openClientName by remember { mutableStateOf("") }
+    LaunchedEffect(openClientId) {
+        openClientName = if (openClientId == 0L) {
+            ""
+        } else {
+            withContext(Dispatchers.IO) {
+                container.db.clients().byId(openClientId)?.displayName.orEmpty()
+            }
+        }
+    }
+
+    val title = when {
+        base?.startsWith("$CLIENT_ROUTE/") != true -> current.label
+        openClientName.isNotBlank() -> "Καρτέλα · " + openClientName
+        else -> "Καρτέλα πελάτη"
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -199,7 +222,9 @@ fun AppShell(container: AppContainer) {
                     ClientsScreen(
                         container = container,
                         onOpenClient = { id -> navController.navigate("$CLIENT_ROUTE/$id") },
-                        onFetchFor = { id -> navController.navigate("fetch?client=$id") },
+                        onOpenDocuments = { id ->
+                            navController.navigate("$CLIENT_ROUTE/$id/documents")
+                        },
                     )
                 }
                 composable(
@@ -210,7 +235,22 @@ fun AppShell(container: AppContainer) {
                         container = container,
                         clientId = entry.arguments?.getLong("id") ?: 0L,
                         onDone = { navController.popBackStack() },
-                        onFetchFor = { id -> navController.navigate("fetch?client=$id") },
+                        onFetchFor = { id -> navController.navigate("fetch/$id") },
+                    )
+                }
+                // Ίδια οθόνη, ανοιγμένη στην καρτέλα «Έγγραφα». Χωριστή
+                // διαδρομή αντί για optional argument, για τον ίδιο λόγο με τη
+                // λήψη: ο matcher δεν πρέπει να έχει περιθώριο επιλογής.
+                composable(
+                    route = "$CLIENT_ROUTE/{id}/documents",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                ) { entry ->
+                    ClientCardScreen(
+                        container = container,
+                        clientId = entry.arguments?.getLong("id") ?: 0L,
+                        onDone = { navController.popBackStack() },
+                        onFetchFor = { id -> navController.navigate("fetch/$id") },
+                        initialTab = 1,
                     )
                 }
                 composable(Destination.NewClient.route) {
@@ -219,17 +259,14 @@ fun AppShell(container: AppContainer) {
                         onDone = { navController.navigate(Destination.Clients.route) },
                     )
                 }
-                // Optional query arg: το μενού πλοηγεί στο σκέτο «fetch», ενώ
-                // η καρτέλα πελάτη στο «fetch?client=<id>» για να έρθει ο
-                // πελάτης ήδη επιλεγμένος.
+                composable(Destination.Fetch.route) { FetchScreen(container) }
+                // Ξεχωριστή διαδρομή αντί για optional argument. Το
+                // «fetch?client={client}» έκανε τον matcher να κρατά την
+                // παραμετρική μορφή ακόμη και για το σκέτο «fetch», και η
+                // επιστροφή στους Πελάτες άφηνε την οθόνη λήψης στη θέση της.
                 composable(
-                    route = "${Destination.Fetch.route}?client={client}",
-                    arguments = listOf(
-                        navArgument("client") {
-                            type = NavType.LongType
-                            defaultValue = 0L
-                        },
-                    ),
+                    route = "${Destination.Fetch.route}/{client}",
+                    arguments = listOf(navArgument("client") { type = NavType.LongType }),
                 ) { entry ->
                     FetchScreen(
                         container = container,

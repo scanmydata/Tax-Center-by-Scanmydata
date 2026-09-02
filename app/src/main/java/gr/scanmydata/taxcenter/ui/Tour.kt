@@ -20,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -154,6 +155,18 @@ val TOUR: List<TourStep> = listOf(
     ),
 
     TourStep(
+        title = "Η λίστα πελατών",
+        body = "Πάτημα σε πελάτη ανοίγει τις ενέργειες: καρτέλα, έντυπα, αποστολή " +
+            "στοιχείων. **Παρατεταμένο** πάτημα τον επιλέγει — και από εκεί και πέρα " +
+            "το απλό πάτημα προσθέτει και αφαιρεί.\n\n" +
+            "Με επιλεγμένους πελάτες, το κόκκινο εικονίδιο πάνω δεξιά τους διαγράφει. " +
+            "Δεν υπάρχει κουμπί «Επιλογή»: η κίνηση είναι η ίδια που ξέρεις από τα " +
+            "αρχεία και τις φωτογραφίες.",
+        icon = R.drawable.ic_menu_clients,
+        destination = Destination.Clients,
+    ),
+
+    TourStep(
         title = "Ασφάλεια — τι να ξέρεις",
         body = "Η βάση είναι κρυπτογραφημένη ολόκληρη και κάθε κωδικός ξεχωριστά, με " +
             "κλειδί που δεν φεύγει από τη συσκευή. Τα στιγμιότυπα οθόνης είναι " +
@@ -255,16 +268,18 @@ fun TourBar(
                         TextButton(onClick = { TourState.finish() }) { Text("Κλείσιμο") }
                         Spacer(Modifier.weight(1f))
 
-                        // Το κύριο κουμπί αλλάζει με την κατάσταση: πήγαινέ με,
-                        // ή προχώρα. Δεν υπάρχουν δύο κουμπιά που μοιάζουν.
-                        if (step.destination != null && !alreadyThere && !completed) {
-                            Button(onClick = { onNavigate(step.destination) }) {
+                        // Η πλοήγηση είναι **πάντα** διαθέσιμη όσο υπάρχει
+                        // προορισμός και δεν είμαστε ήδη εκεί. Πριν εμφανιζόταν
+                        // μόνο σε ανολοκλήρωτο βήμα, οπότε σε κάποιον που είχε
+                        // ήδη συνδέσει λογαριασμό η ξενάγηση δεν πήγαινε ποτέ
+                        // πουθενά — και διαβαζόταν σαν κείμενο.
+                        if (step.destination != null && !alreadyThere) {
+                            OutlinedButton(onClick = { onNavigate(step.destination) }) {
                                 Text("Πάμε εκεί")
                             }
-                        } else {
-                            Button(onClick = { TourState.next() }) {
-                                Text(if (TourState.step == TOUR.lastIndex) "Τέλος" else "Επόμενο")
-                            }
+                        }
+                        Button(onClick = { TourState.next() }) {
+                            Text(if (TourState.step == TOUR.lastIndex) "Τέλος" else "Επόμενο")
                         }
                     }
                 }

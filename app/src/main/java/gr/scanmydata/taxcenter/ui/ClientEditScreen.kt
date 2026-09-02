@@ -38,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -229,6 +231,7 @@ fun ClientEditScreen(
             onValueChange = { afm = it.filter(Char::isDigit).take(9) },
             label = { Text("ΑΦΜ") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             enabled = isNew,
             isError = afmClean.isNotBlank() && afmClean.length != 9,
             supportingText = { if (afmWarning.isNotBlank()) Text(afmWarning) },
@@ -247,6 +250,7 @@ fun ClientEditScreen(
                     onValueChange = { amka = it.filter(Char::isDigit).take(11) },
                     label = { Text("ΑΜΚΑ") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(

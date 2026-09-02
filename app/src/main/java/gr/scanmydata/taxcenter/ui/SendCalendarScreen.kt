@@ -83,6 +83,10 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
     // Τα φίλτρα είναι κλειστά εξ ορισμού. Έπαιρναν τέσσερις σειρές μόνιμα, και
     // σε τηλέφωνο έμεναν δύο-τρεις γραμμές για τη λίστα — που είναι η ουσία.
     var showFilters by remember { mutableStateOf(false) }
+    // Το πλέγμα μαζεύεται όταν ο χρήστης κοιτάζει τη λίστα. Σε τηλέφωνο το
+    // ημερολόγιο πιάνει τη μισή οθόνη, και μόλις διαλέξεις ημέρα η δουλειά
+    // είναι πια κάτω — δεν έχει νόημα να κρατά τον χώρο.
+    var calendarOpen by remember { mutableStateOf(true) }
 
     val range = remember(anchor, weekView) { visibleRange(anchor, weekView) }
     val all: List<SendEntity> by container.db.sends()
@@ -112,12 +116,18 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { anchor = if (weekView) anchor.minusWeeks(1) else anchor.minusMonths(1) }) {
                     Text("‹", style = MaterialTheme.typography.titleLarge)
                 }
                 IconButton(onClick = { anchor = if (weekView) anchor.plusWeeks(1) else anchor.plusMonths(1) }) {
                     Text("›", style = MaterialTheme.typography.titleLarge)
+                }
+                IconButton(onClick = { calendarOpen = !calendarOpen }) {
+                    Text(
+                        if (calendarOpen) "⌃" else "⌄",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
                 }
             }
         }
@@ -192,15 +202,21 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
 
-        Spacer(Modifier.height(10.dp))
-        WeekdayHeader()
-        CalendarGrid(
-            days = calendarDays(anchor, weekView),
-            currentMonth = YearMonth.from(anchor),
-            byDay = byDay,
-            selected = selected,
-            onSelect = { selected = it },
-        )
+        if (calendarOpen) {
+            Spacer(Modifier.height(12.dp))
+            WeekdayHeader()
+            CalendarGrid(
+                days = calendarDays(anchor, weekView),
+                currentMonth = YearMonth.from(anchor),
+                byDay = byDay,
+                selected = selected,
+                onSelect = {
+                    selected = it
+                    // Διάλεξες ημέρα: η δουλειά είναι πια η λίστα από κάτω.
+                    calendarOpen = false
+                },
+            )
+        }
 
         Spacer(Modifier.height(12.dp))
         val listed = selected?.let { byDay[it].orEmpty() } ?: sends
@@ -218,6 +234,9 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             }
             if (selected != null) {
                 TextButton(onClick = { selected = null }) { Text("Όλη η περίοδος") }
+            }
+            if (!calendarOpen) {
+                TextButton(onClick = { calendarOpen = true }) { Text("Ημερολόγιο") }
             }
             TextButton(
                 enabled = sends.isNotEmpty(),
