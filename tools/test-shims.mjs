@@ -269,7 +269,7 @@ console.log('\nrunner.js — πλήρης διαδρομή με ψεύτικη �
  * Στήνει καθαρό context με mock που μιμείται τη ροή του `aadeLogin`:
  * home.htm -> OAM login -> auth_cred_submit -> incomefp -> login.done -> home.htm
  */
-function aadeScenario({ goodCredentials, ldap }) {
+function aadeScenario({ goodCredentials, ldap, userdata, fysiko, epix }) {
   let homeHits = 0;
   const loginForm =
     '<html><body><form><input name="request_id" value="RQ-42">' +
@@ -295,10 +295,19 @@ function aadeScenario({ goodCredentials, ldap }) {
     }
     // --- Μητρώο Επικοινωνίας (comregistry) ---
     if (req.url.includes('/getuserdata/username')) {
-      return html('<?xml version="1.0"?><userdata><afm>123456783</afm></userdata>');
+      return html('<?xml version="1.0"?><userdata><afm>123456783</afm>' +
+        (userdata || '') + '</userdata>');
     }
     if (req.url.includes('/getLdapInfo/')) {
       return html('<?xml version="1.0"?><ldap>' + (ldap || '') + '</ldap>');
+    }
+    // Τα δύο μητρώα. Κενό στοιχείο = «δεν υπάρχει», όπως ακριβώς απαντά η ΑΑΔΕ
+    // για ιδιώτη χωρίς επιχείρηση (`<mhtrwoepixeirhshs/>`).
+    if (req.url.includes('/getMhtrwoFusikou/')) {
+      return html('<?xml version="1.0"?><mhtrwofusikou>' + (fysiko || '') + '</mhtrwofusikou>');
+    }
+    if (req.url.includes('/getMhtrwoEpixeirhshs/')) {
+      return html('<?xml version="1.0"?><mhtrwoepixeirhshs>' + (epix || '') + '</mhtrwoepixeirhshs>');
     }
     return html('<html><body>ok</body></html>');
   };
@@ -403,6 +412,92 @@ await checkAsync('χωρίς διεύθυνση -> NoEmail, με το JSON γρ�
   assert(r.result.ok === false, 'έπρεπε να αποτύχει');
   assert(r.result.reason === 'NoEmail', `reason=${r.result.reason}`);
   assert(r.mock.files.has('AADE_email_123456783.json'), 'το JSON έπρεπε να γραφτεί ούτως ή άλλως');
+});
+
+console.log('\naade-profile — άντληση στοιχείων πελάτη\n');
+
+const FYSIKO = '<afm>123456783</afm><armodiadoy>ΔΟΥ ΚΗΦΙΣΙΑΣ</armodiadoy>' +
+  '<katastashforologoumenoy>ΚΑΝΟΝΙΚΗ</katastashforologoumenoy>' +
+  '<epwnymoa>ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ</epwnymoa>';
+const EPIX = '<hmenarxhs>01/01/2015</hmenarxhs><doydescription>ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ</doydescription>' +
+  '<katastashepixeirhshs>ΕΝΕΡΓΗ</katastashepixeirhshs>';
+
+async function profile(opts) {
+  const { result } = await runConfig(
+    { goodCredentials: true, ...opts },
+    'aade-profile',
+    { user: 'testuser', pass: 'testpass', vat: '' },
+  );
+  return result;
+}
+
+await checkAsync('μητρώο φυσικού χωρίς επιχείρηση -> ΙΔΙΩΤΗΣ', async () => {
+  const r = await profile({
+    userdata: '<onomatepwnymo>ΠΑΠΑΔΟΠΟΥΛΟΣ  ΓΕΩΡΓΙΟΣ</onomatepwnymo>',
+    fysiko: FYSIKO,
+  });
+  assert(r.ok, `reason=${r.reason}`);
+  assert(r.out.kind === 'ΙΔΙΩΤΗΣ', `kind=${r.out.kind}`);
+  assert(r.out.hasAmka === true, 'ο ιδιώτης έχει ΑΜΚΑ');
+  assert(r.out.doy === 'ΔΟΥ ΚΗΦΙΣΙΑΣ', `doy=${r.out.doy}`);
+});
+
+await checkAsync('φυσικό + επιχείρηση -> ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ, ΔΟΥ από την επιχείρηση', async () => {
+  const r = await profile({
+    userdata: '<onomatepwnymo>ΠΑΠΑΔΟΠΟΥΛΟΣ  ΓΕΩΡΓΙΟΣ</onomatepwnymo>',
+    fysiko: FYSIKO,
+    epix: EPIX,
+  });
+  assert(r.out.kind === 'ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ', `kind=${r.out.kind}`);
+  assert(r.out.hasAmka === true, 'η ατομική έχει ΑΜΚΑ — υπάρχει φυσικό πρόσωπο από πίσω');
+  assert(r.out.doy === 'ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ', `doy=${r.out.doy}`);
+});
+
+await checkAsync('μόνο επιχείρηση -> ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ, χωρίς ΑΜΚΑ', async () => {
+  const r = await profile({
+    userdata: '<longepwnymia>ΑΛΦΑ ΕΜΠΟΡΙΚΗ ΙΚΕ</longepwnymia>',
+    epix: EPIX,
+  });
+  assert(r.out.kind === 'ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ', `kind=${r.out.kind}`);
+  assert(r.out.hasAmka === false, 'το νομικό πρόσωπο ΔΕΝ έχει ΑΜΚΑ');
+  assert(r.out.name === 'ΑΛΦΑ ΕΜΠΟΡΙΚΗ ΙΚΕ', `name=${r.out.name}`);
+  assert(r.out.firstName === '', 'το νομικό πρόσωπο δεν έχει όνομα');
+});
+
+await checkAsync('το ονοματεπώνυμο σπάει στα δύο κενά της ΑΑΔΕ', async () => {
+  const r = await profile({
+    userdata: '<onomatepwnymo>ΠΑΠΑΔΟΠΟΥΛΟΣ  ΓΕΩΡΓΙΟΣ</onomatepwnymo>',
+    fysiko: FYSIKO,
+  });
+  assert(r.out.name === 'ΠΑΠΑΔΟΠΟΥΛΟΣ', `name=${r.out.name}`);
+  assert(r.out.firstName === 'ΓΕΩΡΓΙΟΣ', `firstName=${r.out.firstName}`);
+});
+
+await checkAsync('σύνθετο επώνυμο με ένα κενό ΔΕΝ σπάει στα τυφλά', async () => {
+  // «ΠΑΠΑ ΓΕΩΡΓΙΟΥ» χωρίς διπλό κενό: δεν ξέρουμε πού τελειώνει το επώνυμο.
+  // Καλύτερα όλο στο ένα πεδίο παρά λάθος σπάσιμο σε email προς τον πελάτη.
+  const r = await profile({
+    userdata: '<onomatepwnymo>ΠΑΠΑ ΓΕΩΡΓΙΟΥ</onomatepwnymo>',
+    fysiko: FYSIKO,
+  });
+  assert(r.out.name === 'ΠΑΠΑ ΓΕΩΡΓΙΟΥ', `name=${r.out.name}`);
+  assert(r.out.firstName === '', `firstName=${r.out.firstName}`);
+});
+
+await checkAsync('χωρίς κανένα μητρώο -> NoRegistry', async () => {
+  const r = await profile({ userdata: '<onomatepwnymo>ΚΑΝΕΙΣ</onomatepwnymo>' });
+  assert(r.ok === false, 'έπρεπε να αποτύχει');
+  assert(r.reason === 'NoRegistry', `reason=${r.reason}`);
+});
+
+await checkAsync('η διεύθυνση επικοινωνίας έρχεται μαζί, σε μία σύνδεση', async () => {
+  const r = await profile({
+    userdata: '<onomatepwnymo>ΠΑΠΑΔΟΠΟΥΛΟΣ  ΓΕΩΡΓΙΟΣ</onomatepwnymo>',
+    fysiko: FYSIKO,
+    ldap: '<mail2>Pelatis@Example.GR</mail2>',
+  });
+  assert(r.out.email === 'pelatis@example.gr', `email=${r.out.email}`);
+  assert(r.out.emailSource === 'mail2', `source=${r.out.emailSource}`);
 });
 
 console.log('\npage-helper.js — ανάλυση επιλογέων Playwright\n');

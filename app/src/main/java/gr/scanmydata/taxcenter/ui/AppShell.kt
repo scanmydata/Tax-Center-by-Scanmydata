@@ -79,7 +79,12 @@ fun AppShell(container: AppContainer) {
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val current = Destination.entries.firstOrNull { it.route == route } ?: Destination.Clients
-    val title = if (route?.startsWith(CLIENT_ROUTE) == true) "Καρτέλα πελάτη" else current.label
+    // Η καρτέλα υπάρχοντος πελάτη (`client/<id>`) δεν είναι θέση του μενού και
+    // δεν έχει δική της ετικέτα· η νέα καρτέλα έχει.
+    val title = when {
+        route?.startsWith("$CLIENT_ROUTE/") == true -> "Καρτέλα πελάτη"
+        else -> current.label
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -159,6 +164,15 @@ fun AppShell(container: AppContainer) {
                         container = container,
                         clientId = entry.arguments?.getLong("id") ?: 0L,
                         onDone = { navController.popBackStack() },
+                    )
+                }
+                // Δική της διαδρομή αντί για `client/0`: έτσι το συρτάρι
+                // φωτίζει τη σωστή θέση και η κεφαλίδα λέει «Νέος πελάτης».
+                composable(Destination.NewClient.route) {
+                    ClientEditScreen(
+                        container = container,
+                        clientId = 0L,
+                        onDone = { navController.navigate(Destination.Clients.route) },
                     )
                 }
                 composable(Destination.Import.route) { ImportScreen(container) }

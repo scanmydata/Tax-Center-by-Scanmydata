@@ -65,6 +65,8 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var includeSecrets by remember { mutableStateOf(settings.includePasswordsInClientEmail) }
     var officeName by remember { mutableStateOf(settings.officeName) }
     var signature by remember { mutableStateOf(settings.signature) }
+    var signatureDocuments by remember { mutableStateOf(settings.signatureDocuments) }
+    var signatureCredentials by remember { mutableStateOf(settings.signatureCredentials) }
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
 
@@ -107,8 +109,36 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         OutlinedTextField(
             value = signature,
             onValueChange = { signature = it; settings.signature = it },
-            label = { Text("Υπογραφή") },
+            label = { Text("Υπογραφή (κοινή)") },
             minLines = 3,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Ξεχωριστή υπογραφή ανά είδος μηνύματος",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Text(
+            "Κενό πεδίο σημαίνει «χρησιμοποίησε την κοινή». Τα δύο μηνύματα δεν " +
+                "κλείνουν το ίδιο: αυτό με τους κωδικούς χρειάζεται σύσταση να μην " +
+                "προωθηθεί, αυτό με τα έντυπα όχι.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = signatureDocuments,
+            onValueChange = { signatureDocuments = it; settings.signatureDocuments = it },
+            label = { Text("Υπογραφή — αποστολή εντύπων") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = signatureCredentials,
+            onValueChange = { signatureCredentials = it; settings.signatureCredentials = it },
+            label = { Text("Υπογραφή — αποστολή στοιχείων/κωδικών") },
+            minLines = 2,
             modifier = Modifier.fillMaxWidth(),
         )
 

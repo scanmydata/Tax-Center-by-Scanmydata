@@ -23,6 +23,16 @@ enum class Destination(
     @DrawableRes val icon: Int,
 ) {
     Clients("clients", "Πελάτες", R.drawable.ic_menu_clients),
+
+    /**
+     * Χωριστή θέση μενού από τη λίστα, όχι κουμπί μέσα της.
+     *
+     * Είναι δύο διαφορετικές δουλειές: «βρες τον Παπαδόπουλο» και «καταχώρησε
+     * καινούργιο». Η δεύτερη γίνεται με τον πελάτη στο τηλέφωνο και τους
+     * κωδικούς στο χέρι, και δεν πρέπει να περνά μέσα από μια λίστα 400
+     * ονομάτων για να βρεθεί ένα κουμπί στη γωνία.
+     */
+    NewClient("client-new", "Νέος πελάτης", R.drawable.ic_menu_client_new),
     Import("import", "Εισαγωγή από Excel", R.drawable.ic_menu_import),
     Fetch("fetch", "Λήψη εντύπων", R.drawable.ic_menu_fetch),
     Documents("documents", "Έγγραφα", R.drawable.ic_menu_documents),

@@ -40,11 +40,16 @@ globalThis.__runConfig = function (callId, configId, inputsJson, outDir) {
         ? 'RESULT: ok' + (res.files && res.files.length ? ' (' + res.files.length + ' file(s))' : '')
         : 'RESULT: failed' + (res && res.reason ? ' (' + res.reason + ')' : ''));
 
+      // Τα configs της εφαρμογής (`aade-email`, `aade-profile`) βάζουν τα
+      // δεδομένα τους σε `out`. Τα configs του runner δεν ξέρουν από `out` και
+      // τα κρεμούν στη ρίζα — το `amka-retrieve` επιστρέφει `{ok, amka, files}`.
+      // Για να μη χρειαστεί να πειραχτούν (θα ήταν drift από τον runner),
+      // περνάμε ολόκληρο το αποτέλεσμα όταν δεν υπάρχει `out`.
       __bridge.finish(callId, JSON.stringify({
         ok: okFlag,
         reason: (res && res.reason) || '',
         files: (res && res.files) || [],
-        out: (res && res.out) || null,
+        out: (res && res.out) || (res ? res : null),
         durationMs: Date.now() - started
       }));
     } catch (e) {

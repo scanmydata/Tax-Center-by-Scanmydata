@@ -48,10 +48,42 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_GOOGLE_CONNECTED, false)
         set(v) = prefs.edit().putBoolean(KEY_GOOGLE_CONNECTED, v).apply()
 
-    /** Υπογραφή που μπαίνει στο τέλος κάθε email. */
+    /** Υπογραφή που μπαίνει στο τέλος κάθε email, όταν δεν υπάρχει ειδική. */
     var signature: String
         get() = prefs.getString(KEY_SIGNATURE, "").orEmpty()
         set(v) = prefs.edit().putString(KEY_SIGNATURE, v).apply()
+
+    /**
+     * Υπογραφή μόνο για το email με τα **στοιχεία του πελάτη**.
+     *
+     * Τα δύο μηνύματα δεν κλείνουν το ίδιο. Στο email των εντύπων ταιριάζει
+     * «είμαστε στη διάθεσή σας για διευκρινίσεις»· σε αυτό που κουβαλά κωδικούς
+     * χρειάζεται κάτι άλλο — πού να απευθυνθεί αν κάτι δεν δουλεύει, και ρητή
+     * σύσταση να μη γίνει προώθηση του μηνύματος.
+     *
+     * Κενό = χρησιμοποιείται η κοινή [signature].
+     */
+    var signatureCredentials: String
+        get() = prefs.getString(KEY_SIGNATURE_CREDENTIALS, "").orEmpty()
+        set(v) = prefs.edit().putString(KEY_SIGNATURE_CREDENTIALS, v).apply()
+
+    /** Υπογραφή μόνο για το email με τα φορολογικά έντυπα. Κενό = η κοινή. */
+    var signatureDocuments: String
+        get() = prefs.getString(KEY_SIGNATURE_DOCUMENTS, "").orEmpty()
+        set(v) = prefs.edit().putString(KEY_SIGNATURE_DOCUMENTS, v).apply()
+
+    /**
+     * Η υπογραφή που ισχύει για ένα είδος αποστολής.
+     *
+     * Το [kind] είναι `SendEntity.KIND_CREDENTIALS` ή `KIND_DOCUMENTS`. Άγνωστο
+     * είδος παίρνει την κοινή υπογραφή — μια νέα κατηγορία email δεν πρέπει να
+     * φύγει ανυπόγραφη επειδή κανείς δεν θυμήθηκε να προσθέσει ρύθμιση.
+     */
+    fun signatureFor(kind: String): String = when (kind) {
+        "CREDENTIALS" -> signatureCredentials.ifBlank { signature }
+        "DOCUMENTS" -> signatureDocuments.ifBlank { signature }
+        else -> signature
+    }
 
     /** Το γραφείο, όπως εμφανίζεται στα email. */
     var officeName: String
@@ -110,6 +142,8 @@ class Settings(context: Context) {
         const val KEY_SENDER_EMAIL = "sender_email"
         const val KEY_GOOGLE_CONNECTED = "google_connected"
         const val KEY_SIGNATURE = "signature"
+        const val KEY_SIGNATURE_CREDENTIALS = "signature_credentials"
+        const val KEY_SIGNATURE_DOCUMENTS = "signature_documents"
         const val KEY_OFFICE_NAME = "office_name"
     }
 }

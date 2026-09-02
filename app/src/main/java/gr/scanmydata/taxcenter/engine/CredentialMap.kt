@@ -49,6 +49,7 @@ object CredentialMap {
         "aade-traffic-fees" to TAXIS,
         "aade-enfia" to TAXIS,
         "aade-email" to TAXIS,
+        "aade-profile" to TAXIS,
 
         // e-ΕΦΚΑ μη μισθωτοί / ΑΤΛΑΣ / ΚΕΑΟ — TAXISnet + ΑΦΜ + ΑΜΚΑ
         "efka-notices" to TAXIS_AFM_AMKA,

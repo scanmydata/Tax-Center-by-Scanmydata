@@ -4,13 +4,22 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import gr.scanmydata.taxcenter.security.AppLock
 import gr.scanmydata.taxcenter.ui.AppContainer
 import gr.scanmydata.taxcenter.ui.AppShell
 import gr.scanmydata.taxcenter.ui.LockScreen
+import gr.scanmydata.taxcenter.ui.SplashScreen
 import gr.scanmydata.taxcenter.ui.theme.TaxCenterTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * `FragmentActivity` και όχι `ComponentActivity`: το `BiometricPrompt` του
@@ -29,10 +38,28 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             TaxCenterTheme {
-                if (AppLock.locked) {
-                    LockScreen(onUnlocked = { })
-                } else {
-                    AppShell(container)
+                var ready by remember { mutableStateOf(false) }
+
+                // Το πρώτο άνοιγμα της SQLCipher παράγει το κλειδί και τρέχει τα
+                // PBKDF2 περάσματα — αισθητός χρόνος σε μεσαία συσκευή, και όχι
+                // δουλειά για το κύριο νήμα.
+                LaunchedEffect(Unit) {
+                    val started = System.currentTimeMillis()
+                    withContext(Dispatchers.IO) {
+                        runCatching { container.db.openHelper.readableDatabase }
+                    }
+                    // Κατώφλι εμφάνισης: όταν η βάση ανοίγει σε 80ms, μια οθόνη
+                    // που εμφανίζεται και σβήνει διαβάζεται ως τρεμόπαιγμα, όχι
+                    // ως υποδοχή.
+                    val elapsed = System.currentTimeMillis() - started
+                    if (elapsed < SPLASH_FLOOR_MS) delay(SPLASH_FLOOR_MS - elapsed)
+                    ready = true
+                }
+
+                when {
+                    !ready -> SplashScreen()
+                    AppLock.locked -> LockScreen(onUnlocked = { })
+                    else -> AppShell(container)
                 }
             }
         }
@@ -66,5 +93,9 @@ class MainActivity : FragmentActivity() {
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
+    }
+
+    private companion object {
+        const val SPLASH_FLOOR_MS = 700L
     }
 }

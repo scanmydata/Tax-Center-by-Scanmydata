@@ -69,14 +69,10 @@ fun ClientsScreen(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "${filtered.size} πελάτες",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { onOpenClient(0L) }) { Text("Νέος πελάτης") }
-        }
+        Text(
+            "${filtered.size} πελάτες",
+            style = MaterialTheme.typography.labelMedium,
+        )
 
         if (status.isNotBlank()) {
             Spacer(Modifier.height(8.dp))

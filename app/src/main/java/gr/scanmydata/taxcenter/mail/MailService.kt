@@ -63,7 +63,7 @@ class MailService(
             klidarithmos = credentials[Field.TAXIS_KLIDARITHMOS].orEmpty(),
             includeSecrets = includeSecrets,
             officeName = settings.officeName,
-            signature = settings.signature,
+            signature = settings.signatureFor(SendEntity.KIND_CREDENTIALS),
         )
 
         val items = buildList {
@@ -115,7 +115,7 @@ class MailService(
             fileNames = documents.map { it.fileName },
             note = note,
             officeName = settings.officeName,
-            signature = settings.signature,
+            signature = settings.signatureFor(SendEntity.KIND_DOCUMENTS),
         )
 
         val send = deliver(

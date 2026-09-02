@@ -1,15 +1,24 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
 import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
@@ -54,6 +64,10 @@ import kotlinx.coroutines.withContext
  *  * Ο έλεγχος mod-11 του ΑΦΜ είναι **συμβουλευτικός**: υπάρχουν πραγματικά ΑΦΜ
  *    που δεν τον περνούν, και μια απόρριψη εδώ θα ήταν χειρότερη από μια
  *    προειδοποίηση.
+ *
+ * Η φόρμα ξεκινά από τους κωδικούς TAXISnet και όχι από τα στοιχεία, επειδή
+ * αυτή είναι η σειρά της δουλειάς: με τους κωδικούς στο χέρι, τα υπόλοιπα
+ * έρχονται από το Μητρώο με ένα πάτημα.
  */
 @Composable
 fun ClientEditScreen(
@@ -86,6 +100,7 @@ fun ClientEditScreen(
 
     var consentAt by remember { mutableStateOf(0L) }
     var status by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(clientId) {
@@ -100,7 +115,7 @@ fun ClientEditScreen(
         afm = client.afm
         name = client.name
         firstName = client.firstName
-        kind = client.kind
+        kind = ClientKind.normalise(client.kind)
         amka = withContext(Dispatchers.IO) { container.repository.amka(client) }
         doy = client.doy
         active = client.active
@@ -123,15 +138,90 @@ fun ClientEditScreen(
 
     val afmClean = Normalize.afm(afm)
     val afmWarning = when {
+        afmClean.isBlank() -> "Θα συμπληρωθεί από την άντληση, ή γράψ' το εδώ."
         afmClean.length != 9 -> "Το ΑΦΜ πρέπει να έχει 9 ψηφία."
         !Normalize.validAfm(afmClean) -> "Ο έλεγχος mod-11 δεν περνά — έλεγξέ το, αλλά μπορεί να είναι σωστό."
         else -> ""
     }
+    val hasAmka = kind.isBlank() || ClientKind.hasAmka(kind)
+    val taxisUser = credentials[Field.TAXIS_USER].orEmpty()
+    val taxisPass = credentials[Field.TAXIS_PASS].orEmpty()
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
 
         Text(if (isNew) "Νέος πελάτης" else "Καρτέλα πελάτη", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
+
+        // ------------------------------------------------ άντληση από TAXIS
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Κωδικοί TAXISnet", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Με αυτούς γίνεται η άντληση στοιχείων και όλες οι λήψεις εντύπων.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                )
+                Spacer(Modifier.height(8.dp))
+                SecretField("Όνομα χρήστη", credentials, Field.TAXIS_USER, reveal = true)
+                SecretField("Συνθηματικό", credentials, Field.TAXIS_PASS, revealSecrets)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { revealSecrets = !revealSecrets }) {
+                        Text(if (revealSecrets) "Απόκρυψη" else "Εμφάνιση")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (busy) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp).padding(end = 4.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Button(
+                        enabled = !busy && taxisUser.isNotBlank() && taxisPass.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                status = "Σύνδεση στο TAXIS και ανάγνωση Μητρώου…"
+                                val profile = container.fetch.lookupProfile(
+                                    user = taxisUser,
+                                    pass = taxisPass,
+                                    // Σε υπάρχοντα πελάτη ρωτάμε ρητά για το ΑΦΜ
+                                    // του· σε νέο, ο λογαριασμός λέει ποιος είναι.
+                                    afm = if (isNew) "" else afmClean,
+                                )
+                                busy = false
+                                status = if (!profile.ok) {
+                                    profile.error
+                                } else {
+                                    if (isNew && profile.afm.isNotBlank()) afm = profile.afm
+                                    if (profile.name.isNotBlank()) name = profile.name
+                                    if (profile.firstName.isNotBlank()) firstName = profile.firstName
+                                    if (profile.kind.isNotBlank()) kind = profile.kind
+                                    if (profile.doy.isNotBlank()) doy = profile.doy
+                                    if (profile.email.isNotBlank()) emailAade = profile.email
+                                    active = profile.active
+                                    if (!isNew && profile.afm.isNotBlank() && profile.afm != afmClean) {
+                                        "⚠ Ο λογαριασμός ανήκει σε άλλο ΑΦΜ (${profile.afm}) — " +
+                                            "έλεγξε τους κωδικούς. Τα στοιχεία δεν εφαρμόστηκαν στο ΑΦΜ."
+                                    } else {
+                                        "Συμπληρώθηκαν από το Μητρώο. Έλεγξέ τα και αποθήκευσε."
+                                    }
+                                }
+                            }
+                        },
+                    ) { Text("Άντληση στοιχείων") }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // ------------------------------------------------------- ταυτότητα
 
         OutlinedTextField(
             value = afm,
@@ -139,15 +229,55 @@ fun ClientEditScreen(
             label = { Text("ΑΦΜ") },
             singleLine = true,
             enabled = isNew,
-            isError = afmClean.length != 9,
+            isError = afmClean.isNotBlank() && afmClean.length != 9,
             supportingText = { if (afmWarning.isNotBlank()) Text(afmWarning) },
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
         FormField("Επωνυμία / Επώνυμο", name) { name = it }
         FormField("Όνομα", firstName) { firstName = it }
-        FormField("Είδος (Φυσικό / Ατομική / Νομικό Πρόσωπο)", kind) { kind = it }
-        FormField("ΑΜΚΑ", amka) { amka = it.filter(Char::isDigit).take(11) }
+
+        KindDropdown(kind) { kind = it }
+
+        if (hasAmka) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = amka,
+                    onValueChange = { amka = it.filter(Char::isDigit).take(11) },
+                    label = { Text("ΑΜΚΑ") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    enabled = !busy && taxisUser.isNotBlank() && taxisPass.isNotBlank(),
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            status = "Σύνδεση στο MyAMKA…"
+                            val result = container.fetch.lookupAmka(taxisUser, taxisPass)
+                            busy = false
+                            status = if (result.startsWith("!")) {
+                                result.removePrefix("!")
+                            } else {
+                                amka = result
+                                "Βρέθηκε ΑΜΚΑ."
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(start = 8.dp),
+                ) { Text("Άντληση") }
+            }
+            Spacer(Modifier.height(8.dp))
+        } else {
+            Text(
+                "Το νομικό πρόσωπο δεν έχει ΑΜΚΑ — γι' αυτό δεν εμφανίζεται το " +
+                    "πεδίο, και γι' αυτό δεν ισχύουν οι διαδικασίες ΕΦΚΑ, ΑΤΛΑΣ και ΚΕΑΟ.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+
         FormField("ΔΟΥ", doy) { doy = it }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -172,12 +302,14 @@ fun ClientEditScreen(
         )
         Spacer(Modifier.height(6.dp))
         OutlinedButton(
-            enabled = !isNew && existing != null,
+            enabled = !busy && !isNew && existing != null,
             onClick = {
                 val client = existing ?: return@OutlinedButton
                 scope.launch {
+                    busy = true
                     status = "Αναζήτηση στο Μητρώο Επικοινωνίας…"
                     val result = container.fetch.lookupEmail(client)
+                    busy = false
                     if (result.startsWith("!")) {
                         status = result.removePrefix("!")
                     } else {
@@ -216,11 +348,11 @@ fun ClientEditScreen(
         HorizontalDivider()
         Spacer(Modifier.height(16.dp))
 
-        // --------------------------------------------------- διαπιστευτήρια
+        // ------------------------------------------- υπόλοιπα διαπιστευτήρια
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Διαπιστευτήρια",
+                "Άλλα διαπιστευτήρια",
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
             )
@@ -237,8 +369,6 @@ fun ClientEditScreen(
         )
         Spacer(Modifier.height(8.dp))
 
-        SecretField("Όνομα χρήστη TAXISnet", credentials, Field.TAXIS_USER, reveal = true)
-        SecretField("Συνθηματικό TAXISnet", credentials, Field.TAXIS_PASS, revealSecrets)
         SecretField("Κλειδάριθμος", credentials, Field.TAXIS_KLIDARITHMOS, revealSecrets)
         SecretField("Όνομα χρήστη ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_USER, reveal = true)
         SecretField("Συνθηματικό ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_PASS, revealSecrets)
@@ -286,18 +416,26 @@ fun ClientEditScreen(
 
         Row {
             Button(
-                enabled = afmClean.length == 9,
+                enabled = !busy && afmClean.length == 9,
                 onClick = {
                     scope.launch {
                         status = "Αποθήκευση…"
                         status = try {
                             val base = existing
+                            val normalisedKind = ClientKind.normalise(kind)
                             val entity = (base ?: ClientEntity(afm = afmClean)).copy(
                                 afm = afmClean,
                                 name = name.trim(),
                                 firstName = firstName.trim(),
-                                kind = kind.trim(),
-                                amkaEnc = container.crypto.enc(Normalize.amka(amka)),
+                                kind = normalisedKind,
+                                // Νομικό πρόσωπο δεν έχει ΑΜΚΑ: ό,τι κι αν
+                                // έμεινε στο πεδίο από προηγούμενη επιλογή, δεν
+                                // αποθηκεύεται.
+                                amkaEnc = if (ClientKind.hasAmka(normalisedKind)) {
+                                    container.crypto.enc(Normalize.amka(amka))
+                                } else {
+                                    ""
+                                },
                                 doy = doy.trim(),
                                 active = active,
                                 emailAade = emailAade.trim(),
@@ -380,6 +518,43 @@ fun ClientEditScreen(
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Άκυρο") } },
         )
+    }
+}
+
+/**
+ * Το είδος υπόχρεου είναι κλειστή λίστα, όχι ελεύθερο κείμενο: από αυτό
+ * κρίνεται αν υπάρχει ΑΜΚΑ και ποιες διαδικασίες ισχύουν. Ένα «ΦΠ»
+ * πληκτρολογημένο στο χέρι θα έκρυβε πεδία χωρίς λόγο.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun KindDropdown(value: String, onChange: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Είδος υπόχρεου") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                ClientKind.ALL.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onChange(option)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 

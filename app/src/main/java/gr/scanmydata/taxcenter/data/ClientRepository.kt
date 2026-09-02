@@ -1,6 +1,7 @@
 package gr.scanmydata.taxcenter.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.ClientEntity
@@ -65,7 +66,7 @@ class ClientRepository(
                 afm = row.afm,
                 name = row.values[Field.NAME].orEmpty(),
                 firstName = row.values[Field.FIRST_NAME].orEmpty(),
-                kind = row.values[Field.KIND].orEmpty(),
+                kind = ClientKind.normalise(row.values[Field.KIND].orEmpty()),
                 amkaEnc = crypto.enc(row.values[Field.AMKA].orEmpty()),
                 doy = row.values[Field.DOY].orEmpty(),
                 active = !row.values[Field.ACTIVE].orEmpty().startsWith("Ανενεργ", ignoreCase = true),
@@ -110,23 +111,33 @@ class ClientRepository(
      * Τα **email** όμως γράφονται αυτούσια, ακόμη και κενά: εκεί το κενό είναι
      * ρητή πράξη του χρήστη («αυτή η διεύθυνση είναι λάθος, σβήσ' την»), και το
      * `upsertPreservingBlanks` δεν τα αγγίζει καθόλου.
+     *
+     * **Όλα ή τίποτα.** Η κρυπτογράφηση γίνεται *πριν* από την πρώτη εγγραφή και
+     * οι εγγραφές μέσα σε συναλλαγή. Αλλιώς μια αποτυχία στο τρίτο πεδίο άφηνε
+     * τον πελάτη γραμμένο και τους κωδικούς του όχι — η οθόνη έδειχνε σφάλμα,
+     * η βάση είχε μισή καρτέλα, και δεν φαινόταν πουθενά ποια μισή.
      */
     suspend fun saveClient(client: ClientEntity, credentials: Map<Field, String>): Long {
         val now = System.currentTimeMillis()
-        val id = db.clients().upsertPreservingBlanks(client, now)
-        db.clients().setEmails(
-            id = id,
-            aade = client.emailAade.trim(),
-            manual = client.emailManual.trim(),
-            preferred = client.emailPreferred.trim(),
-            now = now,
-        )
-        for ((field, value) in credentials) {
-            if (value.isBlank()) continue
-            db.credentials().putIfNotBlank(id, field.name, crypto.enc(value), now)
+        val encrypted = credentials
+            .filterValues { it.isNotBlank() }
+            .map { (field, value) -> field.name to crypto.enc(value) }
+
+        return db.withTransaction {
+            val id = db.clients().upsertPreservingBlanks(client, now)
+            db.clients().setEmails(
+                id = id,
+                aade = client.emailAade.trim(),
+                manual = client.emailManual.trim(),
+                preferred = client.emailPreferred.trim(),
+                now = now,
+            )
+            for ((field, valueEnc) in encrypted) {
+                db.credentials().putIfNotBlank(id, field, valueEnc, now)
+            }
+            db.audit().log(AuditEntity(ts = now, action = "CLIENT_SAVE", afm = client.afm))
+            id
         }
-        db.audit().log(AuditEntity(ts = now, action = "CLIENT_SAVE", afm = client.afm))
-        return id
     }
 
     /** Τα αποθηκευμένα διαπιστευτήρια, **αποκρυπτογραφημένα**. */
@@ -138,6 +149,53 @@ class ClientRepository(
     }
 
     suspend fun amka(client: ClientEntity): String = crypto.dec(client.amkaEnc)
+
+    /**
+     * Γράφει ό,τι ήρθε από άντληση (Μητρώο ΑΑΔΕ, MyAMKA) **αφού** το ενέκρινε
+     * ο χρήστης.
+     *
+     * Κάθε παράμετρος είναι nullable με τη σημασία «μην αγγίξεις»: η άντληση
+     * επιστρέφει άλλοτε όλα τα πεδία και άλλοτε ένα, και ο χρήστης μπορεί να
+     * έχει εγκρίνει μόνο κάποια από αυτά. Το `null` είναι διαφορετικό από το
+     * κενό — αλλά κενό δεν φτάνει ποτέ εδώ, το κόβει η οθόνη έγκρισης.
+     */
+    suspend fun applyLookup(
+        clientId: Long,
+        name: String? = null,
+        firstName: String? = null,
+        kind: String? = null,
+        doy: String? = null,
+        amka: String? = null,
+        emailAade: String? = null,
+    ) {
+        val existing = db.clients().byId(clientId) ?: return
+        db.clients().update(
+            existing.copy(
+                name = name ?: existing.name,
+                firstName = firstName ?: existing.firstName,
+                kind = kind ?: existing.kind,
+                doy = doy ?: existing.doy,
+                amkaEnc = amka?.let { crypto.enc(it) } ?: existing.amkaEnc,
+                emailAade = emailAade ?: existing.emailAade,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+        db.audit().log(
+            AuditEntity(
+                ts = System.currentTimeMillis(),
+                action = "LOOKUP_APPLY",
+                afm = existing.afm,
+                detail = listOfNotNull(
+                    name?.let { "επωνυμία" },
+                    firstName?.let { "όνομα" },
+                    kind?.let { "είδος" },
+                    doy?.let { "ΔΟΥ" },
+                    amka?.let { "ΑΜΚΑ" },
+                    emailAade?.let { "email" },
+                ).joinToString(", "),
+            ),
+        )
+    }
 
     suspend fun setEmails(clientId: Long, aade: String?, manual: String?, preferred: String?) {
         val existing = db.clients().byId(clientId) ?: return

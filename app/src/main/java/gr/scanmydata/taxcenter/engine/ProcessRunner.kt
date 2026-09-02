@@ -38,6 +38,15 @@ class ProcessRunner(
         val configId: String,
         /** Έτος, μήνας, είδος εντύπου κ.λπ. — ό,τι δεν είναι διαπιστευτήριο. */
         val extraInputs: Map<String, String> = emptyMap(),
+        /**
+         * Διαπιστευτήρια που δίνονται επί τόπου, αντί να διαβαστούν από τη βάση.
+         *
+         * Το χρειάζεται η **νέα** καρτέλα πελάτη: ο λογιστής πληκτρολογεί
+         * όνομα χρήστη και συνθηματικό και πατά «άντληση από TAXIS» πριν
+         * αποθηκεύσει οτιδήποτε. Δεν υπάρχει ακόμη εγγραφή να διαβαστεί — και
+         * δεν θέλουμε να γραφτεί μία μόνο για να τρέξει η αναζήτηση.
+         */
+        val credentialsOverride: Pair<String, String>? = null,
     )
 
     data class Outcome(
@@ -156,8 +165,12 @@ class ProcessRunner(
         val requirement = CredentialMap.forConfig(job.configId)
             ?: throw MissingCredentials("Άγνωστη διαδικασία: ${job.configId}")
 
-        val stored = db.credentials().forClient(job.client.id)
-            .associate { it.field to crypto.dec(it.valueEnc) }
+        val stored = if (job.credentialsOverride != null) {
+            emptyMap()
+        } else {
+            db.credentials().forClient(job.client.id)
+                .associate { it.field to crypto.dec(it.valueEnc) }
+        }
 
         fun credential(field: Field): String = stored[field.name].orEmpty()
 
@@ -165,8 +178,8 @@ class ProcessRunner(
             CredentialMap.Login.TAXISNET -> Field.TAXIS_USER to Field.TAXIS_PASS
             CredentialMap.Login.IKA_EMPLOYER -> Field.IKA_EMPLOYER_USER to Field.IKA_EMPLOYER_PASS
         }
-        val user = credential(userField)
-        val pass = credential(passField)
+        val user = job.credentialsOverride?.first ?: credential(userField)
+        val pass = job.credentialsOverride?.second ?: credential(passField)
         if (user.isBlank() || pass.isBlank()) {
             throw MissingCredentials(
                 "Λείπουν ${CredentialMap.describe(requirement.login)} για τον πελάτη ${job.client.afm}",
@@ -192,10 +205,20 @@ class ProcessRunner(
 
     // --------------------------------------------------------------- αρχεία
 
-    /** `filesDir/runs/<ΑΦΜ>/<configId>/` — app-private, ποτέ κοινόχρηστη αποθήκευση. */
-    fun outputDir(job: Job): File =
-        File(context.filesDir, "runs/${FileBridge.sanitiseSegment(job.client.afm)}/${FileBridge.sanitiseSegment(job.configId)}")
-            .apply { mkdirs() }
+    /**
+     * `filesDir/runs/<ΑΦΜ>/<configId>/` — app-private, ποτέ κοινόχρηστη αποθήκευση.
+     *
+     * Στην άντληση στοιχείων για **νέο** πελάτη το ΑΦΜ είναι ακόμη άγνωστο —
+     * είναι αυτό που πάμε να βρούμε. Τότε η έξοδος πάει σε κοινό `_new`, που
+     * κρατά μόνο ένα JSON και ξαναγράφεται στην επόμενη άντληση.
+     */
+    fun outputDir(job: Job): File {
+        val afm = job.client.afm.ifBlank { "_new" }
+        return File(
+            context.filesDir,
+            "runs/${FileBridge.sanitiseSegment(afm)}/${FileBridge.sanitiseSegment(job.configId)}",
+        ).apply { mkdirs() }
+    }
 
     private fun existingFiles(dir: File): Set<String> =
         dir.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()

@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 19,
+  "count": 20,
   "configs": [
     {
       "id": "aade-debts",
@@ -722,6 +722,41 @@
       "file": "aade-email.js",
       "owner": "app",
       "title": "Email πελάτη από το Μητρώο Επικοινωνίας ΑΑΔΕ",
+      "portal": "AADE myAADE comregistry (GSIS OAM)",
+      "subsystem": "ScanMyData Tax Center",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "vat",
+          "label": "ΑΦΜ-στόχος (κενό = ο ΑΦΜ του λογαριασμού)",
+          "env": "AADE_VAT",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-profile",
+      "file": "aade-profile.js",
+      "owner": "app",
+      "title": "Άντληση στοιχείων πελάτη από το TAXIS (ονοματεπώνυμο, ΑΦΜ, ΔΟΥ)",
       "portal": "AADE myAADE comregistry (GSIS OAM)",
       "subsystem": "ScanMyData Tax Center",
       "actions": [

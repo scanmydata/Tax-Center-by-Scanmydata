@@ -1,7 +1,6 @@
 package gr.scanmydata.taxcenter.data
 
 import android.util.Base64
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -23,13 +22,30 @@ import javax.crypto.spec.GCMParameterSpec
  */
 class Crypto(private val keyProvider: () -> SecretKey) {
 
-    /** Κρυπτογραφεί. Το κενό μένει κενό — δεν έχει νόημα να κρύψουμε το τίποτα. */
+    /**
+     * Κρυπτογραφεί. Το κενό μένει κενό — δεν έχει νόημα να κρύψουμε το τίποτα.
+     *
+     * **Το IV δεν το δίνουμε εμείς.** Ένα κλειδί του Android Keystore
+     * δημιουργείται εξ ορισμού με `setRandomizedEncryptionRequired(true)`, και
+     * τότε το `init(ENCRYPT_MODE, key, GCMParameterSpec(…))` πετά
+     * `InvalidAlgorithmParameterException: caller-provided IV not permitted`.
+     *
+     * Και έχει δίκιο: στο GCM, δύο κρυπτογραφήσεις με το ίδιο ζεύγος κλειδιού
+     * και IV δεν αποκαλύπτουν απλώς ομοιότητες — επιτρέπουν την ανάκτηση του
+     * κλειδιού αυθεντικοποίησης. Το λειτουργικό δεν εμπιστεύεται τον καλούντα
+     * γι' αυτό· παράγει το ίδιο το IV και το διαβάζουμε από το `cipher.iv`.
+     */
     fun enc(plain: String?): String {
         if (plain.isNullOrEmpty()) return ""
-        val iv = ByteArray(IV_BYTES).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
-            init(Cipher.ENCRYPT_MODE, keyProvider(), GCMParameterSpec(TAG_BITS, iv))
+            init(Cipher.ENCRYPT_MODE, keyProvider())
         }
+        val iv = cipher.iv
+        // Το AndroidKeyStore δίνει πάντα 12 bytes για GCM. Ο έλεγχος υπάρχει
+        // επειδή η αποκρυπτογράφηση κόβει το IV σε σταθερό μήκος: αν κάποτε
+        // αλλάξει, θέλουμε να το μάθουμε τώρα και όχι όταν δεν θα διαβάζονται
+        // πια οι κωδικοί.
+        check(iv.size == IV_BYTES) { "Απρόσμενο μήκος IV: ${iv.size}" }
         val body = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
         return PREFIX + Base64.encodeToString(iv + body, Base64.NO_WRAP)
     }
