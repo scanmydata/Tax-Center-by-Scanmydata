@@ -17,6 +17,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.google.DriveBackup
+import gr.scanmydata.taxcenter.google.DriveSync
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
 import gr.scanmydata.taxcenter.mail.MailTemplateStore
 import gr.scanmydata.taxcenter.update.UpdateChecker
@@ -76,6 +78,9 @@ fun SettingsScreen(
     var signatureDocuments by remember { mutableStateOf(settings.signatureDocuments) }
     var signatureCredentials by remember { mutableStateOf(settings.signatureCredentials) }
     val templateStore = remember { MailTemplateStore(context) }
+    var driveMode by remember { mutableStateOf(settings.driveMode) }
+    var syncStatus by remember { mutableStateOf("") }
+    var syncBusy by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
@@ -323,7 +328,110 @@ fun SettingsScreen(
         HorizontalDivider()
         Spacer(Modifier.height(20.dp))
 
-        Text("Αντίγραφο ασφαλείας στο Drive", style = MaterialTheme.typography.titleMedium)
+        Text("Google Drive", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(6.dp))
+        DriveSync.Mode.entries.forEach { mode ->
+            Card(
+                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (mode == driveMode) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                ),
+            ) {
+                Row(
+                    Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = mode == driveMode,
+                        onClick = { driveMode = mode; settings.driveMode = mode },
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(mode.label, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            mode.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (driveMode == DriveSync.Mode.SYNC) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Δομή φακέλων: ScanMyData Tax Center → Πελάτες → «ΑΦΜ — Επωνυμία» → έτος. " +
+                    "Τα έντυπα ανεβαίνουν αυτόματα στο τέλος κάθε παρτίδας λήψης, " +
+                    "εφόσον υπάρχει δίκτυο.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Το τοπικό αντίγραφο μένει: χωρίς αυτό η εφαρμογή δεν θα δούλευε χωρίς " +
+                    "δίκτυο, και τα PDF στο Drive είναι ακρυπτογράφητα — δεν πρέπει να " +
+                    "γίνουν το μοναδικό αντίγραφο φορολογικών εντύπων τρίτων.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    enabled = !syncBusy,
+                    onClick = {
+                        scope.launch {
+                            syncBusy = true
+                            syncStatus = "Συγχρονισμός…"
+                            syncStatus = try {
+                                if (!container.driveSync.online()) {
+                                    "Δεν υπάρχει σύνδεση στο διαδίκτυο."
+                                } else {
+                                    val token = authorizer.accessToken()
+                                    val result = container.driveSync.syncAll(token) { p ->
+                                        syncStatus = "Ανέβηκαν ${p.uploaded}…"
+                                    }
+                                    "Ανέβηκαν ${result.uploaded}, ήδη συγχρονισμένα " +
+                                        "${result.skipped}" +
+                                        if (result.failed > 0) ", απέτυχαν ${result.failed}" else "."
+                                }
+                            } catch (e: Exception) {
+                                "Απέτυχε: ${e.message}"
+                            }
+                            syncBusy = false
+                        }
+                    },
+                ) { Text("Συγχρονισμός τώρα") }
+
+                OutlinedButton(
+                    enabled = !syncBusy,
+                    onClick = {
+                        scope.launch {
+                            syncBusy = true
+                            syncStatus = "Ανάκτηση αρχείων…"
+                            syncStatus = try {
+                                val token = authorizer.accessToken()
+                                val count = container.driveSync.pullMissing(token)
+                                "Κατέβηκαν $count αρχεία που έλειπαν."
+                            } catch (e: Exception) {
+                                "Απέτυχε: ${e.message}"
+                            }
+                            syncBusy = false
+                        }
+                    },
+                ) { Text("Ανάκτηση σε νέα συσκευή") }
+            }
+            if (syncStatus.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(syncStatus, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Αντίγραφο ασφαλείας της βάσης", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
         Text(
             "Προαιρετικό. Η βάση κρυπτογραφείται **πριν** ανέβει, με κλειδί που " +

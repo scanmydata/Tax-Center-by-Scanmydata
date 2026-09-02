@@ -91,6 +91,22 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putString(KEY_OFFICE_NAME, v).apply()
 
     /**
+     * Τι κάνει η εφαρμογή με το Google Drive.
+     *
+     * Αποθηκεύεται ως όνομα και όχι ως αριθμός: μια μελλοντική τιμή στη μέση της
+     * enum δεν πρέπει να αλλάξει σιωπηλά τη ρύθμιση κάποιου. Άγνωστη τιμή
+     * γυρίζει σε `BACKUP`, την πιο συντηρητική που κάνει κάτι χρήσιμο.
+     */
+    var driveMode: gr.scanmydata.taxcenter.google.DriveSync.Mode
+        get() = runCatching {
+            gr.scanmydata.taxcenter.google.DriveSync.Mode.valueOf(
+                prefs.getString(KEY_DRIVE_MODE, null)
+                    ?: gr.scanmydata.taxcenter.google.DriveSync.Mode.BACKUP.name,
+            )
+        }.getOrDefault(gr.scanmydata.taxcenter.google.DriveSync.Mode.BACKUP)
+        set(v) = prefs.edit().putString(KEY_DRIVE_MODE, v.name).apply()
+
+    /**
      * Έχει ολοκληρωθεί η πρώτη εκκίνηση;
      *
      * Στο πρώτο άνοιγμα δεν υπάρχει τίποτα να προστατευτεί — ούτε πελάτης, ούτε
@@ -150,6 +166,7 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putInt(KEY_RETENTION_MONTHS, v).apply()
 
     private companion object {
+        const val KEY_DRIVE_MODE = "drive_mode"
         const val KEY_FIRST_RUN_DONE = "first_run_completed"
         const val KEY_TOUR_SEEN = "tour_seen"
         const val KEY_LOCK = "lock_enabled"

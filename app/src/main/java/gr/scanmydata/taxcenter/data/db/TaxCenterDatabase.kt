@@ -29,8 +29,9 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         ConsentEntity::class,
         SendEntity::class,
         RunLogEntity::class,
+        DriveFileEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class TaxCenterDatabase : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class TaxCenterDatabase : RoomDatabase() {
     abstract fun consents(): ConsentDao
     abstract fun sends(): SendDao
     abstract fun runLogs(): RunLogDao
+    abstract fun driveFiles(): DriveFileDao
 
     companion object {
         private const val NAME = "taxcenter.db"
@@ -91,6 +93,24 @@ abstract class TaxCenterDatabase : RoomDatabase() {
             }
         }
 
+        /** v3: cache αντιστοίχισης τοπικών αρχείων με τα αντίγραφά τους στο Drive. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `drive_files` (
+                        `relativePath` TEXT PRIMARY KEY NOT NULL,
+                        `driveId` TEXT NOT NULL,
+                        `remoteName` TEXT NOT NULL,
+                        `parentId` TEXT NOT NULL,
+                        `bytes` INTEGER NOT NULL,
+                        `syncedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         @Volatile
         private var instance: TaxCenterDatabase? = null
 
@@ -103,7 +123,7 @@ abstract class TaxCenterDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(KeyStoreKeys.databasePassphrase(app))
             return Room.databaseBuilder(app, TaxCenterDatabase::class.java, NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
 

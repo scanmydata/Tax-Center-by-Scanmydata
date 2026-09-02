@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
@@ -35,6 +36,7 @@ class FetchController(
     private val repository: ClientRepository,
     private val assets: EngineAssets,
     private val mail: MailService,
+    private val driveSync: gr.scanmydata.taxcenter.google.DriveSync,
 ) {
 
     enum class Status { PENDING, RUNNING, OK, FAILED, CANCELLED }
@@ -136,7 +138,11 @@ class FetchController(
      *   κάθε πελάτη **ένα** email με τα έντυπα που κατέβηκαν *σε αυτή* την
      *   εκτέλεση. Ένα email ανά πελάτη, ποτέ κοινοποίηση σε τρίτο.
      */
-    fun start(plans: List<Plan>, autoSendToken: String? = null) {
+    fun start(
+        plans: List<Plan>,
+        autoSendToken: String? = null,
+        syncToken: String? = null,
+    ) {
         if (_state.value.running || plans.isEmpty()) return
 
         lastPlans = plans
@@ -188,6 +194,13 @@ class FetchController(
                     )
                 }
                 if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt)
+
+                // Ο συγχρονισμός στο Drive γίνεται **στο τέλος** και όχι ανά
+                // αρχείο: μια παρτίδα 40 πελατών θα άνοιγε 40 συνδέσεις προς
+                // την Google ενώ ήδη κρατά ανοιχτή συνεδρία στο GSIS.
+                if (syncToken != null && driveSync.enabled && driveSync.online()) {
+                    runCatching { driveSync.syncAll(syncToken) }
+                }
             } finally {
                 browser.shutdown()
                 _state.value = _state.value.copy(
@@ -235,7 +248,15 @@ class FetchController(
                 done = index,
                 total = clients.size,
             )
-            val detail = runCatching { mail.sendDocuments(accessToken, fresh, documents) }
+            // **Ρητά εκτός κύριου νήματος.** Ο scope του controller είναι
+            // `Dispatchers.Main.immediate` — σωστό για την κατάσταση της οθόνης,
+            // θανάσιμο για κλήση δικτύου: το Gmail API χτυπιέται σύγχρονα με
+            // OkHttp και το Android ρίχνει `NetworkOnMainThreadException`.
+            // Παντού αλλού η αποστολή καλείται μέσα από `withContext(IO)`· εδώ
+            // έλειπε, και έσκαγε ακριβώς στη «λήψη και αποστολή».
+            val detail = withContext(Dispatchers.IO) {
+                runCatching { mail.sendDocuments(accessToken, fresh, documents) }
+            }
             val message = when {
                 detail.isFailure -> detail.exceptionOrNull()?.message.orEmpty()
                 detail.getOrNull()?.failed == true -> detail.getOrNull()?.error.orEmpty()

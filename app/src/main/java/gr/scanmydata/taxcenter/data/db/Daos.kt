@@ -204,6 +204,28 @@ interface SendDao {
 }
 
 @Dao
+interface DriveFileDao {
+
+    @Query("SELECT * FROM drive_files WHERE relativePath = :relativePath LIMIT 1")
+    suspend fun byPath(relativePath: String): DriveFileEntity?
+
+    @Query("SELECT * FROM drive_files")
+    suspend fun all(): List<DriveFileEntity>
+
+    @Query("SELECT COUNT(*) FROM drive_files")
+    fun observeCount(): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entry: DriveFileEntity)
+
+    @Query("DELETE FROM drive_files WHERE relativePath = :relativePath")
+    suspend fun remove(relativePath: String)
+
+    @Query("DELETE FROM drive_files")
+    suspend fun clear()
+}
+
+@Dao
 interface RunLogDao {
 
     @Insert

@@ -356,7 +356,11 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                             val built = withContext(Dispatchers.IO) {
                                 buildPlans(container, selected, picks.toList())
                             }
-                            val token = if (autoSend) {
+                            // Ένα token για δύο δουλειές: την αυτόματη αποστολή
+                            // και τον συγχρονισμό στο Drive. Ζητιέται μόνο αν
+                            // χρειάζεται κάποια από τις δύο.
+                            val wantsDrive = container.driveSync.enabled
+                            val token = if (autoSend || wantsDrive) {
                                 runCatching { authorizer.accessToken() }.getOrNull()
                             } else {
                                 null
@@ -370,7 +374,11 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                                         "για την αυτόματη αποστολή."
                                 else -> {
                                     status = built.describeSkipped()
-                                    container.fetch.start(built.plans, autoSendToken = token)
+                                    container.fetch.start(
+                                        plans = built.plans,
+                                        autoSendToken = if (autoSend) token else null,
+                                        syncToken = if (wantsDrive) token else null,
+                                    )
                                 }
                             }
                         }
