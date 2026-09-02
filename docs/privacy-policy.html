@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Πολιτική Απορρήτου — ScanMyData Tax Center</title>
+<style>
+  :root { color-scheme: light dark; --ink:#0B1B2B; --bg:#fff; --muted:#5a6b7d; --line:#dde4ec; --brand:#2E7DE0; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#e7edf5; --bg:#0d1520; --muted:#9fb0c2; --line:#22303f; --brand:#6aa8f0; } }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.65 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  main { max-width:44rem; margin:0 auto; padding:2.5rem 1.25rem 5rem; }
+  h1 { font-size:1.7rem; line-height:1.25; margin:0 0 .25rem; }
+  h2 { font-size:1.15rem; margin:2.25rem 0 .5rem; }
+  .sub { color:var(--muted); margin:0 0 2rem; }
+  table { border-collapse:collapse; width:100%; margin:.75rem 0; font-size:.95rem; }
+  th,td { text-align:left; vertical-align:top; padding:.5rem .6rem; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  code { background:color-mix(in srgb, var(--brand) 12%, transparent); padding:.1em .35em; border-radius:.25em; font-size:.9em; }
+  a { color:var(--brand); }
+  .box { border-left:3px solid var(--brand); padding:.6rem 0 .6rem .9rem; margin:1.25rem 0; color:var(--muted); }
+  footer { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Πολιτική Απορρήτου</h1>
+<p class="sub">ScanMyData Tax Center — εφαρμογή Android για λογιστικό γραφείο.<br>
+Τελευταία ενημέρωση: 2 Σεπτεμβρίου 2026.</p>
+
+<h2>Ποιος επεξεργάζεται τα δεδομένα</h2>
+<p>Η εφαρμογή χρησιμοποιείται από λογιστικό γραφείο για τη διαχείριση των
+φορολογικών υποθέσεων των πελατών του. Ως προς τα δεδομένα των πελατών, το
+γραφείο ενεργεί ως <strong>υπεύθυνος ή εκτελών την επεξεργασία</strong> κατά
+περίπτωση, στο πλαίσιο της εντολής που του έχει δοθεί.</p>
+<p>Ο κατασκευαστής της εφαρμογής (ScanMyData) <strong>δεν λαμβάνει, δεν
+αποθηκεύει και δεν έχει πρόσβαση</strong> σε κανένα δεδομένο πελάτη. Δεν
+υπάρχει διακομιστής της εφαρμογής.</p>
+
+<h2>Πού βρίσκονται τα δεδομένα</h2>
+<p>Όλα τα δεδομένα παραμένουν <strong>στη συσκευή</strong>, σε βάση
+κρυπτογραφημένη με SQLCipher. Τα μυστικά πεδία (συνθηματικά, κλειδάριθμοι,
+κλειδιά API) κρυπτογραφούνται επιπλέον ένα προς ένα με AES-256-GCM, με κλειδί
+που παράγεται και φυλάσσεται στο Android Keystore και δεν εξάγεται ποτέ από τη
+συσκευή. Το αντίγραφο ασφαλείας του λειτουργικού είναι απενεργοποιημένο
+(<code>allowBackup=false</code>).</p>
+
+<h2>Ποια δεδομένα τηρούνται</h2>
+<table>
+  <tr><th>Κατηγορία</th><th>Παραδείγματα</th><th>Σκοπός</th></tr>
+  <tr><td>Στοιχεία ταυτοποίησης</td><td>ΑΦΜ, ΑΜΚΑ, επωνυμία, ΔΟΥ</td><td>Ταυτοποίηση στις πύλες ΑΑΔΕ/ΕΦΚΑ</td></tr>
+  <tr><td>Διαπιστευτήρια</td><td>TAXISnet, ΙΚΑ εργοδότη/ασφαλισμένου, myDATA</td><td>Πρόσβαση στα έντυπα του πελάτη κατ' εντολή του</td></tr>
+  <tr><td>Επικοινωνία</td><td>Email από το Μητρώο ΑΑΔΕ, δεύτερη διεύθυνση</td><td>Αποστολή των εντύπων</td></tr>
+  <tr><td>Έγγραφα</td><td>PDF εντύπων που κατεβάζει η εφαρμογή</td><td>Παράδοση στον πελάτη</td></tr>
+  <tr><td>Αρχείο ενεργειών</td><td>Ημερομηνία, πελάτης, ενέργεια</td><td>Απόδειξη συμμόρφωσης (άρθρο 30 ΓΚΠΔ)</td></tr>
+</table>
+<p>Από τις 83 στήλες του αρχείου εισαγωγής τηρούνται περίπου 14. Οι υπόλοιπες
+απορρίπτονται κατά την ανάγνωση και δεν φτάνουν ποτέ στη βάση — αρχή της
+ελαχιστοποίησης, άρθρο 5 παρ. 1 στοιχ. γ΄.</p>
+
+<h2>Σε ποιους αποστέλλονται</h2>
+<p>Η εφαρμογή επικοινωνεί αποκλειστικά με:</p>
+<table>
+  <tr><th>Αποδέκτης</th><th>Τι στέλνεται</th></tr>
+  <tr><td>ΑΑΔΕ / GSIS (<code>gsis.gr</code>, <code>aade.gr</code>)</td><td>Τα διαπιστευτήρια του πελάτη, για να γίνει η σύνδεση που θα έκανε ο ίδιος</td></tr>
+  <tr><td>e-ΕΦΚΑ, ΚΕΑΟ, ΑΤΛΑΣ, ΗΔΙΚΑ</td><td>Ομοίως, όπου απαιτείται</td></tr>
+  <tr><td>Google (Gmail API)</td><td>Μόνο το μήνυμα που αποστέλλεται, με τα συνημμένα του</td></tr>
+  <tr><td>Google Drive (προαιρετικά)</td><td>Μόνο κρυπτογραφημένο αντίγραφο ασφαλείας, εφόσον το ενεργοποιήσει ο χρήστης</td></tr>
+</table>
+<p>Δεν υπάρχει τηλεμετρία, δεν υπάρχουν διαφημιστικά SDK, δεν γίνεται καμία
+αποστολή δεδομένων σε τρίτους πέραν των παραπάνω.</p>
+
+<h2>Δικαιώματα πρόσβασης Google</h2>
+<p>Η εφαρμογή ζητά τα ελάχιστα δυνατά δικαιώματα:</p>
+<table>
+  <tr><th>Δικαίωμα</th><th>Τι επιτρέπει</th></tr>
+  <tr><td><code>gmail.send</code></td><td>Αποστολή μηνυμάτων μόνο. <strong>Δεν</strong> επιτρέπει ανάγνωση, αναζήτηση ή διαγραφή μηνυμάτων.</td></tr>
+  <tr><td><code>drive.file</code></td><td>Πρόσβαση μόνο στα αρχεία που δημιουργεί η ίδια η εφαρμογή. Δεν βλέπει τον υπόλοιπο Drive.</td></tr>
+  <tr><td><code>userinfo.email</code></td><td>Ανάγνωση της διεύθυνσης του λογαριασμού αποστολέα, για να εμφανίζεται στις ρυθμίσεις.</td></tr>
+</table>
+<p>Η ανάκληση γίνεται ανά πάσα στιγμή από το
+<a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+<p>Η χρήση των δεδομένων που λαμβάνονται από Google APIs συμμορφώνεται με την
+<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+συμπεριλαμβανομένων των απαιτήσεων Limited Use. Τα δεδομένα αυτά δεν
+χρησιμοποιούνται για διαφήμιση, δεν πωλούνται και δεν μεταβιβάζονται σε τρίτους.</p>
+
+<h2>Χρόνος διατήρησης</h2>
+<p>Τα δεδομένα διατηρούνται όσο διαρκεί η εντολή του πελάτη προς το γραφείο.
+Ο χρήστης μπορεί να ορίσει αυτόματη διαγραφή των ληφθέντων PDF μετά από
+καθορισμένο διάστημα, και να διαγράψει πλήρως έναν πελάτη — διαπιστευτήρια,
+έγγραφα και εγγραφές — με μία ενέργεια.</p>
+
+<h2>Δικαιώματα των υποκειμένων</h2>
+<p>Οι πελάτες του γραφείου διατηρούν τα δικαιώματα πρόσβασης, διόρθωσης,
+διαγραφής, περιορισμού, φορητότητας και εναντίωσης (άρθρα 15–22 ΓΚΠΔ). Η
+εφαρμογή παρέχει στο γραφείο εξαγωγή όλων των δεδομένων ενός πελάτη σε αρχείο
+ZIP και πλήρη διαγραφή. Τα αιτήματα απευθύνονται στο ίδιο το λογιστικό γραφείο,
+που είναι ο υπεύθυνος έναντι του πελάτη.</p>
+<p>Δικαίωμα καταγγελίας στην Αρχή Προστασίας Δεδομένων Προσωπικού Χαρακτήρα:
+<a href="https://www.dpa.gr">www.dpa.gr</a>.</p>
+
+<div class="box">
+Η εφαρμογή δεν παρακάμπτει και δεν επιχειρεί να παρακάμψει μηχανισμούς
+δεύτερου παράγοντα, OTP ή CAPTCHA. Όπου η πύλη τα ζητά, η σελίδα εμφανίζεται
+στον χρήστη για να απαντήσει ο ίδιος.
+</div>
+
+<h2>Επικοινωνία</h2>
+<p>Για την ίδια την εφαρμογή: <a href="https://github.com/scanmydata/ScanMyData-Tax-Center/issues">GitHub Issues</a>.
+Για δεδομένα συγκεκριμένου πελάτη, αρμόδιο είναι το λογιστικό γραφείο που τον εξυπηρετεί.</p>
+
+<footer>
+ScanMyData Tax Center — ανοιχτός κώδικας,
+<a href="https://github.com/scanmydata/ScanMyData-Tax-Center">github.com/scanmydata/ScanMyData-Tax-Center</a>
+</footer>
+
+</main>
+</body>
+</html>
