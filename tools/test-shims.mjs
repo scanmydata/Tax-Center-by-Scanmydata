@@ -39,6 +39,7 @@ function makeBridge(routes) {
     dec: (s) => Buffer.from(s || '', 'base64'),
     enc: (buf) => Buffer.from(buf).toString('base64'),
   };
+  const norm = (p) => String(p).replace(/\\/g, '/').split('/').filter((x) => x && x !== '.').join('/');
 
   const bridge = {
     // async
@@ -64,24 +65,40 @@ function makeBridge(routes) {
     pageCall(callId, json) {
       setTimeout(() => ctx.__reject(callId, 'no WebView in test harness'), 0);
     },
-    // sync
+    // sync — οι διαδρομές κανονικοποιούνται όπως στο FileBridge.resolve():
+    // τα κενά τμήματα και τα '.' πέφτουν, ώστε './run.log' και 'run.log' να
+    // είναι το ίδιο αρχείο.
     fileWrite(p, dataB64, append) {
+      const k = norm(p);
       const buf = b64.dec(dataB64);
-      const prev = append && files.has(p) ? files.get(p) : Buffer.alloc(0);
-      files.set(p, Buffer.concat([prev, buf]));
+      const prev = append && files.has(k) ? files.get(k) : Buffer.alloc(0);
+      files.set(k, Buffer.concat([prev, buf]));
       return '';
     },
-    fileRead(p) { return files.has(p) ? b64.enc(files.get(p)) : null; },
-    fileExists(p) { return files.has(p) || dirs.has(p) ? '1' : '0'; },
-    fileSize(p) { return files.has(p) ? String(files.get(p).length) : '-1'; },
-    mkdirs(p) { dirs.add(p); return ''; },
+    fileRead(p) { const k = norm(p); return files.has(k) ? b64.enc(files.get(k)) : null; },
+    fileExists(p) { const k = norm(p); return files.has(k) || dirs.has(k) ? '1' : '0'; },
+    fileSize(p) { const k = norm(p); return files.has(k) ? String(files.get(k).length) : '-1'; },
+    mkdirs(p) { dirs.add(norm(p)); return ''; },
     log(line) { logs.push(String(line)); return ''; },
+    // Ίδια σειρά αναζήτησης με το EngineAssets.moduleSource: πρώτα η ρίζα του
+    // engine, μετά ο φάκελος configs/.
     moduleSource(name) {
-      const f = path.join(ASSETS, `${name}.js`);
-      return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+      for (const f of [path.join(ASSETS, `${name}.js`), path.join(ASSETS, 'configs', `${name}.js`)]) {
+        if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8');
+      }
+      return null;
+    },
+    finish(callId, resultJson) {
+      const r = finishers.get(callId);
+      if (r) { finishers.delete(callId); r(JSON.parse(resultJson)); }
     },
   };
-  return { bridge, files, logs, requests, setCtx: (c) => { ctx = c; } };
+  const finishers = new Map();
+  return {
+    bridge, files, logs, requests,
+    setCtx: (c) => { ctx = c; },
+    awaitFinish: (callId) => new Promise((res) => finishers.set(callId, res)),
+  };
 }
 
 // ------------------------------------------------------------------ context
@@ -159,7 +176,8 @@ check('path.join / basename όπως ο Node', () => {
 
 check('fs γράφει ελληνικά σωστά (UTF-8)', () => {
   vm.runInContext(`require('fs').writeFileSync('/t/greek.txt', 'Καλώς ήρθατε — ΑΦΜ')`, ctx);
-  assert(mock.files.get('/t/greek.txt').toString('utf8') === 'Καλώς ήρθατε — ΑΦΜ',
+  // Το κλειδί είναι κανονικοποιημένο ('t/greek.txt'), όπως κάνει το FileBridge.
+  assert(mock.files.get('t/greek.txt').toString('utf8') === 'Καλώς ήρθατε — ΑΦΜ',
     'το κείμενο δεν γύρισε σωστά');
 });
 
@@ -244,6 +262,95 @@ for (const f of configFiles) {
     loaded++;
   });
 }
+
+console.log('\nrunner.js — πλήρης διαδρομή με ψεύτικη ΑΑΔΕ\n');
+
+/**
+ * Στήνει καθαρό context με mock που μιμείται τη ροή του `aadeLogin`:
+ * home.htm -> OAM login -> auth_cred_submit -> incomefp -> login.done -> home.htm
+ */
+function aadeScenario({ goodCredentials }) {
+  let homeHits = 0;
+  const loginForm =
+    '<html><body><form><input name="request_id" value="RQ-42">' +
+    '<input name="username"><input name="password"></form></body></html>';
+  const homeLoggedIn =
+    '<html><body><ul>' +
+    '<li><a href="/webtax/incomefp/">Δήλωση Ε1</a></li>' +
+    '<li><a href="/taxisnet/info/protected/displayDebtInfoAndPay.htm">Οφειλές</a></li>' +
+    '<li><a href="https://example.gr/εκτός">Άσχετο</a></li>' +
+    '</ul></body></html>';
+
+  return (req) => {
+    const html = (body) => ({ status: 200, headers: { 'content-type': 'text/html; charset=UTF-8' }, body: Buffer.from(body, 'utf8') });
+    if (req.url.includes('/taxisnet/info/protected/home.htm')) {
+      homeHits++;
+      // 1η φορά: μη συνδεδεμένος -> OAM φόρμα. Μετά το login: η πραγματική αρχική.
+      return html(homeHits === 1 ? loginForm : homeLoggedIn);
+    }
+    if (req.url.includes('auth_cred_submit')) {
+      return html(goodCredentials
+        ? '<html><body>Καλώς ήρθατε</body></html>'
+        : '<html><body>Καθορίστηκε λανθασμένο όνομα χρήστη ή κωδικός</body></html>');
+    }
+    return html('<html><body>ok</body></html>');
+  };
+}
+
+async function runConfig(scenarioOpts, configId, inputs) {
+  const m = makeBridge(aadeScenario(scenarioOpts));
+  const c = makeContext(m);
+  vm.runInContext(fs.readFileSync(path.join(ASSETS, 'runner.js'), 'utf8'), c, { filename: 'runner.js' });
+  const waiter = m.awaitFinish('run');
+  vm.runInContext(
+    `__runConfig('run', ${JSON.stringify(configId)}, ${JSON.stringify(JSON.stringify(inputs))}, '.')`,
+    c, { filename: 'invoke' },
+  );
+  return { result: await waiter, mock: m };
+}
+
+await checkAsync('aade-login-check: επιτυχής σύνδεση γράφει τα menu links', async () => {
+  const { result, mock } = await runConfig({ goodCredentials: true }, 'aade-login-check',
+    { user: 'testuser', pass: 'testpass' });
+
+  assert(result.ok === true, `ok=${result.ok} reason=${result.reason}`);
+  assert(result.files.includes('aade_menu_links.json'), `files: ${JSON.stringify(result.files)}`);
+
+  const written = mock.files.get('aade_menu_links.json');
+  assert(written, 'δεν γράφτηκε το aade_menu_links.json');
+  const links = JSON.parse(written.toString('utf8'));
+  assert(links['Δήλωση Ε1'] === 'https://www1.aade.gr/webtax/incomefp/', `Ε1 -> ${links['Δήλωση Ε1']}`);
+  assert(links['Οφειλές'], 'δεν βρέθηκε ο σύνδεσμος Οφειλές');
+  assert(!links['Άσχετο'], 'ο άσχετος σύνδεσμος δεν έπρεπε να περάσει το φίλτρο');
+
+  // Ο engine γράφει και τα dumps των σταδίων — χρήσιμα για post-mortem.
+  assert(mock.files.has('01_aade_oam.html'), 'λείπει το dump 01');
+  assert(mock.files.has('04_aade_home.html'), 'λείπει το dump 04');
+  assert(mock.files.has('run.log'), 'λείπει το run.log');
+});
+
+await checkAsync('aade-login-check: λάθος κωδικός -> InvalidCredentials, όχι exception', async () => {
+  const { result } = await runConfig({ goodCredentials: false }, 'aade-login-check',
+    { user: 'testuser', pass: 'λάθος' });
+  assert(result.ok === false, 'έπρεπε να αποτύχει');
+  assert(result.reason === 'InvalidCredentials', `reason=${result.reason}`);
+  assert(!result.error, `δεν έπρεπε να πεταχτεί exception: ${result.error}`);
+});
+
+await checkAsync('άγνωστο config -> δομημένο σφάλμα, όχι κρέμασμα', async () => {
+  const { result } = await runConfig({ goodCredentials: true }, 'δεν-υπάρχει', {});
+  assert(result.ok === false, 'έπρεπε να αποτύχει');
+  assert(/Δεν βρέθηκε module/.test(result.reason), `reason=${result.reason}`);
+});
+
+await checkAsync('οι κωδικοί δεν διαρρέουν στο run.log', async () => {
+  const { mock } = await runConfig({ goodCredentials: true }, 'aade-login-check',
+    { user: 'testuser', pass: 'μυστικό-ΣΥΝΘΗΜΑΤΙΚΟ-42' });
+  const log = mock.files.get('run.log').toString('utf8');
+  const all = log + '\n' + mock.logs.join('\n');
+  assert(!all.includes('μυστικό-ΣΥΝΘΗΜΑΤΙΚΟ-42'),
+    'ο κωδικός βρέθηκε σε log — το Redactor.kt πρέπει να τον κόψει και στο native');
+});
 
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);
