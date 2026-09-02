@@ -32,7 +32,9 @@ const REPO = path.resolve(HERE, '..');
 const ASSETS = path.join(REPO, 'app/src/main/assets/engine');
 
 // Αυτά ΔΕΝ έρχονται από τον runner — έχουν Android υλοποίηση.
-const ANDROID_OWNED = new Set(['browser-step.js', 'render-pdf.js', 'shims.js', 'runner.js']);
+const ANDROID_OWNED = new Set([
+  'browser-step.js', 'render-pdf.js', 'shims.js', 'runner.js', 'page-helper.js',
+]);
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);

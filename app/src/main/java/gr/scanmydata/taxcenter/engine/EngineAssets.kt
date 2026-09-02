@@ -11,6 +11,7 @@ import org.json.JSONObject
  * assets/engine/
  *   shims.js         γέφυρα Node -> Android         (Android-owned)
  *   runner.js        entry point                    (Android-owned)
+ *   page-helper.js   selector engine στη σελίδα     (Android-owned)
  *   browser-step.js  BrowserPage πάνω σε WebView    (Android-owned)
  *   render-pdf.js    graceful degradation           (Android-owned)
  *   hyper-http.js    ΑΥΤΟΥΣΙΟ από τον runner
@@ -40,6 +41,12 @@ class EngineAssets(private val context: Context) {
 
     val shims: String get() = requireAsset("shims.js")
     val runner: String get() = requireAsset("runner.js")
+
+    /**
+     * Ο selector engine που εγχέεται στη σελίδα-στόχο. Διαβάζεται μία φορά:
+     * εγχέεται σε κάθε onPageFinished, δηλαδή δεκάδες φορές ανά διαδικασία.
+     */
+    val pageHelper: String by lazy { requireAsset("page-helper.js") }
 
     private fun requireAsset(file: String): String =
         read("$ENGINE/$file") ?: error("Λείπει το asset engine/$file")

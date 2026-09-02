@@ -405,5 +405,90 @@ await checkAsync('χωρίς διεύθυνση -> NoEmail, με το JSON γρ�
   assert(r.mock.files.has('AADE_email_123456783.json'), 'το JSON έπρεπε να γραφτεί ούτως ή άλλως');
 });
 
+console.log('\npage-helper.js — ανάλυση επιλογέων Playwright\n');
+
+/**
+ * Το page-helper τρέχει μέσα στη σελίδα-στόχο και χρειάζεται DOM. Ελέγχουμε
+ * όμως το κομμάτι που δεν αγγίζει DOM — την ανάλυση του `:has-text()` — που
+ * είναι και το μόνο μη τετριμμένο: το `querySelectorAll` δεν ξέρει αυτόν τον
+ * ψευδο-επιλογέα, και τα configs τον χρησιμοποιούν παντού.
+ */
+const selectorCtx = vm.createContext({ window: {}, document: {}, XMLHttpRequest: function () {} });
+selectorCtx.window = selectorCtx;
+vm.runInContext(fs.readFileSync(path.join(ASSETS, 'page-helper.js'), 'utf8'), selectorCtx, {
+  filename: 'page-helper.js',
+});
+const parseSel = (sel) =>
+  JSON.parse(vm.runInContext(`JSON.stringify(__page.__parse(${JSON.stringify(sel)}))`, selectorCtx));
+
+check('απλός CSS περνά αυτούσιος', () => {
+  const r = parseSel('a[href="https://www1.aade.gr/etak/"]');
+  assert(r.length === 1, `μέρη: ${r.length}`);
+  assert(r[0].css === 'a[href="https://www1.aade.gr/etak/"]', `css: ${r[0].css}`);
+  assert(r[0].texts.length === 0, 'δεν έπρεπε να βρει κείμενα');
+});
+
+check('ADF id με άνω-κάτω τελεία δεν σπάει', () => {
+  // `pt1:cbEnter` — τα configs το γράφουν ως attribute selector ακριβώς γι' αυτό.
+  const r = parseSel('button[id="pt1:cbEnter"]');
+  assert(r.length === 1 && r[0].css === 'button[id="pt1:cbEnter"]', JSON.stringify(r));
+});
+
+check('has-text εξάγεται και μένει καθαρό CSS', () => {
+  const r = parseSel('a:has-text("Είσοδος στην εφαρμογή")');
+  assert(r.length === 1, `μέρη: ${r.length}`);
+  assert(r[0].css === 'a', `css: ${r[0].css}`);
+  assert(r[0].texts[0] === 'Είσοδος στην εφαρμογή', `text: ${r[0].texts[0]}`);
+});
+
+check('λίστα με κόμμα χωρίζεται σωστά', () => {
+  const r = parseSel('button:has-text("Συνδεση"), button:has-text("ΣΥΝΔΕΣΗ")');
+  assert(r.length === 2, `μέρη: ${r.length}`);
+  assert(r[0].texts[0] === 'Συνδεση' && r[1].texts[0] === 'ΣΥΝΔΕΣΗ', JSON.stringify(r));
+});
+
+check('κόμμα ΜΕΣΑ σε εισαγωγικά δεν χωρίζει', () => {
+  // Πραγματικό: ονόματα εντύπων με κόμμα, π.χ. «Φ2, Φ4».
+  const r = parseSel('a:has-text("Φ2, Φ4")');
+  assert(r.length === 1, `χωρίστηκε λάθος σε ${r.length} μέρη`);
+  assert(r[0].texts[0] === 'Φ2, Φ4', `text: ${r[0].texts[0]}`);
+});
+
+check('κόμμα μέσα σε αγκύλες δεν χωρίζει', () => {
+  const r = parseSel('select[id="pt1:yearSelect::content"], select[name="pt1:yearSelect"]');
+  assert(r.length === 2, `μέρη: ${r.length}`);
+});
+
+check('πολλαπλά has-text στο ίδιο μέρος', () => {
+  const r = parseSel('tr:has-text("2025"):has-text("Οριστική")');
+  assert(r.length === 1 && r[0].css === 'tr', `css: ${r[0].css}`);
+  assert(r[0].texts.length === 2, `texts: ${JSON.stringify(r[0].texts)}`);
+});
+
+check('σκέτο has-text δίνει καθολικό επιλογέα', () => {
+  const r = parseSel(':has-text("Καλώς ήρθατε")');
+  assert(r[0].css === '*', `css: ${r[0].css}`);
+});
+
+check('οι επιλογείς του aade-enfia αναλύονται όλοι', () => {
+  // Ακριβώς όσοι εμφανίζονται στο config — αν αλλάξει, θέλουμε να το μάθουμε εδώ.
+  const real = [
+    'a[href="https://www1.aade.gr/etak/"]',
+    'a:has-text("Είσοδος στην εφαρμογή")',
+    'input[name="username"]',
+    'button[name="btn_login"]',
+    'button:has-text("Συνδεση"), button:has-text("ΣΥΝΔΕΣΗ")',
+    'button[id="pt1:cbEnter"]',
+    'select[id="pt1:yearSelect::content"], select[name="pt1:yearSelect"]',
+    'a[id="pt1:estatesAndLandsTab::disAcr"]',
+    'a[id^="pt1:clPrintEkk"]',
+    'a[id="pt1:iterPerStatus:0:cl24"]',
+  ];
+  for (const sel of real) {
+    const r = parseSel(sel);
+    assert(r.length >= 1 && r.every((p) => p.css.length > 0), `απέτυχε: ${sel}`);
+  }
+});
+
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);
