@@ -39,7 +39,12 @@ import java.util.concurrent.atomic.AtomicInteger
 class WebViewBrowserPage(
     private val context: Context,
     private val assets: EngineAssets,
-    private val downloadRoot: File,
+    /**
+     * Ο φάκελος της τρέχουσας εκτέλεσης. Λαμβάνεται ως συνάρτηση επειδή μία
+     * παρτίδα λήψης αλλάζει φάκελο σε κάθε πελάτη, ενώ το BrowserPage host ζει
+     * όσο η παρτίδα.
+     */
+    private val downloadRoot: () -> File,
     /** Πού μπαίνει το WebView για να το δει ο χρήστης. null = εκτός οθόνης. */
     private val container: (() -> ViewGroup?)? = null,
     private val logSink: (String) -> Unit = {},
@@ -178,7 +183,7 @@ class WebViewBrowserPage(
             }
 
             "armDownload" -> {
-                page.downloadDest = File(req.getString("dest"))
+                page.downloadDest = resolveDest(req.getString("dest"))
                 page.pendingDownload = null
                 cb.resolve(callId, "{}")
             }
@@ -210,6 +215,31 @@ class WebViewBrowserPage(
 
             else -> cb.reject(callId, "άγνωστη ενέργεια: $op")
         }
+    }
+
+    /**
+     * Το config δίνει τη διαδρομή προορισμού όπως θα την έδινε στον desktop
+     * runner: **σχετική**, γιατί εκεί το `http.dlDir` είναι ο φάκελος της
+     * εκτέλεσης. Ένα σκέτο `File(dest)` θα την έλυνε ως προς το CWD της
+     * διεργασίας — δηλαδή `/`, όπου η εφαρμογή δεν έχει δικαίωμα εγγραφής, και
+     * το PDF θα χανόταν σιωπηλά.
+     *
+     * Ίδιοι κανόνες με το [FileBridge]: κάθε τμήμα καθαρίζεται και το
+     * αποτέλεσμα πρέπει να μένει κάτω από τη ρίζα.
+     */
+    private fun resolveDest(dest: String): File {
+        val root = downloadRoot().apply { mkdirs() }
+        val target = dest.replace('\\', '/')
+            .split('/')
+            .filter { it.isNotEmpty() && it != "." }
+            .map(FileBridge::sanitiseSegment)
+            .fold(root) { acc, seg -> File(acc, seg) }
+        val rootPath = root.canonicalPath
+        val targetPath = target.canonicalPath
+        if (targetPath != rootPath && !targetPath.startsWith(rootPath + File.separator)) {
+            throw SecurityException("διαδρομή λήψης εκτός ρίζας: $dest")
+        }
+        return target
     }
 
     // ------------------------------------------------------------- WebView

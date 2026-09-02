@@ -123,8 +123,8 @@ fun AppShell(container: AppContainer) {
             ) {
                 composable(Destination.Clients.route) { ClientsScreen(container) }
                 composable(Destination.Import.route) { ImportScreen(container) }
-                composable(Destination.Fetch.route) { ProcessCatalogScreen(container) }
-                composable(Destination.Documents.route) { Placeholder("Έγγραφα") }
+                composable(Destination.Fetch.route) { FetchScreen(container) }
+                composable(Destination.Documents.route) { DocumentsScreen(container) }
                 composable(Destination.Calendar.route) { SendCalendarScreen(container) }
                 composable(Destination.Logs.route) { RunLogsScreen(container) }
                 composable(Destination.SettingsScreen.route) { SettingsScreen(container) }
@@ -173,13 +173,5 @@ fun RunLogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun Placeholder(name: String) {
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text(name, style = MaterialTheme.typography.titleMedium)
-        Text("Δεν έχει υλοποιηθεί ακόμη.", style = MaterialTheme.typography.bodyMedium)
     }
 }

@@ -47,6 +47,14 @@ class ProcessRunner(
         val files: List<String>,
         val durationMs: Long,
         val log: List<String> = emptyList(),
+        /**
+         * Ό,τι επέστρεψε το ίδιο το config στο πεδίο `out`, ως JSON.
+         *
+         * Χρειάζεται για διαδικασίες που δεν παράγουν έγγραφο αλλά **δεδομένα** —
+         * το `aade-email` επιστρέφει τη διεύθυνση που βρήκε στο Μητρώο, και η
+         * εφαρμογή τη γράφει στην καρτέλα αντί να την ψάχνει σε αρχείο.
+         */
+        val out: String? = null,
     )
 
     data class Progress(
@@ -129,6 +137,7 @@ class ProcessRunner(
             files = produced.toList().sorted(),
             durationMs = System.currentTimeMillis() - started,
             log = result.log,
+            out = result.out,
         )
     }
 

@@ -94,6 +94,18 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE clientId = :clientId ORDER BY createdAt DESC")
     fun observeForClient(clientId: Long): Flow<List<DocumentEntity>>
 
+    @Query("SELECT * FROM documents WHERE clientId = :clientId ORDER BY createdAt DESC")
+    suspend fun forClient(clientId: Long): List<DocumentEntity>
+
+    @Query("SELECT * FROM documents ORDER BY createdAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 1000): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE createdAt < :before")
+    suspend fun olderThan(before: Long): List<DocumentEntity>
+
+    @Query("DELETE FROM documents WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("SELECT * FROM documents WHERE id IN (:ids)")
     suspend fun byIds(ids: List<Long>): List<DocumentEntity>
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Εικονίδιο ειδοποίησης. Η Android το ζωγραφίζει ως σιλουέτα: μόνο το άλφα
+  μετράει, το χρώμα αγνοείται. Γι' αυτό είναι συμπαγές λευκό.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,3a1,1 0,0 1,1 1v8.17l2.29,-2.3a1,1 0,1 1,1.42 1.42l-4,4a1,1 0,0 1,-1.42 0l-4,-4a1,1 0,1 1,1.42 -1.42L11,12.17V4a1,1 0,0 1,1 -1z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,17a1,1 0,0 1,1 1v1h14v-1a1,1 0,1 1,2 0v2a1,1 0,0 1,-1 1H4a1,1 0,0 1,-1 -1v-2a1,1 0,0 1,1 -1z" />
+</vector>

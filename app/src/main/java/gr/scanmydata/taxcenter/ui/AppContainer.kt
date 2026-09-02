@@ -7,6 +7,7 @@ import gr.scanmydata.taxcenter.data.KeyStoreKeys
 import gr.scanmydata.taxcenter.data.Settings
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import gr.scanmydata.taxcenter.engine.EngineAssets
+import gr.scanmydata.taxcenter.engine.FetchController
 import gr.scanmydata.taxcenter.engine.ProcessRunner
 import gr.scanmydata.taxcenter.mail.MailService
 
@@ -29,4 +30,10 @@ class AppContainer(context: Context) {
     val repository: ClientRepository by lazy { ClientRepository(app, db, crypto) }
     val mail: MailService by lazy { MailService(app, db, repository, settings) }
     val processRunner: ProcessRunner by lazy { ProcessRunner(app, db, crypto, assets, settings) }
+
+    /**
+     * Η ουρά λήψης ζει εδώ, όχι σε ViewModel: μια παρτίδα κρατάει δεκάδες λεπτά
+     * και δεν πρέπει να ακυρώνεται επειδή ο χρήστης άλλαξε οθόνη.
+     */
+    val fetch: FetchController by lazy { FetchController(app, processRunner, repository, assets) }
 }
