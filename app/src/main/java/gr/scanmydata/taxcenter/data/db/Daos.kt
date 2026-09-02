@@ -132,3 +132,39 @@ interface ConsentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(consent: ConsentEntity)
 }
+
+@Dao
+interface SendDao {
+
+    @Insert
+    suspend fun log(send: SendEntity): Long
+
+    /** Όλες οι αποστολές σε ένα διάστημα — η τροφοδοσία του ημερολογίου. */
+    @Query("SELECT * FROM sends WHERE sentAt >= :from AND sentAt < :to ORDER BY sentAt DESC")
+    fun observeBetween(from: Long, to: Long): Flow<List<SendEntity>>
+
+    @Query("SELECT * FROM sends WHERE sentAt >= :from AND sentAt < :to ORDER BY sentAt DESC")
+    suspend fun between(from: Long, to: Long): List<SendEntity>
+
+    @Query("SELECT * FROM sends WHERE clientId = :clientId ORDER BY sentAt DESC LIMIT :limit")
+    suspend fun forClient(clientId: Long, limit: Int = 100): List<SendEntity>
+
+    @Query("SELECT * FROM sends ORDER BY sentAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 200): Flow<List<SendEntity>>
+}
+
+@Dao
+interface RunLogDao {
+
+    @Insert
+    suspend fun log(entry: RunLogEntity): Long
+
+    @Query("SELECT * FROM run_logs ORDER BY startedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 200): Flow<List<RunLogEntity>>
+
+    @Query("SELECT * FROM run_logs WHERE afm = :afm ORDER BY startedAt DESC LIMIT :limit")
+    suspend fun forAfm(afm: String, limit: Int = 50): List<RunLogEntity>
+
+    @Query("DELETE FROM run_logs WHERE startedAt < :before")
+    suspend fun deleteOlderThan(before: Long): Int
+}

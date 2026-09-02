@@ -58,10 +58,16 @@ class JsHost(
         inputs: Map<String, String>,
         outDir: File,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        /**
+         * Κρατά στον δίσκο τα dumps σελίδων και το `run.log` του runner.
+         * Κλειστό εξ ορισμού — βλ. [FileBridge]. Οι γραμμές του log επιστρέφονται
+         * ούτως ή άλλως στο [RunResult.log].
+         */
+        keepDiagnostics: Boolean = false,
     ): RunResult {
         val logLines = java.util.Collections.synchronizedList(ArrayList<String>())
         val done = CompletableDeferred<String>()
-        val files = FileBridge(outDir)
+        val files = FileBridge(outDir, keepDiagnostics)
 
         val callbacks = object : NativeBridge.JsCallbacks {
             override fun resolve(callId: String, json: String?) = post {

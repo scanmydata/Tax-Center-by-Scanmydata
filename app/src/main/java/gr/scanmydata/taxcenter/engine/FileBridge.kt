@@ -20,15 +20,46 @@ import java.io.IOException
  *  * **Path traversal.** Ένα config δεν πρέπει ποτέ να γράψει έξω από τη ρίζα,
  *    ακόμη κι αν κάποια μελλοντική αλλαγή φέρει `..` σε όνομα αρχείου.
  */
-class FileBridge(private val root: File) {
+class FileBridge(
+    private val root: File,
+    /**
+     * Όταν είναι false, τα διαγνωστικά του runner **δεν γράφονται καθόλου**.
+     *
+     * Ο runner γράφει δίπλα σε κάθε PDF ένα `run.log` και δεκάδες dumps σελίδων
+     * (`01_aade_oam.html`, `registry_userdata.xml`, …). Στον desktop είναι
+     * χρήσιμα για post-mortem· στο κινητό μπερδεύονται με τα έγγραφα του πελάτη
+     * και, χειρότερα, τα dumps είναι **ολόκληρες σελίδες ΑΑΔΕ** με προσωπικά
+     * δεδομένα σε καθαρό κείμενο.
+     *
+     * Οι γραμμές του log δεν χάνονται: καταλήγουν στο `run_logs`, περασμένες
+     * από τον [Redactor].
+     */
+    private val keepDiagnostics: Boolean = false,
+) {
 
     init {
         root.mkdirs()
     }
 
-    /** Γράφει (ή προσθέτει) bytes. Επιστρέφει "" ή μήνυμα λάθους. */
+    /** Ό,τι δεν κρατάμε όταν τα διαγνωστικά είναι κλειστά. */
+    private fun isDiagnostic(name: String): Boolean {
+        val lower = name.lowercase()
+        // Κρατάμε το ζητούμενο: το PDF, και το JSON με τα δεδομένα — για
+        // διαδικασίες όπως ΑΜΚΑ και ΑΤΛΑΣ το JSON ΕΙΝΑΙ το παραδοτέο.
+        if (lower.endsWith(".pdf") || lower.endsWith(".json")) return false
+        return true
+    }
+
+    /**
+     * Γράφει (ή προσθέτει) bytes. Επιστρέφει "" ή μήνυμα λάθους.
+     *
+     * Τα διαγνωστικά αρχεία «γράφονται» επιτυχώς χωρίς να αγγίξουν τον δίσκο:
+     * τα configs δεν ελέγχουν το αποτέλεσμα του `fs.writeFileSync`, αλλά ένα
+     * σφάλμα εδώ θα τερμάτιζε τη διαδικασία.
+     */
     fun write(path: String, dataB64: String, append: Boolean): String = guard {
         val target = resolve(path)
+        if (!keepDiagnostics && isDiagnostic(target.name)) return@guard ""
         target.parentFile?.mkdirs()
         val bytes = Base64.decode(dataB64, Base64.DEFAULT)
         if (append) target.appendBytes(bytes) else target.writeBytes(bytes)

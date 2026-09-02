@@ -3,9 +3,11 @@ package gr.scanmydata.taxcenter.engine
 import android.content.Context
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
 import gr.scanmydata.taxcenter.data.Crypto
+import gr.scanmydata.taxcenter.data.Settings
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
+import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import java.io.File
 
@@ -28,6 +30,7 @@ class ProcessRunner(
     private val db: TaxCenterDatabase,
     private val crypto: Crypto,
     private val assets: EngineAssets = EngineAssets(context),
+    private val settings: Settings = Settings(context),
 ) {
 
     data class Job(
@@ -98,12 +101,18 @@ class ProcessRunner(
         }
 
         val before = existingFiles(outDir)
-        val result = host.run(job.configId, inputs, outDir)
+        val result = host.run(
+            configId = job.configId,
+            inputs = inputs,
+            outDir = outDir,
+            keepDiagnostics = settings.diagnostics,
+        )
         val produced = existingFiles(outDir) - before
 
         if (result.ok) {
             recordDocuments(job, outDir, produced)
         }
+        recordRunLog(job, started, result, produced.size)
         audit(
             "FETCH", job, result.ok,
             detail = buildString {
@@ -204,6 +213,29 @@ class ProcessRunner(
                 ),
             )
         }
+    }
+
+    /**
+     * Το ημερολόγιο της εκτέλεσης.
+     *
+     * Ο runner θα έγραφε `run.log` δίπλα στα PDF· εδώ οι γραμμές καταλήγουν στη
+     * βάση, ήδη περασμένες από τον [Redactor] στο [NativeBridge]. Έτσι ο φάκελος
+     * του πελάτη μένει καθαρός και το log παραμένει αναζητήσιμο.
+     */
+    private suspend fun recordRunLog(job: Job, startedAt: Long, result: JsHost.RunResult, fileCount: Int) {
+        db.runLogs().log(
+            RunLogEntity(
+                afm = job.client.afm,
+                configId = job.configId,
+                startedAt = startedAt,
+                durationMs = System.currentTimeMillis() - startedAt,
+                ok = result.ok,
+                reason = result.reason,
+                fileCount = fileCount,
+                lines = result.log.joinToString("
+"),
+            ),
+        )
     }
 
     private suspend fun audit(action: String, job: Job, ok: Boolean, detail: String) {

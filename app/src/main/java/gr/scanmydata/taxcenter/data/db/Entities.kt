@@ -146,3 +146,68 @@ data class ConsentEntity(
     val grantedAt: Long,
     val note: String = "",
 )
+
+/**
+ * Μία αποστολή email — η βάση του ημερολογίου αποστολών.
+ *
+ * Κρατιέται **ξεχωριστά** από το `audit_log`: το audit είναι νομικό αρχείο
+ * (άρθρο 30) που δεν διαγράφεται και δεν φιλτράρεται, ενώ αυτό είναι εργαλείο
+ * δουλειάς — «τι έστειλα τον Μάρτιο και σε ποιον». Διαφορετικός σκοπός,
+ * διαφορετικός κύκλος ζωής.
+ *
+ * Καταγράφονται και οι **αποτυχημένες** αποστολές: μια αποστολή που δεν έφτασε
+ * είναι ακριβώς αυτό που θέλει να δει ο λογιστής στο ημερολόγιο.
+ */
+@Entity(
+    tableName = "sends",
+    indices = [Index(value = ["sentAt"]), Index(value = ["clientId"]), Index(value = ["afm"])],
+)
+data class SendEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val clientId: Long,
+    /** Αντιγράφονται τη στιγμή της αποστολής: ο πελάτης μπορεί να διαγραφεί αργότερα. */
+    val afm: String,
+    val clientName: String,
+    val toEmail: String,
+    val subject: String,
+    /** DOCUMENTS = φορολογικά έντυπα · CREDENTIALS = οι κωδικοί του ίδιου του πελάτη. */
+    val kind: String,
+    /** Ονόματα συνημμένων ή περιγραφή περιεχομένου, ένα ανά γραμμή. */
+    val items: String = "",
+    val itemCount: Int = 0,
+    val sentAt: Long,
+    /** SENT ή FAILED. */
+    val status: String = STATUS_SENT,
+    val error: String = "",
+) {
+    val failed: Boolean get() = status == STATUS_FAILED
+
+    companion object {
+        const val STATUS_SENT = "SENT"
+        const val STATUS_FAILED = "FAILED"
+        const val KIND_DOCUMENTS = "DOCUMENTS"
+        const val KIND_CREDENTIALS = "CREDENTIALS"
+    }
+}
+
+/**
+ * Το ημερολόγιο μιας εκτέλεσης διαδικασίας.
+ *
+ * Ο runner γράφει `run.log` και δεκάδες dumps σελίδων δίπλα στα PDF. Στο κινητό
+ * αυτά δεν έχουν θέση ανάμεσα στα έγγραφα του πελάτη — οι γραμμές του log
+ * καταλήγουν εδώ (καθαρισμένες από τον Redactor) και τα dumps δεν γράφονται
+ * καθόλου όταν τα διαγνωστικά είναι κλειστά.
+ */
+@Entity(tableName = "run_logs", indices = [Index(value = ["startedAt"]), Index(value = ["afm"])])
+data class RunLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val afm: String,
+    val configId: String,
+    val startedAt: Long,
+    val durationMs: Long,
+    val ok: Boolean,
+    val reason: String = "",
+    val fileCount: Int = 0,
+    /** Οι γραμμές του log, μία ανά γραμμή. Ποτέ με μυστικά. */
+    val lines: String = "",
+)
