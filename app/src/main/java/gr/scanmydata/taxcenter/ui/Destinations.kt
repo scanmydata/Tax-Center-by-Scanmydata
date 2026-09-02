@@ -1,33 +1,32 @@
 package gr.scanmydata.taxcenter.ui
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.annotation.DrawableRes
+import gr.scanmydata.taxcenter.R
 
 /**
  * Το μενού της εφαρμογής.
  *
- * Τα εικονίδια είναι προσωρινά από το Material: το φύλλο εικονιδίων που δόθηκε
- * έχει glyphs ~44px, ενώ για 24dp σε xxxhdpi χρειάζονται 96px — η μεγέθυνση θα
- * έβγαζε θολά. Θα αντικατασταθούν από vector drawables με τα ίδια σχήματα
- * (βλ. TODO.md).
+ * Τα εικονίδια είναι δικά μας vector drawables (24dp grid, stroke 1.8, round
+ * caps), σχεδιασμένα με το γλωσσάρι σχημάτων του φύλλου εικονιδίων που δόθηκε.
+ *
+ * Γιατί όχι το ίδιο το φύλλο: τα glyphs του είναι ~44px και είναι JPEG. Για 24dp
+ * σε xxxhdpi χρειάζονται 96px — η μεγέθυνση θα έβγαζε θολά εικονίδια, και τα
+ * artifacts του JPEG γύρω από τις λεπτές γραμμές θα φαίνονταν. Το φύλλο μένει
+ * στο `branding/` ως αναφορά σχεδίασης.
+ *
+ * Ως vector: ένα αρχείο για κάθε πυκνότητα οθόνης, και ο χρωματισμός γίνεται από
+ * το θέμα — άρα δουλεύουν σωστά σε ανοιχτό και σκοτεινό.
  */
 enum class Destination(
     val route: String,
     val label: String,
-    val icon: ImageVector,
+    @DrawableRes val icon: Int,
 ) {
-    Clients("clients", "Πελάτες", Icons.Filled.Groups),
-    Import("import", "Εισαγωγή από Excel", Icons.Filled.UploadFile),
-    Fetch("fetch", "Λήψη εντύπων", Icons.Filled.CloudDownload),
-    Documents("documents", "Έγγραφα", Icons.Filled.Description),
-    Calendar("calendar", "Ημερολόγιο αποστολών", Icons.Filled.CalendarMonth),
-    Logs("logs", "Ιστορικό εκτελέσεων", Icons.Filled.History),
-    SettingsScreen("settings", "Ρυθμίσεις", Icons.Filled.Settings),
+    Clients("clients", "Πελάτες", R.drawable.ic_menu_clients),
+    Import("import", "Εισαγωγή από Excel", R.drawable.ic_menu_import),
+    Fetch("fetch", "Λήψη εντύπων", R.drawable.ic_menu_fetch),
+    Documents("documents", "Έγγραφα", R.drawable.ic_menu_documents),
+    Calendar("calendar", "Ημερολόγιο αποστολών", R.drawable.ic_menu_calendar),
+    Logs("logs", "Ιστορικό εκτελέσεων", R.drawable.ic_menu_logs),
+    SettingsScreen("settings", "Ρυθμίσεις", R.drawable.ic_menu_settings),
 }

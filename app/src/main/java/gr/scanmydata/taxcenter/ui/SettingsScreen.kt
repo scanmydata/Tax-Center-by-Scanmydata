@@ -25,8 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
+import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +48,8 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var blockScreenshots by remember { mutableStateOf(settings.blockScreenshots) }
     var retention by remember { mutableStateOf(settings.retentionMonths.toString()) }
     var exportStatus by remember { mutableStateOf("") }
+    var updateStatus by remember { mutableStateOf("") }
+    var updateBusy by remember { mutableStateOf(false) }
     var includeSecrets by remember { mutableStateOf(settings.includePasswordsInClientEmail) }
     var officeName by remember { mutableStateOf(settings.officeName) }
     var signature by remember { mutableStateOf(settings.signature) }
@@ -203,6 +207,53 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
+
+        Spacer(Modifier.height(20.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(20.dp))
+
+        Text("Ενημέρωση", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Τρέχουσα έκδοση ${BuildConfig.VERSION_NAME}. Ο έλεγχος είναι " +
+                "χειροκίνητος και ανώνυμος: ένα GET στο δημόσιο API του GitHub, " +
+                "χωρίς κανένα στοιχείο της συσκευής ή των πελατών.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            enabled = !updateBusy,
+            onClick = {
+                scope.launch {
+                    updateBusy = true
+                    updateStatus = "Έλεγχος…"
+                    updateStatus = try {
+                        val release = withContext(Dispatchers.IO) { UpdateChecker.latest() }
+                        when {
+                            release == null -> "Δεν βρέθηκε έκδοση με APK."
+                            !UpdateChecker.isNewer(release.version) ->
+                                "Έχεις την τελευταία έκδοση (${release.tag})."
+                            else -> {
+                                val apk = withContext(Dispatchers.IO) {
+                                    UpdateChecker.download(context, release)
+                                }
+                                UpdateChecker.install(context, apk)
+                                "Λήφθηκε η ${release.tag} — ολοκλήρωσε την εγκατάσταση."
+                            }
+                        }
+                    } catch (e: Exception) {
+                        "Απέτυχε: ${e.message}"
+                    }
+                    updateBusy = false
+                }
+            },
+        ) { Text("Έλεγχος για ενημέρωση") }
+
+        if (updateStatus.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(updateStatus, style = MaterialTheme.typography.bodyMedium)
+        }
 
         Spacer(Modifier.height(32.dp))
     }

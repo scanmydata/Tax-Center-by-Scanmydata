@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Το monochrome layer των «themed icons» (Android 13+).
+
+  Δεν μπορεί να είναι το έγχρωμο λογότυπο: το σύστημα βάφει ό,τι του δώσουμε με
+  ένα χρώμα του ταπετσαρίας-θέματος και κρατά μόνο το σχήμα. Άρα χρειάζεται
+  συμπαγές σχήμα — εδώ ο φάκελος του λογοτύπου, σχεδιασμένος σε πλέγμα 24 και
+  κλιμακωμένος στη ζώνη ασφαλείας του 108×108.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.25"
+        android:scaleY="2.25"
+        android:translateX="27"
+        android:translateY="27">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M3,7a2,2 0 0 1 2,-2h4.2l2.2,2.6H19a2,2 0 0 1 2,2v8.4a2,2 0 0 1 -2,2H5a2,2 0 0 1 -2,-2z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M8,11h8v1.6H8zM8,14h5.5v1.6H8z" />
+    </group>
+</vector>

@@ -101,7 +101,12 @@ fun AppShell(container: AppContainer) {
                 }
                 Destination.entries.forEach { destination ->
                     NavigationDrawerItem(
-                        icon = { Icon(destination.icon, contentDescription = null) },
+                        icon = {
+                            Icon(
+                                painter = painterResource(destination.icon),
+                                contentDescription = null,
+                            )
+                        },
                         label = { Text(destination.label) },
                         selected = destination == current,
                         onClick = {
