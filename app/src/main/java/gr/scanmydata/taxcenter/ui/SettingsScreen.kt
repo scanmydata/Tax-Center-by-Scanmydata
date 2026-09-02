@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,13 +9,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,14 +28,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.gdpr.Exports
+import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
 import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.system.exitProcess
 
 @Composable
 fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
@@ -50,6 +57,11 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var exportStatus by remember { mutableStateOf("") }
     var updateStatus by remember { mutableStateOf("") }
     var updateBusy by remember { mutableStateOf(false) }
+    var passphrase by remember { mutableStateOf("") }
+    var backupStatus by remember { mutableStateOf("") }
+    var backupBusy by remember { mutableStateOf(false) }
+    var backups by remember { mutableStateOf(emptyList<DriveBackup.Entry>()) }
+    var restoreTarget by remember { mutableStateOf<DriveBackup.Entry?>(null) }
     var includeSecrets by remember { mutableStateOf(settings.includePasswordsInClientEmail) }
     var officeName by remember { mutableStateOf(settings.officeName) }
     var signature by remember { mutableStateOf(settings.signature) }
@@ -212,6 +224,91 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         HorizontalDivider()
         Spacer(Modifier.height(20.dp))
 
+        Text("Αντίγραφο ασφαλείας στο Drive", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Προαιρετικό. Η βάση κρυπτογραφείται **πριν** ανέβει, με κλειδί που " +
+                "παράγεται από τη δική σου passphrase (PBKDF2-HMAC-SHA256, 210.000 " +
+                "επαναλήψεις, AES-256-GCM). Η Google βλέπει μόνο κρυπτογράφημα.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Χαμένη passphrase = χαμένο αντίγραφο. Δεν υπάρχει ανάκτηση — αυτό " +
+                "είναι το νόημα. Κράτησέ τη στον διαχειριστή κωδικών σου.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = passphrase,
+            onValueChange = { passphrase = it },
+            label = { Text("Passphrase αντιγράφου (τουλάχιστον 12 χαρακτήρες)") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(
+                enabled = !backupBusy && passphrase.length >= 12,
+                onClick = {
+                    scope.launch {
+                        backupBusy = true
+                        backupStatus = "Δημιουργία και ανέβασμα…"
+                        backupStatus = try {
+                            val token = authorizer.accessToken()
+                            val entry = withContext(Dispatchers.IO) {
+                                container.driveBackup.upload(token, passphrase)
+                            }
+                            "Ανέβηκε: ${entry.name} (${entry.size / 1024} KB)."
+                        } catch (e: Exception) {
+                            "Απέτυχε: ${e.message}"
+                        }
+                        backupBusy = false
+                    }
+                },
+            ) { Text("Δημιουργία αντιγράφου") }
+
+            OutlinedButton(
+                enabled = !backupBusy && passphrase.length >= 12,
+                onClick = {
+                    scope.launch {
+                        backupBusy = true
+                        backupStatus = "Αναζήτηση αντιγράφων…"
+                        try {
+                            val token = authorizer.accessToken()
+                            backups = withContext(Dispatchers.IO) { container.driveBackup.list(token) }
+                            backupStatus = if (backups.isEmpty()) {
+                                "Δεν βρέθηκαν αντίγραφα."
+                            } else {
+                                "Βρέθηκαν ${backups.size} αντίγραφα."
+                            }
+                        } catch (e: Exception) {
+                            backupStatus = "Απέτυχε: ${e.message}"
+                        }
+                        backupBusy = false
+                    }
+                },
+            ) { Text("Επαναφορά…") }
+        }
+
+        backups.take(5).forEach { entry ->
+            TextButton(onClick = { restoreTarget = entry }) {
+                Text("${entry.name.removePrefix("taxcenter-backup-")} · ${entry.size / 1024} KB")
+            }
+        }
+
+        if (backupStatus.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(backupStatus, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(Modifier.height(20.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(20.dp))
+
         Text("Ενημέρωση", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -256,6 +353,42 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.height(32.dp))
+    }
+
+    restoreTarget?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { restoreTarget = null },
+            title = { Text("Επαναφορά αντιγράφου") },
+            text = {
+                Text(
+                    "Θα αντικατασταθεί ΟΛΗ η τρέχουσα βάση με το αντίγραφο " +
+                        "${entry.name}.\n\nΌ,τι έχει καταχωρηθεί μετά τη δημιουργία " +
+                        "του χάνεται. Η εφαρμογή θα κλείσει αμέσως μετά — άνοιξέ την " +
+                        "ξανά για να δεις τα δεδομένα.\n\nΗ ενέργεια δεν αναιρείται.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = entry
+                    restoreTarget = null
+                    scope.launch {
+                        backupStatus = "Επαναφορά…"
+                        try {
+                            val token = authorizer.accessToken()
+                            withContext(Dispatchers.IO) {
+                                container.driveBackup.restore(token, target, passphrase)
+                            }
+                            // Η Room κρατά ανοιχτό handle στο παλιό αρχείο· κάθε
+                            // εγγραφή μετά την αντικατάσταση θα το κατέστρεφε.
+                            exitProcess(0)
+                        } catch (e: Exception) {
+                            backupStatus = "Απέτυχε: ${e.message}"
+                        }
+                    }
+                }) { Text("Επαναφορά") }
+            },
+            dismissButton = { TextButton(onClick = { restoreTarget = null }) { Text("Άκυρο") } },
+        )
     }
 }
 

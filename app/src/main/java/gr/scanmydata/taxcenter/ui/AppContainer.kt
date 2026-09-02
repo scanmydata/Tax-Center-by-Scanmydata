@@ -9,6 +9,7 @@ import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import gr.scanmydata.taxcenter.engine.EngineAssets
 import gr.scanmydata.taxcenter.engine.FetchController
 import gr.scanmydata.taxcenter.engine.ProcessRunner
+import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.mail.MailService
 
 /**
@@ -36,4 +37,6 @@ class AppContainer(context: Context) {
      * και δεν πρέπει να ακυρώνεται επειδή ο χρήστης άλλαξε οθόνη.
      */
     val fetch: FetchController by lazy { FetchController(app, processRunner, repository, assets) }
+
+    val driveBackup: DriveBackup by lazy { DriveBackup(app, db) }
 }
