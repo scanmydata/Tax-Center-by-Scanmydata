@@ -23,3 +23,10 @@ metadata:
 **How to apply:** heredoc του bash δεν αντέχει μεγάλα αρχεία με quotes/ελληνικά
 — για τέτοια χρησιμοποίησε τον Write tool ή ένα `.cjs` script αρχείο, όχι
 `node -e` με πολλαπλά επίπεδα escaping.
+
+4. **Δεν υπάρχει Java σε αυτό το μηχάνημα** — ούτε `keytool`. Το keystore
+   υπογραφής φτιάχτηκε με `openssl` (PKCS#12, το `build.gradle.kts` έτσι κι
+   αλλιώς θέλει `storeType = PKCS12`). Και εκεί: το Git Bash μετατρέπει το
+   `-subj "/CN=..."` σε διαδρομή Windows — χρειάζεται
+   `export MSYS2_ARG_CONV_EXCL="*"` πρώτα, αλλιώς το `openssl req` σκάει
+   αθόρυβα αν έχεις κρύψει το stderr.
