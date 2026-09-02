@@ -14,6 +14,7 @@
 | [GSIS OAM-6: σειριακά, πάντα](docs/decisions/gsis-serial-sessions-oam6.md) | Παραλληλία κλειδώνει τον λογαριασμό. 2FA/CAPTCHA δεν παρακάμπτονται. |
 | [Android OAuth χωρίς client secret](docs/decisions/android-oauth-needs-no-client-secret.md) | Τα κλειδιά του Infisical δεν μπαίνουν στο APK. |
 | [Η παγίδα του e-timologio key](docs/decisions/excel-etimologio-key-trap.md) | Whole-string matching + denylist, αλλιώς 403 σε κάθε πελάτη. |
+| [Κωδικοί με email: δικλείδες](docs/decisions/credentials-email-safeguards.md) | Επιτρέπεται, αλλά κλειστό εξ ορισμού, με προειδοποίηση ανά αποστολή και καταγραφή. |
 | [Παγίδες με ελληνικά σε Windows](docs/decisions/greek-tooling-pitfalls-windows.md) | BOM σε `.ps1`, εμφωλευμένα σχόλια Kotlin, ASCII `\b` στη Java. |
 
 Η τρέχουσα κατάσταση ανά φάση είναι στο [TODO.md](TODO.md).
