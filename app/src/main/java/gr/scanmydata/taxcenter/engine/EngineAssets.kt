@@ -14,7 +14,7 @@ import org.json.JSONObject
  *   browser-step.js  BrowserPage πάνω σε WebView    (Android-owned)
  *   render-pdf.js    graceful degradation           (Android-owned)
  *   hyper-http.js    ΑΥΤΟΥΣΙΟ από τον runner
- *   configs/*.js     ΑΥΤΟΥΣΙΑ από τον runner
+ *   configs/         ένα .js ανά διαδικασία, ΑΥΤΟΥΣΙΑ από τον runner
  *   configs.json     κατάλογος, παράγεται από το vendor script
  * ```
  */
