@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Από το λογότυπο: ο μπλε φάκελος με τα έντυπα ΑΑΔΕ. -->
+    <color name="brand_blue">#2E7DE0</color>
+    <color name="brand_blue_dark">#1B5FBF</color>
+    <color name="ink">#0B1B2B</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>

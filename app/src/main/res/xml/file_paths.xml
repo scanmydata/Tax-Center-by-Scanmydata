@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Τα ληφθέντα έντυπα, για επισύναψη σε email και για κοινοποίηση. -->
+    <files-path name="runs" path="runs/" />
+    <files-path name="exports" path="exports/" />
+    <!-- Το APK της αυτόματης ενημέρωσης. -->
+    <cache-path name="updates" path="updates/" />
+</paths>

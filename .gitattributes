@@ -18,3 +18,7 @@ app/src/main/assets/engine/**  text eol=lf
 *.p12  binary
 *.apk  binary
 *.aab  binary
+
+# .ps1 σε Windows PowerShell 5.1: χωρίς BOM διαβάζονται ως ANSI και τα
+# ελληνικά σχόλια σπάνε τον parser.
+*.ps1 text eol=crlf working-tree-encoding=UTF-8

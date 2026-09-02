@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Τίποτα δεν φεύγει σε cloud backup ή σε μεταφορά συσκευής. Η βάση περιέχει
+  κωδικούς TAXISnet/ΕΦΚΑ πελατών· το αντίγραφο ασφαλείας γίνεται μόνο ρητά από
+  τον χρήστη, κρυπτογραφημένο end-to-end (GDPR άρθρο 32).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

@@ -12,7 +12,7 @@ package gr.scanmydata.taxcenter.engine
  * Τι **δεν** κόβεται: το ΑΦΜ. Είναι προσωπικό δεδομένο, αλλά χωρίς αυτό τα logs
  * γίνονται άχρηστα για διάγνωση («ποιος πελάτης απέτυχε;»), και τα διαγνωστικά
  * είναι εξ ορισμού απενεργοποιημένα και αποθηκεύονται app-private. Το ισοζύγιο
- * είναι συνειδητό και τεκμηριωμένο στο docs/privacy-policy.md.
+ * είναι συνειδητό και τεκμηριώνεται στο docs/privacy-policy.md.
  */
 object Redactor {
 
@@ -21,7 +21,7 @@ object Redactor {
     /** Ονόματα πεδίων/παραμέτρων που δεν επιτρέπεται ποτέ να φανούν. */
     private val SECRET_KEYS = listOf(
         "password", "passwd", "pwd", "pass",
-        "j_password", "btn_login",
+        "j_password",
         "secret", "token", "access_token", "refresh_token", "id_token",
         "apikey", "api_key", "api-key",
         "subscription_key", "subscription-key", "ocp-apim-subscription-key",
@@ -30,9 +30,20 @@ object Redactor {
         "συνθηματικό", "συνθηματικο", "κωδικός", "κωδικος", "κλειδάριθμος", "κλειδαριθμος",
     )
 
-    /** `password=x`, `password: x`, `"password":"x"`, `password" value="x"` */
+    /**
+     * `password=x`, `password: x`, `"password":"x"`.
+     *
+     * Τα όρια λέξης γράφονται ρητά ως `[\p{L}\p{N}_]` αντί για `\b`: στη Java το
+     * `\b` βασίζεται στο `\w` = `[a-zA-Z0-9_]`, οπότε τα ελληνικά κλειδιά
+     * («Συνθηματικό», «Κλειδάριθμος») δεν θα ταίριαζαν **ποτέ**.
+     */
+    // (?iu): case-insensitive ΚΑΙ Unicode-aware. Το σκέτο CASE_INSENSITIVE της
+    // Java είναι ASCII-only — χωρίς το `u`, το «Συνθηματικό» με κεφαλαίο Σ δεν
+    // θα ταίριαζε με το πεζό κλειδί του καταλόγου.
     private val KEY_VALUE = Regex(
-        """(?i)\b(${SECRET_KEYS.joinToString("|") { Regex.escape(it) }})\b\s*["']?\s*[:=]\s*["']?([^\s&"',;}]{1,200})""",
+        """(?iu)(?<![\p{L}\p{N}_])(""" +
+            SECRET_KEYS.joinToString("|") { Regex.escape(it) } +
+            """)(?![\p{L}\p{N}_])\s*["']?\s*[:=]\s*["']?([^\s&"',;}<]{1,200})""",
     )
 
     /** `Authorization: Bearer …`, `Authorization: ctaf2 …` (MyAMKA) */
@@ -44,12 +55,16 @@ object Redactor {
     /** ΑΜΚΑ: 11 ψηφία. Κρατάμε τα 2 πρώτα για συσχέτιση. */
     private val AMKA = Regex("""(?<!\d)(\d{2})\d{9}(?!\d)""")
 
-    /** Κλειδάριθμος TAXISnet: συνήθως 12+ αλφαριθμητικά χωρίς κενά. */
-    private val LONG_TOKEN = Regex("""(?<![\w-])[a-z]{2,}\d{4,}[a-z\d]{4,}(?![\w-])""")
+    /**
+     * Κλειδάριθμος TAXISnet και παρόμοια: γράμματα, μετά ψηφία, μετά αλφαριθμητικά
+     * (π.χ. `ab123456c789`). Δεν πιάνει URL τμήματα όπως `year2025-income`, γιατί
+     * απαιτεί τουλάχιστον 4 αλφαριθμητικά μετά τα ψηφία χωρίς διαχωριστικό.
+     */
+    private val LONG_TOKEN = Regex("""(?<![\p{L}\p{N}_-])[a-z]{2,}\d{4,}[a-z\d]{4,}(?![\p{L}\p{N}_-])""")
 
     fun scrub(text: String?): String {
         if (text.isNullOrEmpty()) return ""
-        var s = text
+        var s: String = text
         s = KEY_VALUE.replace(s) { m -> "${m.groupValues[1]}=$MASK" }
         s = AUTH_HEADER.replace(s) { m -> "${m.groupValues[1]}${m.groupValues[2]}$MASK" }
         s = HEX32.replace(s, MASK)
