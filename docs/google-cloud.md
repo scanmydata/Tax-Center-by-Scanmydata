@@ -4,6 +4,11 @@
 να στέλνει τα φορολογικά έντυπα με **Gmail API** και (προαιρετικά) να ανεβάζει
 κρυπτογραφημένο αντίγραφο στο **Drive**.
 
+> **Κατάσταση: έγινε στις 2 Σεπτεμβρίου 2026.** Το project
+> `scanmydata-tax-center` είναι πλήρως ρυθμισμένο και δημοσιευμένο. Ο οδηγός
+> μένει ως τεκμηρίωση — και για την περίπτωση που χρειαστεί νέο keystore ή νέο
+> project. Ό,τι είναι ήδη ρυθμισμένο σημειώνεται με ✅.
+
 ---
 
 ## Πριν ξεκινήσεις: δεν χρειάζεται client secret
@@ -26,75 +31,108 @@ package name  +  SHA-1 της υπογραφής του APK
 
 **Συνέπεια:** το keystore γίνεται κρίσιμο. Αν χαθεί, δεν μπορείς ούτε να
 ενημερώσεις την εφαρμογή (αλλάζει η υπογραφή) ούτε να συνδεθείς στο Google
-(αλλάζει το SHA-1). Κράτα το εκτός repo, με αντίγραφο.
+(αλλάζει το SHA-1).
 
 ---
 
-## 1. Δημιουργία keystore (μία φορά)
+## 1. Keystore ✅
 
-Πρώτα το keystore, γιατί από αυτό βγαίνει το SHA-1 που ζητά η Google.
+Δημιουργήθηκε στις 2 Σεπτεμβρίου 2026, **εκτός του repo**:
 
-```bash
-keytool -genkeypair -v -keystore release.jks -keyalg RSA -keysize 2048 \
-  -validity 10000 -alias taxcenter
+```
+C:\Users\antonis\Documents\ScanMyData-keystore\
+├─ release.p12              ← το keystore (PKCS#12, RSA 4096, λήγει 2054)
+├─ cert.pem                 ← το πιστοποιητικό (δημόσιο, για να ξαναβγεί το SHA-1)
+└─ keystore-password.txt    ← ο κωδικός
 ```
 
-Κράτησέ το **έξω** από τον φάκελο του repo, π.χ. `Documents/TaxCenter-keystore/`.
+| | |
+|---|---|
+| Alias | `taxcenter` |
+| SHA-1 | `28:18:12:4B:1B:11:B7:F3:7E:17:A4:2C:7B:51:4A:4D:B9:D1:4D:1D` |
+| Subject | `CN=ScanMyData Tax Center, O=ScanMyData, L=Athens, C=GR` |
 
-Το SHA-1:
+> ⚠️ **Δύο πράγματα να κάνεις μόλις προλάβεις:**
+> 1. Πέρασε το περιεχόμενο του `keystore-password.txt` στον διαχειριστή κωδικών
+>    σου και **σβήσε το αρχείο**.
+> 2. Κράτα αντίγραφο του `release.p12` σε άλλο μέσο. Χωρίς αυτό η εφαρμογή δεν
+>    ενημερώνεται ποτέ ξανά και το Google Sign-In σταματά.
+
+Αν χρειαστεί ποτέ **νέο** keystore — δεν υπάρχει Java σε αυτό το μηχάνημα, οπότε
+όχι `keytool`· το `openssl` του Git Bash κάνει την ίδια δουλειά:
 
 ```bash
-keytool -list -v -keystore release.jks -alias taxcenter | grep SHA1
+export MSYS2_ARG_CONV_EXCL='*'
+openssl req -x509 -newkey rsa:4096 -sha256 -days 10000 -nodes -keyout key.pem -out cert.pem -subj '/CN=ScanMyData Tax Center/O=ScanMyData/L=Athens/C=GR'
+openssl pkcs12 -export -inkey key.pem -in cert.pem -name taxcenter -out release.p12 -certpbe AES-256-CBC -keypbe AES-256-CBC -macalg sha256
+openssl x509 -in cert.pem -noout -fingerprint -sha1
 ```
 
-Θα δώσει κάτι σαν `SHA1: AB:CD:...:12`. Κράτα το.
+Το `MSYS2_ARG_CONV_EXCL` είναι απαραίτητο: αλλιώς το Git Bash νομίζει ότι το
+`/CN=...` είναι διαδρομή αρχείου και το μετατρέπει σε `C:\...`.
+
+Το `app/build.gradle.kts` περιμένει **PKCS#12** (`storeType = PKCS12`), οπότε
+το `release.p12` μπαίνει αυτούσιο.
 
 ---
 
-## 2. GitHub Secrets
+## 2. GitHub Secrets ✅
 
 Χωρίς αυτά το CI βγάζει **debug-signed** APK και το γράφει στις σημειώσεις της
-έκδοσης. Λειτουργεί για δοκιμή, αλλά το Google Sign-In θέλει τη σωστή υπογραφή.
+έκδοσης. Τέθηκαν και τα τέσσερα:
+
+| Secret | Τιμή |
+|---|---|
+| `KEYSTORE_BASE64` | `base64 -w0 release.p12` |
+| `KEYSTORE_PASSWORD` | από το `keystore-password.txt` |
+| `KEY_PASSWORD` | ίδιο με το παραπάνω (το PKCS#12 δεν ξεχωρίζει τα δύο) |
+| `KEY_ALIAS` | `taxcenter` |
 
 ```bash
-base64 -w0 release.jks > release.jks.b64
-gh secret set KEYSTORE_BASE64 < release.jks.b64 --repo scanmydata/ScanMyData-Tax-Center
-gh secret set KEYSTORE_PASSWORD --repo scanmydata/ScanMyData-Tax-Center
-gh secret set KEY_ALIAS --repo scanmydata/ScanMyData-Tax-Center
-gh secret set KEY_PASSWORD --repo scanmydata/ScanMyData-Tax-Center
+base64 -w0 release.p12 > release.p12.b64
+gh secret set KEYSTORE_BASE64   --repo scanmydata/ScanMyData-Tax-Center < release.p12.b64
+gh secret set KEYSTORE_PASSWORD --repo scanmydata/ScanMyData-Tax-Center < keystore-password.txt
+gh secret set KEY_PASSWORD      --repo scanmydata/ScanMyData-Tax-Center < keystore-password.txt
+printf 'taxcenter' | gh secret set KEY_ALIAS --repo scanmydata/ScanMyData-Tax-Center
+rm -f release.p12.b64
 ```
 
-Το `KEY_ALIAS` είναι `taxcenter`. Σβήσε το `release.jks.b64` μετά.
+---
+
+## 3. Google Cloud project ✅
+
+Project `scanmydata-tax-center`. Ενεργοποιημένα API:
+
+* **Gmail API**
+* **Google Drive API**
 
 ---
 
-## 3. Google Cloud project
-
-1. [console.cloud.google.com](https://console.cloud.google.com) → **New Project**
-   → όνομα `scanmydata-tax-center`.
-2. **APIs & Services → Library** → ενεργοποίησε:
-   * **Gmail API**
-   * **Google Drive API**
-
----
-
-## 4. OAuth consent screen
-
-**APIs & Services → OAuth consent screen**, τύπος **External**.
+## 4. Οθόνη συγκατάθεσης (Google Auth Platform) ✅
 
 | Πεδίο | Τιμή |
 |---|---|
 | App name | `ScanMyData Tax Center` |
-| User support email | ο λογαριασμός σου |
-| App logo | `docs/oauth-logo.png` (120×120, παράγεται από το `tools/make-icons.ps1`) |
+| User type | **External** |
+| User support email | `adonis.douramanis@gmail.com` |
 | Application home page | `https://scanmydata.github.io/ScanMyData-Tax-Center/` |
 | Privacy policy link | `https://scanmydata.github.io/ScanMyData-Tax-Center/privacy-policy.html` |
+| Terms of Service link | `https://scanmydata.github.io/ScanMyData-Tax-Center/terms.html` |
 | Authorised domain | `scanmydata.github.io` |
-| Developer contact | ο λογαριασμός σου |
+| Developer contact | `adonis.douramanis@gmail.com` |
+| App logo | **δεν ανέβηκε** — βλ. παρακάτω |
 
-### Scopes
+### Γιατί δεν ανέβηκε το λογότυπο
 
-**Add or remove scopes** → πρόσθεσε **μόνο** αυτά τα τρία:
+Η ίδια η κονσόλα το λέει: μόλις ανεβάσεις λογότυπο, η εφαρμογή πρέπει να
+υποβληθεί για πιστοποίηση, εκτός αν είναι internal ή σε κατάσταση *Testing*.
+Αφού η εφαρμογή είναι **In production**, το ανέβασμα του λογοτύπου θα την έβαζε
+υποχρεωτικά σε διαδικασία πιστοποίησης.
+
+Το αρχείο υπάρχει έτοιμο στο `docs/oauth-logo.png` (120×120). Ανέβασέ το μόνο αν
+κάποτε αποφασίσεις να περάσεις πιστοποίηση.
+
+### Scopes ✅
 
 | Scope | Τι κάνει | Κατηγορία |
 |---|---|---|
@@ -109,50 +147,55 @@ gh secret set KEY_PASSWORD --repo scanmydata/ScanMyData-Tax-Center
 
 ---
 
-## 5. Android OAuth client
-
-**APIs & Services → Credentials → Create credentials → OAuth client ID**
+## 5. Android OAuth client ✅
 
 | Πεδίο | Τιμή |
 |---|---|
 | Application type | **Android** |
-| Name | `Tax Center Android` |
+| Name | `ScanMyData Tax Center (Android release)` |
 | Package name | `gr.scanmydata.taxcenter` |
-| SHA-1 certificate fingerprint | το SHA-1 από το βήμα 1 |
+| SHA-1 | `28:18:12:4B:1B:11:B7:F3:7E:17:A4:2C:7B:51:4A:4D:B9:D1:4D:1D` |
+| Client ID | `987658095551-k49h5caf02stavpkf9hc9o3sh6tocu3b.apps.googleusercontent.com` |
 
-> Για δοκιμή με debug build, πρόσθεσε **δεύτερο** Android client με το SHA-1 του
-> debug keystore (`~/.android/debug.keystore`, κωδικός `android`, alias
-> `androiddebugkey`) και package `gr.scanmydata.taxcenter.debug`.
+Δεν εμφανίστηκε client secret — σωστό, δεν υπάρχει. Το client ID δεν χρειάζεται
+πουθενά στον κώδικα· καταγράφεται εδώ μόνο για αναφορά.
 
-Δεν εμφανίζεται client secret — σωστό, δεν υπάρχει.
+> **Τα debug builds δεν θα συνδεθούν στο Google.** Το `build.gradle.kts` βάζει
+> `applicationIdSuffix = ".debug"`, άρα το package είναι
+> `gr.scanmydata.taxcenter.debug` και η υπογραφή είναι debug — δύο λόγοι να μην
+> ταιριάζει. Αν χρειαστεί δοκιμή σε debug build, φτιάξε **δεύτερο** Android
+> client με εκείνο το package και το SHA-1 του debug keystore.
 
 ---
 
-## 6. Δημοσίευση
+## 6. Δημοσίευση ✅
 
-**OAuth consent screen → Publishing status → Publish app**.
+Publishing status: **In production**, χωρίς πιστοποίηση. Συνέπειες:
 
-Χωρίς πιστοποίηση (verification) η εφαρμογή δουλεύει κανονικά, με τρεις
-περιορισμούς:
+* ο χρήστης βλέπει **μία φορά** την προειδοποίηση «Google hasn't verified this
+  app» και πατά *Advanced → Continue*,
+* όριο **100 χρήστες** σε όλη τη ζωή του project,
+* δεν εμφανίζεται λογότυπο στην οθόνη συγκατάθεσης.
 
-* δεν εμφανίζεται το λογότυπο στην οθόνη συγκατάθεσης,
-* ο χρήστης βλέπει **μία φορά** την προειδοποίηση «Google hasn't verified this app»
-  (Advanced → Continue),
-* όριο **100 χρήστες**.
+Για ένα λογιστικό γραφείο αυτά είναι μη-θέματα, και **η άδεια δεν λήγει**.
 
-Για ένα λογιστικό γραφείο αυτά είναι μη-θέματα, και **η άδεια δεν λήγει**. Όσο
-είσαι σε *Testing*, πρόσθεσε τον λογαριασμό σου στους **Test users** — εκεί η
-άδεια λήγει σε 7 ημέρες, γι' αυτό προτίμησε *In production*.
+Γιατί όχι *Testing*: εκεί **η εξουσιοδότηση λήγει κάθε 7 ημέρες**, οπότε θα
+έπρεπε να ξανασυνδέεσαι στο Google κάθε εβδομάδα.
+
+Η κονσόλα δείχνει μια κίτρινη ειδοποίηση «Your app requires verification». Είναι
+αναμενόμενη επειδή το `gmail.send` είναι sensitive· η εφαρμογή δουλεύει κανονικά
+χωρίς να την ακολουθήσεις.
 
 ---
 
 ## 7. Έλεγχος
 
-1. Εγκατάστησε το APK από το τελευταίο [release](https://github.com/scanmydata/ScanMyData-Tax-Center/releases).
+1. Εγκατάστησε το APK από το τελευταίο [release](https://github.com/scanmydata/ScanMyData-Tax-Center/releases)
+   — πρέπει να είναι **release-signed**, όχι debug.
 2. Ρυθμίσεις → **Σύνδεση με Google**.
 3. Θα ζητηθεί άδεια για αποστολή email και για αρχεία της εφαρμογής στο Drive.
 4. Αν βγει `Error 10: DEVELOPER_ERROR`, δεν ταιριάζει το ζεύγος package/SHA-1 —
-   συνήθως επειδή δοκιμάζεις debug build ενώ καταχώρησες μόνο το release SHA-1.
+   σχεδόν πάντα επειδή δοκιμάζεις debug build.
 
 ---
 
