@@ -38,8 +38,6 @@ import gr.scanmydata.taxcenter.BuildConfig
  */
 @Composable
 fun HelpScreen(container: AppContainer, modifier: Modifier = Modifier) {
-    var openTour by remember { mutableStateOf(false) }
-
     LazyColumn(modifier.padding(horizontal = 16.dp)) {
         item {
             Spacer(Modifier.height(12.dp))
@@ -65,7 +63,7 @@ fun HelpScreen(container: AppContainer, modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(10.dp))
-                    OutlinedButton(onClick = { openTour = true }) { Text("Ξανά η ξενάγηση") }
+                    OutlinedButton(onClick = { TourState.start() }) { Text("Ξανά η ξενάγηση") }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -76,12 +74,6 @@ fun HelpScreen(container: AppContainer, modifier: Modifier = Modifier) {
         item { Spacer(Modifier.height(24.dp)) }
     }
 
-    if (openTour) {
-        TourDialog(onFinish = {
-            openTour = false
-            container.settings.tourSeen = true
-        })
-    }
 }
 
 private data class Section(val title: String, val body: List<Pair<String, String>>)

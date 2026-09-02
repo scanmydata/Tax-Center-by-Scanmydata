@@ -1,6 +1,7 @@
 package gr.scanmydata.taxcenter.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +48,7 @@ import gr.scanmydata.taxcenter.R
 import gr.scanmydata.taxcenter.gdpr.Retention
 import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -66,8 +69,29 @@ fun AppShell(container: AppContainer) {
     val context = LocalContext.current
 
     val appContext = LocalContext.current.applicationContext
-    var showTour by remember { mutableStateOf(!container.settings.tourSeen) }
     var update by remember { mutableStateOf<UpdateChecker.Release?>(null) }
+
+    // Η ξενάγηση ξεκινά μία φορά, και από εκεί και πέρα ζει στο `TourState`:
+    // διασχίζει οθόνες, οπότε δεν μπορεί να είναι κατάσταση μιας οθόνης.
+    LaunchedEffect(Unit) {
+        if (!container.settings.tourSeen) {
+            container.settings.tourSeen = true
+            TourState.start()
+        }
+    }
+
+    // Τα λίγα δεδομένα που κρίνουν αν ένα βήμα της ξενάγησης έγινε στ' αλήθεια.
+    //
+    // Συλλέγονται **πάντα**, όχι μόνο όσο τρέχει η ξενάγηση: ένα `collectAsState`
+    // μέσα σε `if` αλλάζει το πλήθος των composable κλήσεων μεταξύ συνθέσεων και
+    // ρίχνει το Compose τη στιγμή που θα άλλαζε η συνθήκη. Το κόστος είναι δύο
+    // ερωτήματα με `LIMIT 1` — ασήμαντο μπροστά στο να σκάει η εφαρμογή.
+    val clientCount by container.repository.observeClients()
+        .map { it.size }
+        .collectAsState(initial = 0)
+    val documentCount by container.db.documents().observeRecent(1)
+        .map { it.size }
+        .collectAsState(initial = 0)
 
     // Η πολιτική διατήρησης τρέχει μία φορά ανά εκκίνηση, μετά το ξεκλείδωμα.
     // Όχι στο Application.onCreate: εκεί θα άνοιγε τη βάση SQLCipher πριν καν
@@ -165,10 +189,11 @@ fun AppShell(container: AppContainer) {
                 )
             },
         ) { inner ->
+            Box(Modifier.fillMaxSize().padding(inner)) {
             NavHost(
                 navController = navController,
                 startDestination = Destination.Clients.route,
-                modifier = Modifier.fillMaxSize().padding(inner),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 composable(Destination.Clients.route) {
                     ClientsScreen(
@@ -225,14 +250,24 @@ fun AppShell(container: AppContainer) {
                 // ανοίγεις όταν σου το ζητήσουν.
                 composable(LOGS_ROUTE) { LogsScreen(container) }
             }
-        }
-    }
 
-    if (showTour) {
-        TourDialog(onFinish = {
-            showTour = false
-            container.settings.tourSeen = true
-        })
+            TourBar(
+                facts = TourFacts(
+                    googleConnected = container.settings.googleConnected,
+                    clients = clientCount,
+                    documents = documentCount,
+                    currentRoute = route,
+                ),
+                onNavigate = { destination ->
+                    navController.navigate(destination.route) {
+                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+            )
+            }
+        }
     }
 
     update?.let { release ->
