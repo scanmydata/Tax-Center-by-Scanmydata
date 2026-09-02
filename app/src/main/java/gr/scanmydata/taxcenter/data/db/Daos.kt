@@ -1,0 +1,134 @@
+package gr.scanmydata.taxcenter.data.db
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface ClientDao {
+
+    @Query("SELECT * FROM clients WHERE deleted = 0 ORDER BY name, firstName")
+    fun observeAll(): Flow<List<ClientEntity>>
+
+    @Query("SELECT * FROM clients WHERE deleted = 0 ORDER BY name, firstName")
+    suspend fun all(): List<ClientEntity>
+
+    @Query("SELECT * FROM clients WHERE afm = :afm LIMIT 1")
+    suspend fun byAfm(afm: String): ClientEntity?
+
+    @Query("SELECT * FROM clients WHERE id = :id LIMIT 1")
+    suspend fun byId(id: Long): ClientEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(client: ClientEntity): Long
+
+    @Update
+    suspend fun update(client: ClientEntity)
+
+    @Query("UPDATE clients SET deleted = 1, updatedAt = :now WHERE id = :id")
+    suspend fun softDelete(id: Long, now: Long)
+
+    @Query("DELETE FROM clients WHERE id = :id")
+    suspend fun hardDelete(id: Long)
+
+    /**
+     * Εισαγωγή ή ενημέρωση **χωρίς να σβήνει τίποτα**.
+     *
+     * Ο κανόνας είναι απόλυτος: μια κενή τιμή στο αρχείο δεν αντικαθιστά ποτέ
+     * αποθηκευμένη τιμή. Ένα μερικό export — π.χ. ένα φύλλο με ΑΦΜ αλλά χωρίς
+     * στήλες κωδικών — αλλιώς θα έσβηνε σιωπηλά τα διαπιστευτήρια όλων.
+     */
+    @Transaction
+    suspend fun upsertPreservingBlanks(incoming: ClientEntity, now: Long): Long {
+        val existing = byAfm(incoming.afm)
+        if (existing == null) {
+            return insert(incoming.copy(importedAt = now, updatedAt = now))
+        }
+        val merged = existing.copy(
+            name = incoming.name.ifBlank { existing.name },
+            firstName = incoming.firstName.ifBlank { existing.firstName },
+            kind = incoming.kind.ifBlank { existing.kind },
+            amkaEnc = incoming.amkaEnc.ifBlank { existing.amkaEnc },
+            doy = incoming.doy.ifBlank { existing.doy },
+            // Το «ανενεργός» είναι πληροφορία, όχι κενό — περνά όπως έρχεται.
+            active = incoming.active,
+            sourceFile = incoming.sourceFile.ifBlank { existing.sourceFile },
+            deleted = false,
+            updatedAt = now,
+        )
+        update(merged)
+        return existing.id
+    }
+}
+
+@Dao
+interface CredentialDao {
+
+    @Query("SELECT * FROM credentials WHERE clientId = :clientId")
+    suspend fun forClient(clientId: Long): List<CredentialEntity>
+
+    @Query("SELECT valueEnc FROM credentials WHERE clientId = :clientId AND field = :field LIMIT 1")
+    suspend fun value(clientId: Long, field: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(credential: CredentialEntity)
+
+    @Query("DELETE FROM credentials WHERE clientId = :clientId AND field = :field")
+    suspend fun remove(clientId: Long, field: String)
+
+    /** Ίδιος κανόνας: κενή τιμή δεν σβήνει αποθηκευμένη. */
+    @Transaction
+    suspend fun putIfNotBlank(clientId: Long, field: String, valueEnc: String, now: Long) {
+        if (valueEnc.isBlank()) return
+        put(CredentialEntity(clientId, field, valueEnc, now))
+    }
+}
+
+@Dao
+interface DocumentDao {
+
+    @Query("SELECT * FROM documents WHERE clientId = :clientId ORDER BY createdAt DESC")
+    fun observeForClient(clientId: Long): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<Long>): List<DocumentEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(document: DocumentEntity): Long
+
+    @Query("UPDATE documents SET sentAt = :now WHERE id IN (:ids)")
+    suspend fun markSent(ids: List<Long>, now: Long)
+
+    @Query("DELETE FROM documents WHERE createdAt < :before")
+    suspend fun deleteOlderThan(before: Long): Int
+}
+
+@Dao
+interface AuditDao {
+
+    @Insert
+    suspend fun log(entry: AuditEntity)
+
+    @Query("SELECT * FROM audit_log ORDER BY ts DESC LIMIT :limit")
+    suspend fun recent(limit: Int = 500): List<AuditEntity>
+
+    @Query("SELECT * FROM audit_log ORDER BY ts")
+    suspend fun all(): List<AuditEntity>
+}
+
+@Dao
+interface ConsentDao {
+
+    @Query("SELECT * FROM consents WHERE clientId = :clientId LIMIT 1")
+    suspend fun forClient(clientId: Long): ConsentEntity?
+
+    @Query("SELECT clientId FROM consents")
+    suspend fun clientsWithConsent(): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(consent: ConsentEntity)
+}
