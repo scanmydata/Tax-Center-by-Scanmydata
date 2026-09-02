@@ -49,7 +49,16 @@ class GmailSender(
         }
     }
 
-    class SendFailed(message: String) : Exception(message)
+    /**
+     * Το [code] είναι ο κωδικός HTTP, ή 0 όταν η κλήση δεν έφτασε καν στο Gmail
+     * (δίκτυο, timeout). Χρειάζεται για να ξεχωρίσει η **παροδική** αποτυχία —
+     * που αξίζει επανάληψη — από τη μόνιμη: ένα 400 «invalid to header» δεν θα
+     * γίνει ποτέ σωστό όσο κι αν ξαναπροσπαθήσουμε.
+     */
+    class SendFailed(message: String, val code: Int = 0) : Exception(message) {
+        val transient: Boolean
+            get() = code == 0 || code == 429 || code in 500..599
+    }
 
     /**
      * Στέλνει ένα μήνυμα. Πετάει [SendFailed] με το μήνυμα του Gmail.
@@ -74,13 +83,19 @@ class GmailSender(
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
+        val response = try {
+            client.newCall(request).execute()
+        } catch (e: Exception) {
+            // Δίκτυο ή timeout: δεν ξέρουμε αν έφυγε. Κωδικός 0 = παροδικό.
+            throw SendFailed(e.message ?: "σφάλμα δικτύου", code = 0)
+        }
+        response.use {
+            val body = it.body?.string().orEmpty()
+            if (!it.isSuccessful) {
                 val message = runCatching {
                     JSONObject(body).getJSONObject("error").getString("message")
-                }.getOrDefault("HTTP ${response.code}")
-                throw SendFailed(message)
+                }.getOrDefault("HTTP ${it.code}")
+                throw SendFailed(message, code = it.code)
             }
             return runCatching { JSONObject(body).optString("id") }.getOrDefault("")
         }

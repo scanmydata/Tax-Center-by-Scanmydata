@@ -2,6 +2,8 @@ package gr.scanmydata.taxcenter.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,19 +22,29 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.db.SendEntity
+import gr.scanmydata.taxcenter.gdpr.Exports
+import gr.scanmydata.taxcenter.google.GoogleAuthorizer
+import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import java.time.DayOfWeek
 import java.time.Instant
@@ -57,15 +69,32 @@ private val GREEK = Locale("el", "GR")
 
 @Composable
 fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    val authorizer = rememberGoogleAuthorizer()
+    val context = LocalContext.current
+
     var weekView by remember { mutableStateOf(false) }
     var anchor by remember { mutableStateOf(LocalDate.now(ZONE)) }
     var selected by remember { mutableStateOf<LocalDate?>(LocalDate.now(ZONE)) }
+    var kindFilter by remember { mutableStateOf("") }
+    var failedOnly by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
 
     val range = remember(anchor, weekView) { visibleRange(anchor, weekView) }
-    val sends: List<SendEntity> by container.db.sends()
+    val all: List<SendEntity> by container.db.sends()
         .observeBetween(range.first.atStartOfDay(ZONE).toInstant().toEpochMilli(),
                         range.second.plusDays(1).atStartOfDay(ZONE).toInstant().toEpochMilli())
         .collectAsState(initial = emptyList())
+
+    val sends = remember(all, kindFilter, failedOnly, query) {
+        val q = query.trim().lowercase()
+        all.filter { send ->
+            (kindFilter.isBlank() || send.kind == kindFilter) &&
+                (!failedOnly || send.failed) &&
+                (q.isBlank() || send.afm.contains(q) || send.clientName.lowercase().contains(q))
+        }
+    }
 
     val byDay = remember(sends) { sends.groupBy { it.sentAt.toLocalDate() } }
 
@@ -96,6 +125,42 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             FilterChip(selected = weekView, onClick = { weekView = true }, label = { Text("Εβδομάδα") })
         }
 
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = kindFilter.isBlank(),
+                onClick = { kindFilter = "" },
+                label = { Text("Όλα") },
+            )
+            FilterChip(
+                selected = kindFilter == SendEntity.KIND_DOCUMENTS,
+                onClick = { kindFilter = SendEntity.KIND_DOCUMENTS },
+                label = { Text("Έντυπα") },
+            )
+            FilterChip(
+                selected = kindFilter == SendEntity.KIND_CREDENTIALS,
+                onClick = { kindFilter = SendEntity.KIND_CREDENTIALS },
+                label = { Text("Στοιχεία") },
+            )
+            FilterChip(
+                selected = failedOnly,
+                onClick = { failedOnly = !failedOnly },
+                label = { Text("Μόνο αποτυχίες") },
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Φίλτρο πελάτη (ΑΦΜ ή επωνυμία)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         Spacer(Modifier.height(12.dp))
         WeekdayHeader()
         CalendarGrid(
@@ -108,17 +173,103 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.height(12.dp))
         val listed = selected?.let { byDay[it].orEmpty() } ?: sends
-        Text(
-            if (selected != null) {
-                "${listed.size} αποστολές — ${selected!!.format(dayFormatter)}"
-            } else {
-                "${listed.size} αποστολές"
-            },
-            style = MaterialTheme.typography.titleSmall,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (selected != null) {
+                    "${listed.size} αποστολές — ${selected!!.format(dayFormatter)}"
+                } else {
+                    "${listed.size} αποστολές"
+                },
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                enabled = sends.isNotEmpty(),
+                onClick = {
+                    scope.launch {
+                        status = try {
+                            val file = withContext(Dispatchers.IO) { Exports.sendsCsv(context, sends) }
+                            Exports.share(context, file, "text/csv", "Ημερολόγιο αποστολών")
+                            ""
+                        } catch (e: Exception) {
+                            "Η εξαγωγή απέτυχε: ${e.message}"
+                        }
+                    }
+                },
+            ) { Text("Εξαγωγή CSV") }
+        }
+
+        if (status.isNotBlank()) {
+            Text(status, style = MaterialTheme.typography.bodySmall)
+        }
+
         Spacer(Modifier.height(6.dp))
-        LazyColumn { items(listed, key = { it.id }) { SendRow(it) } }
+        LazyColumn {
+            items(listed, key = { it.id }) { send ->
+                SendRow(
+                    send = send,
+                    onRetry = if (send.failed) {
+                        {
+                            scope.launch {
+                                status = "Επανάληψη προς ${send.toEmail}…"
+                                status = retrySend(container, authorizer, send)
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
     }
+}
+
+/**
+ * Ξαναστέλνει μια αποτυχημένη αποστολή.
+ *
+ * Δεν «επιδιορθώνει» την παλιά εγγραφή: δημιουργείται **νέα**, ώστε το
+ * ημερολόγιο να δείχνει και την αποτυχία και την επιτυχία. Το αρχείο του τι
+ * πραγματικά συνέβη δεν ξαναγράφεται.
+ *
+ * Τα έγγραφα βρίσκονται από τα ονόματα αρχείων που κρατήθηκαν. Αν η πολιτική
+ * διατήρησης τα έχει σβήσει στο μεταξύ, το λέει αντί να στείλει άδειο μήνυμα.
+ */
+private suspend fun retrySend(
+    container: AppContainer,
+    authorizer: GoogleAuthorizer,
+    send: SendEntity,
+): String = try {
+    val client = container.db.clients().byId(send.clientId)
+    when {
+        client == null -> "Ο πελάτης δεν υπάρχει πια."
+        send.kind == SendEntity.KIND_CREDENTIALS -> {
+            // Αν η αρχική αποστολή περιείχε κωδικούς, το λέει η λίστα
+            // περιεχομένου — δεν το ξαναμαντεύουμε από τις ρυθμίσεις.
+            val hadSecrets = send.items.contains("Συνθηματικό")
+            val token = authorizer.accessToken()
+            val result = withContext(Dispatchers.IO) {
+                container.mail.sendOwnDetails(token, client, hadSecrets)
+            }
+            if (result.failed) "Απέτυχε ξανά: ${result.error}" else "Στάλθηκε."
+        }
+        else -> {
+            val names = send.items.lines().filter { it.isNotBlank() }
+            val documents = container.db.documents().byClientAndNames(client.id, names)
+            if (documents.isEmpty()) {
+                "Τα έντυπα δεν υπάρχουν πια στη συσκευή — κατέβασέ τα ξανά."
+            } else {
+                val token = authorizer.accessToken()
+                val result = withContext(Dispatchers.IO) {
+                    container.mail.sendDocuments(token, client, documents)
+                }
+                if (result.failed) "Απέτυχε ξανά: ${result.error}" else "Στάλθηκε."
+            }
+        }
+    }
+} catch (e: GoogleAuthorizer.ConsentRequired) {
+    "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
+} catch (e: Exception) {
+    "Απέτυχε: ${e.message}"
 }
 
 // --------------------------------------------------------------------- πλέγμα
@@ -212,7 +363,7 @@ private fun DayCell(
 // ---------------------------------------------------------------- μία γραμμή
 
 @Composable
-private fun SendRow(send: SendEntity) {
+private fun SendRow(send: SendEntity, onRetry: (() -> Unit)? = null) {
     Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(10.dp)) {
             Row(
@@ -246,6 +397,9 @@ private fun SendRow(send: SendEntity) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+                if (onRetry != null) {
+                    TextButton(onClick = onRetry) { Text("Επανάληψη") }
+                }
             }
         }
     }

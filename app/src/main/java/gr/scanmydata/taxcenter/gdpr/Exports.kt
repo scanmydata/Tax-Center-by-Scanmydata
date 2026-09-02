@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import gr.scanmydata.taxcenter.data.ClientRepository
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.ClientEntity
+import gr.scanmydata.taxcenter.data.db.SendEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import gr.scanmydata.taxcenter.engine.FileBridge
 import gr.scanmydata.taxcenter.ui.AthensDates
@@ -52,6 +53,40 @@ object Exports {
                         row.action,
                         row.afm,
                         row.detail,
+                    ).joinToString(";") { csv(it) },
+                )
+                out.write("\n")
+            }
+        }
+        return file
+    }
+
+    // ------------------------------------------------ ημερολόγιο αποστολών
+
+    /**
+     * Το ημερολόγιο σε CSV — για τον φάκελο του πελάτη ή για τον έλεγχο.
+     *
+     * Ξεχωριστό από το αρχείο δραστηριοτήτων: εκεί μπαίνουν όλες οι ενέργειες
+     * του γραφείου, εδώ μόνο οι αποστολές, με τον παραλήπτη και το περιεχόμενο.
+     */
+    fun sendsCsv(context: Context, sends: List<SendEntity>): File {
+        val file = File(dir(context), "αποστολές-${System.currentTimeMillis()}.csv")
+        file.bufferedWriter(Charsets.UTF_8).use { out ->
+            out.write("﻿")
+            out.write("Ημερομηνία;Πελάτης;ΑΦΜ;Email;Είδος;Θέμα;Πλήθος;Κατάσταση;Σφάλμα;Περιεχόμενο\n")
+            for (send in sends.sortedBy { it.sentAt }) {
+                out.write(
+                    listOf(
+                        AthensDates.iso(send.sentAt),
+                        send.clientName,
+                        send.afm,
+                        send.toEmail,
+                        if (send.kind == SendEntity.KIND_CREDENTIALS) "Στοιχεία πελάτη" else "Φορολογικά έντυπα",
+                        send.subject,
+                        send.itemCount.toString(),
+                        if (send.failed) "ΑΠΕΤΥΧΕ" else "Στάλθηκε",
+                        send.error,
+                        send.items.replace('\n', '|'),
                     ).joinToString(";") { csv(it) },
                 )
                 out.write("\n")

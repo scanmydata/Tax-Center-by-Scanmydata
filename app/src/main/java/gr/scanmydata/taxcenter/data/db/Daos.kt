@@ -113,6 +113,14 @@ interface DocumentDao {
     @Query("SELECT * FROM documents ORDER BY createdAt DESC LIMIT :limit")
     fun observeRecent(limit: Int = 1000): Flow<List<DocumentEntity>>
 
+    /**
+     * Για την επανάληψη αποτυχημένης αποστολής: το `sends` κρατά ονόματα
+     * αρχείων, όχι ids — επίτηδες, γιατί ένα έγγραφο μπορεί να διαγραφεί από την
+     * πολιτική διατήρησης ενώ η εγγραφή της αποστολής πρέπει να μείνει.
+     */
+    @Query("SELECT * FROM documents WHERE clientId = :clientId AND fileName IN (:names)")
+    suspend fun byClientAndNames(clientId: Long, names: List<String>): List<DocumentEntity>
+
     @Query("SELECT * FROM documents WHERE createdAt < :before")
     suspend fun olderThan(before: Long): List<DocumentEntity>
 

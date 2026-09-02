@@ -9,7 +9,10 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.SendEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
+import kotlinx.coroutines.delay
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /**
  * Αποστολές προς πελάτες, με καταγραφή.
@@ -103,10 +106,10 @@ class MailService(
         val to = client.effectiveEmail
         if (to.isBlank()) throw NoRecipient(client.afm)
 
-        val attachments = documents.mapNotNull { doc ->
-            val file = File(context.filesDir, doc.relativePath)
-            if (file.isFile) GmailSender.Attachment.of(file) else null
+        val files = documents.mapNotNull { doc ->
+            File(context.filesDir, doc.relativePath).takeIf { it.isFile }
         }
+        val attachments = bundleIfLarge(client, files)
         val body = MailTemplates.documents(
             client = client,
             fileNames = documents.map { it.fileName },
@@ -155,12 +158,14 @@ class MailService(
         items: List<String>,
         auditDetail: String,
     ): SendEntity {
+        throttle()
+
         val now = System.currentTimeMillis()
         var status = SendEntity.STATUS_SENT
         var error = ""
 
         try {
-            gmail.send(accessToken, to, subject, text, html, attachments)
+            sendWithRetry(accessToken, to, subject, text, html, attachments)
         } catch (e: Exception) {
             status = SendEntity.STATUS_FAILED
             error = e.message ?: e.toString()
@@ -190,5 +195,93 @@ class MailService(
             ),
         )
         return entry.copy(id = id)
+    }
+
+    /**
+     * Πολλά PDF μαζί γίνονται ένα ZIP.
+     *
+     * Το Gmail κόβει στα ~25 MB ανά μήνυμα, και το MIME base64 φουσκώνει τα
+     * δεδομένα κατά ~33% — άρα το πραγματικό όριο είναι κοντά στα 18 MB
+     * αρχείων. Ένα ZIP με δέκα εκκαθαριστικά περνά άνετα, ενώ δέκα ξεχωριστά
+     * συνημμένα μπορεί να μην περάσουν.
+     *
+     * Κάτω από το όριο μένουν ξεχωριστά: ο πελάτης τα ανοίγει με ένα πάτημα
+     * από το κινητό του, χωρίς να ψάχνει πρόγραμμα αποσυμπίεσης.
+     */
+    private fun bundleIfLarge(
+        client: ClientEntity,
+        files: List<File>,
+    ): List<GmailSender.Attachment> {
+        val total = files.sumOf { it.length() }
+        if (files.size <= 1 || total < ZIP_THRESHOLD_BYTES) {
+            return files.map { GmailSender.Attachment.of(it) }
+        }
+        val zip = File(context.cacheDir, "outbox").apply { mkdirs() }
+            .resolve("Έντυπα_${client.afm}.zip")
+        ZipOutputStream(zip.outputStream().buffered()).use { out ->
+            for (file in files) {
+                out.putNextEntry(ZipEntry(file.name))
+                file.inputStream().use { it.copyTo(out) }
+                out.closeEntry()
+            }
+        }
+        val attachment = GmailSender.Attachment.of(zip, mimeType = "application/zip")
+        // Η cache δεν είναι θέση για φορολογικά έντυπα ούτε λεπτό παραπάνω.
+        zip.delete()
+        return listOf(attachment)
+    }
+
+    // --------------------------------------------------- ρυθμός & επανάληψη
+
+    private var lastSentAt = 0L
+
+    /**
+     * Ελάχιστο κενό ανάμεσα σε δύο αποστολές.
+     *
+     * Το Gmail API έχει όριο ανά χρήστη και ανά δευτερόλεπτο, και μια μαζική
+     * αποστολή σε 40 πελάτες το χτυπά εύκολα. Το κενό είναι φθηνότερο από το να
+     * φάει η παρτίδα σαράντα 429 και να ξαναπροσπαθεί.
+     */
+    private suspend fun throttle() {
+        val since = System.currentTimeMillis() - lastSentAt
+        if (lastSentAt != 0L && since < MIN_GAP_MS) {
+            delay(MIN_GAP_MS - since)
+        }
+        lastSentAt = System.currentTimeMillis()
+    }
+
+    /**
+     * Επανάληψη **μόνο** σε παροδικές αποτυχίες, με εκθετική αναμονή.
+     *
+     * Ένα 400 «λάθος διεύθυνση» δεν γίνεται σωστό με επανάληψη — και το να
+     * ξαναστείλει η εφαρμογή το ίδιο μήνυμα τρεις φορές σε λάθος παραλήπτη
+     * είναι χειρότερο από την αποτυχία.
+     */
+    private suspend fun sendWithRetry(
+        accessToken: String,
+        to: String,
+        subject: String,
+        text: String,
+        html: String,
+        attachments: List<GmailSender.Attachment>,
+    ) {
+        var attempt = 0
+        while (true) {
+            try {
+                gmail.send(accessToken, to, subject, text, html, attachments)
+                return
+            } catch (e: GmailSender.SendFailed) {
+                attempt++
+                if (!e.transient || attempt >= MAX_ATTEMPTS) throw e
+                delay(RETRY_BASE_MS * (1L shl (attempt - 1)))
+            }
+        }
+    }
+
+    private companion object {
+        const val ZIP_THRESHOLD_BYTES = 8L * 1024 * 1024
+        const val MIN_GAP_MS = 1_200L
+        const val MAX_ATTEMPTS = 3
+        const val RETRY_BASE_MS = 2_000L
     }
 }
