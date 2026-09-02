@@ -220,7 +220,6 @@ class WebViewBrowserPage(
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
             javaScriptCanOpenWindowsAutomatically = true
             setSupportMultipleWindows(true)
             loadsImagesAutomatically = true

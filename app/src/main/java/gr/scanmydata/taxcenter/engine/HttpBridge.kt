@@ -84,7 +84,8 @@ class HttpBridge(
         val req = JSONObject(requestJson)
         val url = req.getString("url")
         val method = req.optString("method", "GET").uppercase()
-        val bodyStr = if (req.isNull("body")) null else req.optString("body", null)
+        // optString(name, null) δηλώνει μη-null default, οπότε ο έλεγχος γίνεται ρητά.
+        val bodyStr: String? = if (req.isNull("body")) null else req.optString("body")
 
         val headers = req.optJSONObject("headers") ?: JSONObject()
         var contentType: String? = null
