@@ -28,9 +28,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -43,7 +45,10 @@ import androidx.navigation.navArgument
 import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.R
 import gr.scanmydata.taxcenter.data.db.RunLogEntity
+import gr.scanmydata.taxcenter.gdpr.Retention
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Το κέλυφος: συρτάρι μενού και NavHost.
@@ -59,6 +64,17 @@ fun AppShell(container: AppContainer) {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    val appContext = LocalContext.current.applicationContext
+
+    // Η πολιτική διατήρησης τρέχει μία φορά ανά εκκίνηση, μετά το ξεκλείδωμα.
+    // Όχι στο Application.onCreate: εκεί θα άνοιγε τη βάση SQLCipher πριν καν
+    // ταυτοποιηθεί ο χρήστης, και θα καθυστερούσε την εκκίνηση.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching { Retention.apply(appContext, container.db, container.settings) }
+        }
+    }
 
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route

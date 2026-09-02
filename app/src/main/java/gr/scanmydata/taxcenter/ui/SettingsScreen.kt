@@ -23,9 +23,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
@@ -36,7 +40,12 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var googleStatus by remember { mutableStateOf(
         if (settings.googleConnected) "Συνδεδεμένο: ${settings.senderEmail}" else "Δεν έχει συνδεθεί",
     ) }
+    val context = LocalContext.current
     var diagnostics by remember { mutableStateOf(settings.diagnostics) }
+    var lockEnabled by remember { mutableStateOf(settings.lockEnabled) }
+    var blockScreenshots by remember { mutableStateOf(settings.blockScreenshots) }
+    var retention by remember { mutableStateOf(settings.retentionMonths.toString()) }
+    var exportStatus by remember { mutableStateOf("") }
     var includeSecrets by remember { mutableStateOf(settings.includePasswordsInClientEmail) }
     var officeName by remember { mutableStateOf(settings.officeName) }
     var signature by remember { mutableStateOf(settings.signature) }
@@ -95,6 +104,27 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(8.dp))
 
         SettingSwitch(
+            title = "Κλείδωμα εφαρμογής",
+            description = "Ζητά βιομετρικά ή τον κωδικό της συσκευής στο άνοιγμα και " +
+                "μετά από ${settings.lockGraceSeconds} δευτερόλεπτα στο παρασκήνιο. " +
+                "Η βάση είναι ήδη κρυπτογραφημένη· αυτό προστατεύει από ξεκλείδωτη " +
+                "συσκευή πάνω στο γραφείο.",
+            checked = lockEnabled,
+            onChange = { lockEnabled = it; settings.lockEnabled = it },
+        )
+
+        Spacer(Modifier.height(12.dp))
+        SettingSwitch(
+            title = "Αποκλεισμός στιγμιότυπων οθόνης",
+            description = "Εμποδίζει screenshot και καταγραφή οθόνης, και κρύβει το " +
+                "περιεχόμενο από τα «πρόσφατα». Ισχύει μετά την επόμενη επιστροφή " +
+                "στην εφαρμογή.",
+            checked = blockScreenshots,
+            onChange = { blockScreenshots = it; settings.blockScreenshots = it },
+        )
+
+        Spacer(Modifier.height(12.dp))
+        SettingSwitch(
             title = "Αποστολή κωδικών στους πελάτες",
             description = "Επιτρέπει να συμπεριλαμβάνονται συνθηματικό TAXISnet και " +
                 "κλειδάριθμος στο email με τα στοιχεία του πελάτη. Το email δεν είναι " +
@@ -114,6 +144,67 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             onChange = { diagnostics = it; settings.diagnostics = it },
             warn = true,
         )
+
+        Spacer(Modifier.height(20.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(20.dp))
+
+        Text("Προστασία δεδομένων", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = retention,
+            onValueChange = {
+                retention = it.filter(Char::isDigit).take(3)
+                settings.retentionMonths = retention.toIntOrNull() ?: 0
+            },
+            label = { Text("Διατήρηση ληφθέντων εντύπων (μήνες, 0 = χωρίς όριο)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Τα παλαιότερα PDF διαγράφονται αυτόματα στο άνοιγμα της εφαρμογής. Η " +
+                "καρτέλα και τα διαπιστευτήρια του πελάτη δεν θίγονται — μόνο τα αρχεία.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = {
+            scope.launch {
+                exportStatus = "Εξαγωγή…"
+                exportStatus = try {
+                    val file = withContext(Dispatchers.IO) { Exports.auditCsv(context, container.db) }
+                    Exports.share(context, file, "text/csv", "Αρχείο δραστηριοτήτων")
+                    "Εξήχθησαν ${file.length() / 1024} KB."
+                } catch (e: Exception) {
+                    "Απέτυχε: ${e.message}"
+                }
+            }
+        }) { Text("Εξαγωγή αρχείου δραστηριοτήτων (CSV)") }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Το αρχείο του άρθρου 30: ποιος, πότε, ποιου πελάτη δεδομένα, ποια " +
+                "ενέργεια. Ποτέ τιμές — καμία στήλη δεν περιέχει κωδικό.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+
+        if (exportStatus.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(exportStatus, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Η εξαγωγή δεδομένων ενός πελάτη (φορητότητα, άρθρο 20) και η οριστική " +
+                "διαγραφή του (άρθρο 17) γίνονται από την καρτέλα του.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+
+        Spacer(Modifier.height(32.dp))
     }
 }
 

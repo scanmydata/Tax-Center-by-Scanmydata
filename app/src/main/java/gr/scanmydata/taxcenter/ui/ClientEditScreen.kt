@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -35,6 +36,7 @@ import gr.scanmydata.taxcenter.data.ColumnAliases.Field
 import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.ConsentEntity
+import gr.scanmydata.taxcenter.gdpr.Exports
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,6 +63,7 @@ fun ClientEditScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val isNew = clientId == 0L
 
     var loaded by remember { mutableStateOf(isNew) }
@@ -319,6 +322,33 @@ fun ClientEditScreen(
                     modifier = Modifier.padding(start = 12.dp),
                 ) { Text("Διαγραφή") }
             }
+        }
+
+        if (!isNew) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = {
+                val client = existing ?: return@OutlinedButton
+                scope.launch {
+                    status = "Δημιουργία αρχείου…"
+                    status = try {
+                        val file = withContext(Dispatchers.IO) {
+                            Exports.clientZip(context, container.db, container.repository, client)
+                        }
+                        Exports.share(context, file, "application/zip", "Δεδομένα πελάτη")
+                        "Έτοιμο (${file.length() / 1024} KB)."
+                    } catch (e: Exception) {
+                        "Απέτυχε: ${e.message}"
+                    }
+                }
+            }) { Text("Εξαγωγή δεδομένων (ZIP)") }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Φορητότητα κατά το άρθρο 20: στοιχεία, έγγραφα και ιστορικό " +
+                    "αποστολών. Οι κωδικοί **δεν** μπαίνουν — το αρχείο φεύγει από " +
+                    "τη συσκευή σε κανάλι που δεν ελέγχεις.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
         }
         Spacer(Modifier.height(24.dp))
     }
