@@ -1,0 +1,33 @@
+# --- Ευαίσθητα: ΠΟΤΕ στο git -------------------------------------------------
+*.jks
+*.keystore
+*.p12
+*.b64
+local.properties
+secrets.properties
+google-services.json
+# Τα exports κωδικών των πελατών (Κωδικοί Υπόχρεων κ.λπ.) περιέχουν
+# TAXISnet/ΕΦΚΑ κωδικούς σε cleartext. Ούτε ως δείγμα, ούτε ως fixture.
+*.xlsx
+*.xls
+Κωδικοί*
+
+# --- Build -------------------------------------------------------------------
+.gradle/
+build/
+app/build/
+dist/
+*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+captures/
+
+# --- IDE ---------------------------------------------------------------------
+.idea/
+*.iml
+.DS_Store
+
+# --- Node (tools/) -----------------------------------------------------------
+node_modules/

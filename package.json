@@ -1,0 +1,13 @@
+{
+  "name": "scanmydata-tax-center-tools",
+  "private": true,
+  "type": "module",
+  "description": "Εργαλεία build: vendoring του engine από τον runner και έλεγχος των JS shims.",
+  "scripts": {
+    "vendor": "node tools/vendor-engine.mjs",
+    "vendor:check": "node tools/vendor-engine.mjs --check",
+    "test": "node tools/test-shims.mjs",
+    "icons": "node tools/make-icons.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

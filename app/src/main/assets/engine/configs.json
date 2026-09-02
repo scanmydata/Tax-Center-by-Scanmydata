@@ -1,0 +1,703 @@
+{
+  "generatedFrom": "recerse-engineer/runner",
+  "count": 18,
+  "configs": [
+    {
+      "id": "aade-debts",
+      "file": "aade-debts.js",
+      "title": "Οφειλές ΑΑΔΕ (ληξιπρόθεσμες/εμπρόθεσμες) + Πληρωμές + Ταυτότητες Οφειλής",
+      "portal": "AADE Προσωποποιημένη Πληροφόρηση (www1.aade.gr)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "doseis",
+          "label": "Να συμπεριληφθούν οι δόσεις; (ναι/όχι)",
+          "env": "AADE_DOSEIS",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-declarations",
+      "file": "aade-declarations.js",
+      "title": "Λήψη εντύπων ΑΑΔΕ (Φ2/Φ4/Φ5)",
+      "portal": "AADE taxisnet (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "forms",
+          "label": "Έντυπα (π.χ. F2,F4,F5 — κενό=όλα)",
+          "env": "AADE_FORMS",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-enfia",
+      "file": "aade-enfia.js",
+      "title": "ΕΝΦΙΑ Εκκαθαριστικό (+ Ε9/Περιουσιακή) — ETAK",
+      "portal": "AADE ETAK (Oracle ADF, browser-step)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": true,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (κενό = πιο πρόσφατο)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "e9",
+          "label": "Και δεδομένα Ε9/Περιουσιακής; (ναι/όχι)",
+          "env": "AADE_E9",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-fenp",
+      "file": "aade-fenp.js",
+      "title": "ΦΕΝΠ / Έντυπο Ν (Νομικά Πρόσωπα)",
+      "portal": "AADE taxisnet/income (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username (νομικού προσώπου)",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος αναφοράς",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-general-forms",
+      "file": "aade-general-forms.js",
+      "title": "Γενικά Έντυπα ΑΑΔΕ (ΦΠΑ / Παρακρατούμενοι / Εργολάβων / Ανθεκτικότητας / Συμφωνητικά)",
+      "portal": "AADE taxisnet (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "form",
+          "label": "Έντυπο (Φ2/Φ4/Φ5/ΦΜΥ/ΕΠΙΧ/ΜΕΡΙΣΜΑΤΑ/ΤΟΚΟΙ/ΔΙΚΑΙΩΜΑΤΑ/ΕΡΓΟΛΑΒΩΝ/ΑΝΘΕΚΤΙΚΟΤΗΤΑΣ/ΠΕΡΙΒΑΛΛΟΝ/ΣΥΜΦΩΝΗΤΙΚΑ, κόμμα για πολλά)",
+          "env": "AADE_FORM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-income",
+      "file": "aade-income.js",
+      "title": "Λήψη E1/E2/E3/E3myDATA + Εκκαθαριστικό (όλα τα έτη)",
+      "portal": "AADE webtax/incomefp (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (φορολ. έτος)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "forms",
+          "label": "Έντυπα (E1,E2,E3,E3MYDATA,EKK — κενό=E1,E2,E3,EKK)",
+          "env": "AADE_FORMS",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-lease",
+      "file": "aade-lease.js",
+      "title": "Μισθωτήρια (Πληροφοριακά Στοιχεία Μισθώσεων)",
+      "portal": "AADE PLCS sgsisapps/plcs (www1.aade.gr)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-login-check",
+      "file": "aade-login-check.js",
+      "title": "AADE login probe (OAM) — foundation for all AADE processes",
+      "portal": "AADE (www1.aade.gr, GSIS OAM login.gsis.gr)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "login-check"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-property",
+      "file": "aade-property.js",
+      "title": "Περιουσιακή Κατάσταση (myPROPERTY)",
+      "portal": "AADE saadeapps3/myPROPERTY (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (κενό = όλα τα διαθέσιμα)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-registry",
+      "file": "aade-registry.js",
+      "title": "Στοιχεία Επιχείρησης & Φυσικών/Νομικών Προσώπων (Μητρώο)",
+      "portal": "AADE saadeapps3/comregistry (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "type",
+          "label": "Είδος: ΦΥΣΙΚΟ / ΝΟΜΙΚΟ (κενό = αυτόματα ό,τι υπάρχει)",
+          "env": "AADE_REG_TYPE",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "vat",
+          "label": "ΑΦΜ-στόχος (κενό = ο ΑΦΜ του λογαριασμού)",
+          "env": "AADE_VAT",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-tax-account",
+      "file": "aade-tax-account.js",
+      "title": "Φορολογικός Λογαριασμός (Μηνιαία Ενημέρωση)",
+      "portal": "AADE saadeapps3/MonthlyReport (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (κενό = πιο πρόσφατο)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "month",
+          "label": "Μήνας 1-12 (κενό = πιο πρόσφατος διαθέσιμος)",
+          "env": "AADE_MONTH",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-traffic-fees",
+      "file": "aade-traffic-fees.js",
+      "title": "Τέλη Κυκλοφορίας (myCAR)",
+      "portal": "AADE saadeapps3/myCAR (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (κενό = όλα τα διαθέσιμα)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "amka-retrieve",
+      "file": "amka-retrieve.js",
+      "title": "Ανάκτηση ΑΜΚΑ (MyAMKA)",
+      "portal": "MyAMKA (www.amka.gr/app, GOV.GR)",
+      "subsystem": "MyAMKA / BFF REST",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "EFKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "atlas-insurance-history",
+      "file": "atlas-insurance-history.js",
+      "title": "Ασφαλιστικό/Εργασιακό Ιστορικό (ΑΤΛΑΣ)",
+      "portal": "ATLAS via e-EFKA GGPS (apps.e-efka.gov.gr + atlas.gov.gr)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "EFKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ",
+          "env": "EFKA_AMKA",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "efka-employer-card",
+      "file": "efka-employer-card.js",
+      "title": "Οικονομική Καρτέλα Εργοδότη ΕΦΚΑ + ΤΕΚΑ",
+      "portal": "e-EFKA εργοδότη (apps.e-efka.gov.gr, κωδικοί ΙΚΑ)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "Κωδικός ΙΚΑ εργοδότη (username)",
+          "env": "IKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "Κωδικός ΙΚΑ εργοδότη (password)",
+          "env": "IKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (κενό = προεπιλογή)",
+          "env": "IKA_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "which",
+          "label": "Ποιες (EFKA,TEKA — κενό = και οι δύο)",
+          "env": "IKA_WHICH",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "efka-notices",
+      "file": "efka-notices.js",
+      "title": "Ειδοποιητήρια Εισφορών ΕΦΚΑ/ΤΕΚΑ (μη μισθωτοί)",
+      "portal": "e-EFKA (services.e-efka.gov.gr, non-employee)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "EFKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ",
+          "env": "EFKA_AMKA",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "efka-teka-certificate",
+      "file": "efka-teka-certificate.js",
+      "title": "Φορολογικές Βεβαιώσεις ΕΦΚΑ/ΤΕΚΑ (φορολογικής χρήσης)",
+      "portal": "e-EFKA (services.e-efka.gov.gr, non-employee)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "EFKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ",
+          "env": "EFKA_AMKA",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (κενό = όλα)",
+          "env": "EFKA_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "keao-debts",
+      "file": "keao-debts.js",
+      "title": "Οφειλές ΕΦΚΑ/ΚΕΑΟ ανά Φορέα + Χρεώσεις/Πιστώσεις",
+      "portal": "e-EFKA νέο ΟΠΣ (services.e-efka.gov.gr, non-employee)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "KEAO_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "KEAO_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ",
+          "env": "KEAO_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ",
+          "env": "KEAO_AMKA",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF ΠΒΟ ΚΕΑΟ; (ναι/όχι, default ναι)",
+          "env": "KEAO_PDF",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    }
+  ]
+}

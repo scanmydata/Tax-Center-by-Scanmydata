@@ -1,0 +1,20 @@
+# Προεπιλογή: ο Git αποφασίζει, αλλά στο repo αποθηκεύεται πάντα LF.
+* text=auto eol=lf
+
+# Ο vendored engine αντιγράφεται byte-για-byte από τον runner. Αν ο Git άλλαζε
+# τα line endings, το `vendor-engine.mjs --check` θα ανέφερε ψεύτικο drift.
+app/src/main/assets/engine/**  text eol=lf
+
+# Windows-only αρχεία
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Δυαδικά
+*.png  binary
+*.jpg  binary
+*.webp binary
+*.pdf  binary
+*.jks  binary
+*.p12  binary
+*.apk  binary
+*.aab  binary
