@@ -269,7 +269,7 @@ console.log('\nrunner.js — πλήρης διαδρομή με ψεύτικη �
  * Στήνει καθαρό context με mock που μιμείται τη ροή του `aadeLogin`:
  * home.htm -> OAM login -> auth_cred_submit -> incomefp -> login.done -> home.htm
  */
-function aadeScenario({ goodCredentials }) {
+function aadeScenario({ goodCredentials, ldap }) {
   let homeHits = 0;
   const loginForm =
     '<html><body><form><input name="request_id" value="RQ-42">' +
@@ -292,6 +292,13 @@ function aadeScenario({ goodCredentials }) {
       return html(goodCredentials
         ? '<html><body>Καλώς ήρθατε</body></html>'
         : '<html><body>Καθορίστηκε λανθασμένο όνομα χρήστη ή κωδικός</body></html>');
+    }
+    // --- Μητρώο Επικοινωνίας (comregistry) ---
+    if (req.url.includes('/getuserdata/username')) {
+      return html('<?xml version="1.0"?><userdata><afm>123456783</afm></userdata>');
+    }
+    if (req.url.includes('/getLdapInfo/')) {
+      return html('<?xml version="1.0"?><ldap>' + (ldap || '') + '</ldap>');
     }
     return html('<html><body>ok</body></html>');
   };
@@ -350,6 +357,52 @@ await checkAsync('οι κωδικοί δεν διαρρέουν στο run.log',
   const all = log + '\n' + mock.logs.join('\n');
   assert(!all.includes('μυστικό-ΣΥΝΘΗΜΑΤΙΚΟ-42'),
     'ο κωδικός βρέθηκε σε log — το Redactor.kt πρέπει να τον κόψει και στο native');
+});
+
+console.log('\naade-email — Μητρώο Επικοινωνίας ΑΑΔΕ\n');
+
+async function lookupEmail(ldap) {
+  const { result, mock } = await runConfig(
+    { goodCredentials: true, ldap },
+    'aade-email',
+    { user: 'testuser', pass: 'testpass', vat: '' },
+  );
+  return { result, mock };
+}
+
+await checkAsync('προτεραιότητα mail2 -> mailemep -> mail', async () => {
+  const all = await lookupEmail(
+    '<mail2>pelatis@example.gr</mail2><mailemep>logistis@example.gr</mailemep><mail>palio@example.gr</mail>',
+  );
+  assert(all.result.ok, `reason=${all.result.reason}`);
+  assert(all.result.out.email === 'pelatis@example.gr', `πήρα ${all.result.out.email}`);
+  assert(all.result.out.source === 'mail2', `source=${all.result.out.source}`);
+
+  // Χωρίς mail2 πέφτουμε στον εκπρόσωπο.
+  const rep = await lookupEmail('<mailemep>logistis@example.gr</mailemep><mail>palio@example.gr</mail>');
+  assert(rep.result.out.email === 'logistis@example.gr', `πήρα ${rep.result.out.email}`);
+  assert(rep.result.out.source === 'mailemep', `source=${rep.result.out.source}`);
+
+  // Και τελευταία η παλιά διεύθυνση του TAXISnet.
+  const old = await lookupEmail('<mail>palio@example.gr</mail>');
+  assert(old.result.out.email === 'palio@example.gr', `πήρα ${old.result.out.email}`);
+});
+
+await checkAsync('άκυρη διεύθυνση αγνοείται και πάμε στην επόμενη', async () => {
+  const r = await lookupEmail('<mail2>δεν-ειναι-email</mail2><mailemep>logistis@example.gr</mailemep>');
+  assert(r.result.out.email === 'logistis@example.gr', `πήρα ${r.result.out.email}`);
+});
+
+await checkAsync('το email πεζογραφείται', async () => {
+  const r = await lookupEmail('<mail2>Pelatis@Example.GR</mail2>');
+  assert(r.result.out.email === 'pelatis@example.gr', `πήρα ${r.result.out.email}`);
+});
+
+await checkAsync('χωρίς διεύθυνση -> NoEmail, με το JSON γραμμένο', async () => {
+  const r = await lookupEmail('<mail2></mail2>');
+  assert(r.result.ok === false, 'έπρεπε να αποτύχει');
+  assert(r.result.reason === 'NoEmail', `reason=${r.result.reason}`);
+  assert(r.mock.files.has('AADE_email_123456783.json'), 'το JSON έπρεπε να γραφτεί ούτως ή άλλως');
 });
 
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);

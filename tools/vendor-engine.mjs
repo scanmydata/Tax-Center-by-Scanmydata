@@ -79,29 +79,52 @@ for (const f of configFiles) rows.push(place(path.join('configs', f), path.join(
 // Τα configs είναι απλά module.exports objects — τα φορτώνουμε από τη ΘΕΣΗ ΤΟΥΣ
 // στον runner, ώστε τα σχετικά require('../lib/...') να λύνονται κανονικά.
 const require_ = createRequire(path.join(RUNNER, 'configs', 'x.js'));
+const requireLocal = createRequire(path.join(ASSETS, 'configs', 'x.js'));
 const catalog = [];
 const broken = [];
+
+function describe(id, file, cfg, owner) {
+  catalog.push({
+    id: cfg.id || id,
+    file,
+    owner,
+    title: cfg.title || '',
+    portal: cfg.portal || '',
+    subsystem: cfg.subsystem || '',
+    actions: cfg.actions || [],
+    needsBrowser: !!cfg.needsBrowser,
+    inputs: (cfg.inputs || []).map((i) => ({
+      key: i.key,
+      label: i.label || i.key,
+      env: i.env || '',
+      hidden: !!i.hidden,
+      optional: !!i.optional,
+    })),
+  });
+}
 
 for (const f of configFiles) {
   const id = f.replace(/\.js$/, '');
   try {
-    const cfg = require_(path.join(RUNNER, 'configs', f));
-    catalog.push({
-      id: cfg.id || id,
-      file: f,
-      title: cfg.title || '',
-      portal: cfg.portal || '',
-      subsystem: cfg.subsystem || '',
-      actions: cfg.actions || [],
-      needsBrowser: !!cfg.needsBrowser,
-      inputs: (cfg.inputs || []).map((i) => ({
-        key: i.key,
-        label: i.label || i.key,
-        env: i.env || '',
-        hidden: !!i.hidden,
-        optional: !!i.optional,
-      })),
-    });
+    describe(id, f, require_(path.join(RUNNER, 'configs', f)), 'runner');
+  } catch (e) {
+    broken.push({ id, error: e.message });
+  }
+}
+
+// Configs που ανήκουν στην εφαρμογή και δεν υπάρχουν στον runner (π.χ.
+// `aade-email`). Δεν αντιγράφονται και δεν θεωρούνται drift — απλώς μπαίνουν
+// στον κατάλογο. Επιτρέπεται να κάνουν require μόνο fs/path, ώστε να
+// φορτώνονται και εδώ και στο κινητό χωρίς shims.
+const localConfigs = fs
+  .readdirSync(path.join(ASSETS, 'configs'))
+  .filter((f) => f.endsWith('.js') && !configFiles.includes(f))
+  .sort();
+
+for (const f of localConfigs) {
+  const id = f.replace(/\.js$/, '');
+  try {
+    describe(id, f, requireLocal(path.join(ASSETS, 'configs', f)), 'app');
   } catch (e) {
     broken.push({ id, error: e.message });
   }

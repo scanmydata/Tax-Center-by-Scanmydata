@@ -1,10 +1,11 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 18,
+  "count": 19,
   "configs": [
     {
       "id": "aade-debts",
       "file": "aade-debts.js",
+      "owner": "runner",
       "title": "Οφειλές ΑΑΔΕ (ληξιπρόθεσμες/εμπρόθεσμες) + Πληρωμές + Ταυτότητες Οφειλής",
       "portal": "AADE Προσωποποιημένη Πληροφόρηση (www1.aade.gr)",
       "subsystem": "Hyper.Server",
@@ -40,6 +41,7 @@
     {
       "id": "aade-declarations",
       "file": "aade-declarations.js",
+      "owner": "runner",
       "title": "Λήψη εντύπων ΑΑΔΕ (Φ2/Φ4/Φ5)",
       "portal": "AADE taxisnet (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -82,6 +84,7 @@
     {
       "id": "aade-enfia",
       "file": "aade-enfia.js",
+      "owner": "runner",
       "title": "ΕΝΦΙΑ Εκκαθαριστικό (+ Ε9/Περιουσιακή) — ETAK",
       "portal": "AADE ETAK (Oracle ADF, browser-step)",
       "subsystem": "Hyper.Server",
@@ -124,6 +127,7 @@
     {
       "id": "aade-fenp",
       "file": "aade-fenp.js",
+      "owner": "runner",
       "title": "ΦΕΝΠ / Έντυπο Ν (Νομικά Πρόσωπα)",
       "portal": "AADE taxisnet/income (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -159,6 +163,7 @@
     {
       "id": "aade-general-forms",
       "file": "aade-general-forms.js",
+      "owner": "runner",
       "title": "Γενικά Έντυπα ΑΑΔΕ (ΦΠΑ / Παρακρατούμενοι / Εργολάβων / Ανθεκτικότητας / Συμφωνητικά)",
       "portal": "AADE taxisnet (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -201,6 +206,7 @@
     {
       "id": "aade-income",
       "file": "aade-income.js",
+      "owner": "runner",
       "title": "Λήψη E1/E2/E3/E3myDATA + Εκκαθαριστικό (όλα τα έτη)",
       "portal": "AADE webtax/incomefp (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -243,6 +249,7 @@
     {
       "id": "aade-lease",
       "file": "aade-lease.js",
+      "owner": "runner",
       "title": "Μισθωτήρια (Πληροφοριακά Στοιχεία Μισθώσεων)",
       "portal": "AADE PLCS sgsisapps/plcs (www1.aade.gr)",
       "subsystem": "Hyper.Server",
@@ -271,6 +278,7 @@
     {
       "id": "aade-login-check",
       "file": "aade-login-check.js",
+      "owner": "runner",
       "title": "AADE login probe (OAM) — foundation for all AADE processes",
       "portal": "AADE (www1.aade.gr, GSIS OAM login.gsis.gr)",
       "subsystem": "Hyper.Server",
@@ -298,6 +306,7 @@
     {
       "id": "aade-property",
       "file": "aade-property.js",
+      "owner": "runner",
       "title": "Περιουσιακή Κατάσταση (myPROPERTY)",
       "portal": "AADE saadeapps3/myPROPERTY (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -333,6 +342,7 @@
     {
       "id": "aade-registry",
       "file": "aade-registry.js",
+      "owner": "runner",
       "title": "Στοιχεία Επιχείρησης & Φυσικών/Νομικών Προσώπων (Μητρώο)",
       "portal": "AADE saadeapps3/comregistry (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -375,6 +385,7 @@
     {
       "id": "aade-tax-account",
       "file": "aade-tax-account.js",
+      "owner": "runner",
       "title": "Φορολογικός Λογαριασμός (Μηνιαία Ενημέρωση)",
       "portal": "AADE saadeapps3/MonthlyReport (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -417,6 +428,7 @@
     {
       "id": "aade-traffic-fees",
       "file": "aade-traffic-fees.js",
+      "owner": "runner",
       "title": "Τέλη Κυκλοφορίας (myCAR)",
       "portal": "AADE saadeapps3/myCAR (GSIS OAM)",
       "subsystem": "Hyper.Server",
@@ -452,6 +464,7 @@
     {
       "id": "amka-retrieve",
       "file": "amka-retrieve.js",
+      "owner": "runner",
       "title": "Ανάκτηση ΑΜΚΑ (MyAMKA)",
       "portal": "MyAMKA (www.amka.gr/app, GOV.GR)",
       "subsystem": "MyAMKA / BFF REST",
@@ -479,6 +492,7 @@
     {
       "id": "atlas-insurance-history",
       "file": "atlas-insurance-history.js",
+      "owner": "runner",
       "title": "Ασφαλιστικό/Εργασιακό Ιστορικό (ΑΤΛΑΣ)",
       "portal": "ATLAS via e-EFKA GGPS (apps.e-efka.gov.gr + atlas.gov.gr)",
       "subsystem": "Hyper.Server",
@@ -520,6 +534,7 @@
     {
       "id": "efka-employer-card",
       "file": "efka-employer-card.js",
+      "owner": "runner",
       "title": "Οικονομική Καρτέλα Εργοδότη ΕΦΚΑ + ΤΕΚΑ",
       "portal": "e-EFKA εργοδότη (apps.e-efka.gov.gr, κωδικοί ΙΚΑ)",
       "subsystem": "Hyper.Server",
@@ -562,6 +577,7 @@
     {
       "id": "efka-notices",
       "file": "efka-notices.js",
+      "owner": "runner",
       "title": "Ειδοποιητήρια Εισφορών ΕΦΚΑ/ΤΕΚΑ (μη μισθωτοί)",
       "portal": "e-EFKA (services.e-efka.gov.gr, non-employee)",
       "subsystem": "Hyper.Server",
@@ -604,6 +620,7 @@
     {
       "id": "efka-teka-certificate",
       "file": "efka-teka-certificate.js",
+      "owner": "runner",
       "title": "Φορολογικές Βεβαιώσεις ΕΦΚΑ/ΤΕΚΑ (φορολογικής χρήσης)",
       "portal": "e-EFKA (services.e-efka.gov.gr, non-employee)",
       "subsystem": "Hyper.Server",
@@ -653,6 +670,7 @@
     {
       "id": "keao-debts",
       "file": "keao-debts.js",
+      "owner": "runner",
       "title": "Οφειλές ΕΦΚΑ/ΚΕΑΟ ανά Φορέα + Χρεώσεις/Πιστώσεις",
       "portal": "e-EFKA νέο ΟΠΣ (services.e-efka.gov.gr, non-employee)",
       "subsystem": "Hyper.Server",
@@ -694,6 +712,41 @@
           "key": "pdf",
           "label": "Λήψη PDF ΠΒΟ ΚΕΑΟ; (ναι/όχι, default ναι)",
           "env": "KEAO_PDF",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-email",
+      "file": "aade-email.js",
+      "owner": "app",
+      "title": "Email πελάτη από το Μητρώο Επικοινωνίας ΑΑΔΕ",
+      "portal": "AADE myAADE comregistry (GSIS OAM)",
+      "subsystem": "ScanMyData Tax Center",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "vat",
+          "label": "ΑΦΜ-στόχος (κενό = ο ΑΦΜ του λογαριασμού)",
+          "env": "AADE_VAT",
           "hidden": false,
           "optional": true
         }
