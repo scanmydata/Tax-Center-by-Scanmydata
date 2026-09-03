@@ -677,7 +677,10 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
                         modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
                     )
                     items.forEach { entry ->
-                        Column(
+                        // Κουκκίδα αριστερά κάθε εντύπου: με σημειώσεις δύο
+                        // γραμμών κάτω από τους τίτλους, χωρίς αυτήν δεν φαίνεται
+                        // πού τελειώνει το ένα έντυπο και πού αρχίζει το επόμενο.
+                        Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -687,14 +690,22 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
                                 }
                                 .padding(vertical = 8.dp),
                         ) {
-                            Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                            if (entry.note.isNotBlank()) {
-                                Text(
-                                    entry.note,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        .copy(alpha = 0.8f),
-                                )
+                            Text(
+                                "•",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 10.dp),
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.label, style = MaterialTheme.typography.bodyMedium)
+                                if (entry.note.isNotBlank()) {
+                                    Text(
+                                        entry.note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            .copy(alpha = 0.8f),
+                                    )
+                                }
                             }
                         }
                     }

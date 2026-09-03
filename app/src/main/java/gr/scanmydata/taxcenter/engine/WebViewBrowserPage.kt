@@ -229,39 +229,42 @@ class WebViewBrowserPage(
                 } else {
                     // Ο Referer διαβάζεται εδώ, όσο είμαστε στο main thread.
                     val referer = page.web.url
-                    Thread {
-                        val direct = fetchBytes(pending.url, pending.userAgent, referer)
-                        main.post {
-                            if (direct != null && acceptable(dest, direct)) {
-                                finishDownload(callId, cb, dest, direct, pending.suggested)
-                            } else {
-                                // Το ADF παράγει σύνδεσμο δεμένο με τη συνεδρία,
-                                // που συχνά **δεν επαναλαμβάνεται** από έξω: το
-                                // OkHttp έπαιρνε πίσω τη σελίδα σφάλματος και τη
-                                // σώζαμε ως «PDF» ~8 KB. Δεύτερη προσπάθεια μέσα
-                                // από την ίδια τη σελίδα, όπου η συνεδρία ζει.
-                                logSink("[browser] η άμεση λήψη δεν έδωσε PDF — δοκιμή μέσα από τη σελίδα")
-                                fetchInPage(page, pending.url) { bytes, error ->
-                                    when {
-                                        bytes != null && acceptable(dest, bytes) ->
-                                            finishDownload(callId, cb, dest, bytes, pending.suggested)
-                                        else -> {
-                                            val detail = buildString {
-                                                append("η πύλη δεν επέστρεψε αρχείο PDF")
-                                                error?.let { append(" · μέσα από τη σελίδα: ").append(it) }
-                                                append(" · άμεσα: ").append(describeBody(direct))
-                                                if (error == null) {
-                                                    append(" · σελίδα: ").append(describeBody(bytes))
-                                                }
+                    // **Πρώτα μέσα από τη σελίδα.**
+                    //
+                    // Το ETAK απαντά με σελίδα ADF loopback: ένα HTML που θέτει
+                    // βραχύβιο cookie (30 δευτ.) με JavaScript και ξαναζητά το
+                    // ίδιο URL. Ο πραγματικός browser το εκτελεί και δεν το
+                    // βλέπει καν ο χρήστης· ένα σκέτο GET —είτε από OkHttp είτε
+                    // από `fetch`— παίρνει πίσω το loopback και τέλος. Γι' αυτό
+                    // κατέβαιναν 8 KB HTML αντί για PDF.
+                    fetchInPage(page, pending.url) { bytes, error ->
+                        if (bytes != null && acceptable(dest, bytes)) {
+                            finishDownload(callId, cb, dest, bytes, pending.suggested)
+                        } else {
+                            // Εφεδρεία: μερικές πύλες δίνουν απλό σύνδεσμο που
+                            // δουλεύει και εκτός σελίδας.
+                            logSink("[browser] η λήψη μέσα από τη σελίδα δεν έδωσε PDF — δοκιμή με OkHttp")
+                            Thread {
+                                val direct = fetchBytes(pending.url, pending.userAgent, referer)
+                                main.post {
+                                    if (direct != null && acceptable(dest, direct)) {
+                                        finishDownload(callId, cb, dest, direct, pending.suggested)
+                                    } else {
+                                        val detail = buildString {
+                                            append("η πύλη δεν επέστρεψε αρχείο PDF")
+                                            error?.let { append(" · σελίδα: ").append(it) }
+                                            if (error == null) {
+                                                append(" · σελίδα: ").append(describeBody(bytes))
                                             }
-                                            logSink("[browser] ✗ $detail")
-                                            cb.reject(callId, detail)
+                                            append(" · άμεσα: ").append(describeBody(direct))
                                         }
+                                        logSink("[browser] ✗ $detail")
+                                        cb.reject(callId, detail)
                                     }
                                 }
-                            }
+                            }.start()
                         }
-                    }.start()
+                    }
                 }
             }
 
@@ -553,27 +556,7 @@ class WebViewBrowserPage(
      * `@JavascriptInterface`** — ο κανόνας δεν χαλαρώνει για μια ευκολία.
      */
     private fun fetchInPage(page: Page, url: String, done: (ByteArray?, String?) -> Unit) {
-        val js = """
-            (function () {
-              window.__smdDl = null;
-              fetch(${jsStr(url)}, { credentials: 'include' })
-                .then(function (r) {
-                  if (!r.ok) throw new Error('HTTP ' + r.status);
-                  return r.arrayBuffer();
-                })
-                .then(function (buf) {
-                  var b = new Uint8Array(buf), s = '', CH = 0x8000;
-                  for (var i = 0; i < b.length; i += CH) {
-                    s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
-                  }
-                  window.__smdDl = btoa(s);
-                })
-                .catch(function (e) {
-                  window.__smdDl = 'ERR:' + (e && e.message ? e.message : e);
-                });
-            })();
-        """.trimIndent()
-        page.web.evaluateJavascript(js, null)
+        page.web.evaluateJavascript(loopbackAwareFetch(url), null)
 
         val deadline = System.currentTimeMillis() + IN_PAGE_TIMEOUT_MS
         fun probe() {
@@ -606,6 +589,93 @@ class WebViewBrowserPage(
             ?.let { return java.net.URLDecoder.decode(it, "UTF-8") }
         return url.substringAfterLast('/').substringBefore('?').ifBlank { "download" }
     }
+
+    /**
+     * Κατέβασμα μέσα από τη σελίδα, που **ακολουθεί το ADF loopback**.
+     *
+     * Το Oracle ADF δεν σερβίρει το αρχείο στο πρώτο αίτημα. Απαντά με ένα
+     * μικρό HTML (`AdfLoopbackUtils`) που θέτει με JavaScript ένα cookie
+     * τριάντα δευτερολέπτων και ξαναζητά το ίδιο URL. Ο πραγματικός browser το
+     * κάνει αυτόματα και ο χρήστης δεν το βλέπει ποτέ· ένα σκέτο GET όμως
+     * σταματά εκεί — και ακριβώς αυτές τις 8 KB HTML σώζαμε ως «PDF».
+     *
+     * Εδώ το loopback **εκτελείται** αντί να αναλυθεί: τα scripts της
+     * απάντησης τρέχουν όπως θα έτρεχαν στη σελίδα, με το `document.cookie` να
+     * είναι το πραγματικό (ίδιο origin), και μόνο η `location` σκιάζεται ώστε
+     * η τελική ανακατεύθυνση να μην παρασύρει τη σελίδα μας. Μετά ξαναζητιέται
+     * το αρχείο, έως τρεις φορές.
+     *
+     * Δεν πλαστογραφείται τίποτα: το cookie το παράγει ο ίδιος ο κώδικας της
+     * ΑΑΔΕ, μέσα στη δική της σελίδα.
+     */
+    private fun loopbackAwareFetch(url: String): String = """
+        (function () {
+          window.__smdDl = null;
+          var target = ${jsStr(url)};
+          var hops = 0;
+
+          function looksLoopback(text) {
+            return text.indexOf('AdfLoopbackUtils') >= 0 ||
+                   (text.indexOf('_afrLoop') >= 0 && text.indexOf('<html') >= 0);
+          }
+
+          function runLoopback(html) {
+            var re = /<script[^>]*>([\s\S]*?)<\/script>/gi, m, code = '';
+            while ((m = re.exec(html)) !== null) code += m[1] + '\n';
+            if (!code) return false;
+            var a = document.createElement('a');
+            a.href = target;
+            var noop = function () {};
+            var inert = {
+              replace: noop, assign: noop, reload: noop,
+              href: a.href, search: a.search, hash: a.hash,
+              pathname: a.pathname, host: a.host, hostname: a.hostname,
+              protocol: a.protocol, port: a.port, origin: a.origin
+            };
+            try {
+              new Function('location', 'window', 'self', 'top', 'parent', code)(
+                inert, { location: inert }, { location: inert },
+                { location: inert }, { location: inert });
+            } catch (e) {
+              // Τα loopback scripts τελειώνουν με ανακατεύθυνση που εδώ δεν
+              // γίνεται· το cookie έχει ήδη τεθεί πριν πεταχτεί το σφάλμα.
+            }
+            return true;
+          }
+
+          function attempt() {
+            hops++;
+            fetch(target, { credentials: 'include', redirect: 'follow' })
+              .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.arrayBuffer();
+              })
+              .then(function (buf) {
+                var b = new Uint8Array(buf);
+                var pdf = b.length > 4 && b[0] === 0x25 && b[1] === 0x50 &&
+                          b[2] === 0x44 && b[3] === 0x46;
+                if (!pdf && hops < 4) {
+                  var text = '';
+                  try { text = new TextDecoder('utf-8').decode(b); } catch (e) { text = ''; }
+                  if (looksLoopback(text) && runLoopback(text)) {
+                    setTimeout(attempt, 150);
+                    return;
+                  }
+                }
+                var s = '', CH = 0x8000;
+                for (var i = 0; i < b.length; i += CH) {
+                  s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+                }
+                window.__smdDl = btoa(s);
+              })
+              .catch(function (e) {
+                window.__smdDl = 'ERR:' + (e && e.message ? e.message : e);
+              });
+          }
+
+          attempt();
+        })();
+    """.trimIndent()
 
     private fun value(v: Any?): String = JSONObject().put("value", v).toString()
 
