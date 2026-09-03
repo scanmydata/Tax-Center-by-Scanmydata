@@ -159,9 +159,13 @@ fun AppShell(container: AppContainer) {
     }
 
     val title = when {
-        base?.startsWith("$CLIENT_ROUTE/") != true -> current.label
-        openClientName.isNotBlank() -> "Καρτέλα · " + openClientName
-        else -> "Καρτέλα πελάτη"
+        base?.startsWith("$CLIENT_ROUTE/") == true ->
+            if (openClientName.isNotBlank()) "Καρτέλα · " + openClientName else "Καρτέλα πελάτη"
+        base == LOGS_ROUTE -> "Αρχείο ενεργειών"
+        // Η `current` δείχνει πια τη θέση του **μενού**, που για μια οθόνη εκτός
+        // μενού είναι άλλη από τον τίτλο της. Όπου δεν ταιριάζει καμία, μένει το
+        // όνομα της εφαρμογής αντί για λάθος ετικέτα.
+        else -> current?.label ?: "ScanMyData Tax Center"
     }
 
     ModalNavigationDrawer(
