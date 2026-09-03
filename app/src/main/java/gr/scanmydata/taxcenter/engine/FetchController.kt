@@ -691,6 +691,47 @@ class FetchController(
     }
 
     /**
+     * Βρίσκει τον/τη σύζυγο μέσα στις σχέσεις που επέστρεψε το ETAK.
+     *
+     * Κρατά **μόνο** τη σχέση συζύγου, και μόνο με έγκυρο ΑΦΜ διαφορετικό από
+     * του πελάτη. Τα υπόλοιπα πρόσωπα του Ε9 — συνιδιοκτήτες, τέκνα — δεν είναι
+     * πελάτες του γραφείου και δεν υπάρχει λόγος να αντιγραφούν στη βάση
+     * (ελαχιστοποίηση, άρθρο 5 παρ. 1 στοιχ. γ).
+     *
+     * Τίποτα δεν γράφεται εδώ: μια νέα καρτέλα πελάτη είναι μεγαλύτερη ενέργεια
+     * από μια αλλαγή πεδίου, και περνά από έγκριση σαν χωριστή πρόταση.
+     */
+    private suspend fun noteSpouses(job: ProcessRunner.Job, json: JSONObject) {
+        val client = repository.byAfm(job.client.afm) ?: return
+        val relations = json.optJSONArray("relations") ?: return
+        val found = ArrayList<SpouseFind>()
+        for (i in 0 until relations.length()) {
+            val row = relations.optJSONObject(i) ?: continue
+            val relation = row.optString("relation").trim()
+            if (!relation.contains("ΣΥΖ", ignoreCase = true)) continue
+            val afm = row.optString("afm").trim()
+            if (afm.length != 9 || afm == client.afm) continue
+            if (client.spouseAfm == afm) continue
+            found += SpouseFind(
+                clientId = client.id,
+                clientName = client.displayName,
+                spouseAfm = afm,
+                lastName = row.optString("lastName").trim(),
+                firstName = row.optString("firstName").trim(),
+                relation = relation,
+                alreadyClient = repository.byAfm(afm) != null,
+            )
+        }
+        if (found.isEmpty()) return
+        val existing = _state.value.spouses
+        _state.value = _state.value.copy(
+            spouses = existing + found.filterNot { fresh ->
+                existing.any { it.clientId == fresh.clientId && it.spouseAfm == fresh.spouseAfm }
+            },
+        )
+    }
+
+    /**
      * Γράφει τις εγκεκριμένες ενημερώσεις.
      *
      * Το [approved] είναι τα κλειδιά `"<clientId>/<UpdateField>"` που άφησε
