@@ -187,12 +187,12 @@ object DocumentCatalog {
         // επιλεγεί (επαληθεύτηκε ζωντανά: επιλογή 2025 -> PDF 2022). Το έτος
         // κρίνει μόνο αν προσφέρεται καθόλου ο σύνδεσμος.
         Item("enfia", "ΕΝΦΙΑ — Εκκαθαριστικό", GROUP_PROPERTY,
-            "aade-enfia", mapOf("e9" to "όχι"), needsYear = true, batchYears = true,
+            "aade-enfia", mapOf("e9" to "όχι", "ekk" to "ναι"), needsYear = true, batchYears = true,
             note = "Δίνει πάντα την τελευταία εκκαθάριση — το έτος του PDF είναι " +
                 "στο όνομα του αρχείου. Το έτος N αφορά την περιουσία της 1ης " +
                 "Ιανουαρίου N, δηλαδή τις μεταβολές του N-1."),
         Item("e9", "Ε9 / Περιουσιακή κατάσταση (ETAK)", GROUP_PROPERTY,
-            "aade-enfia", mapOf("e9" to "ναι"), needsYear = true, batchYears = true,
+            "aade-enfia", mapOf("e9" to "ναι", "ekk" to "όχι"), needsYear = true, batchYears = true,
             note = "Πολλά έτη με μία σύνδεση. Το έτος N αφορά την περιουσία της " +
                 "1ης Ιανουαρίου N — οι μεταβολές του 2026 φαίνονται στο 2027."),
         Item("property", "Περιουσιακή κατάσταση (myPROPERTY)", GROUP_PROPERTY,

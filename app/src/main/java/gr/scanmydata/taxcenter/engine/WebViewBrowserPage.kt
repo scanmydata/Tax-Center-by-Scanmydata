@@ -213,18 +213,34 @@ class WebViewBrowserPage(
             "armDownload" -> {
                 page.downloadDest = resolveDest(req.getString("dest"))
                 page.pendingDownload = null
+                // Ο μηχανισμός που πιάνει την **POST** λήψη του ADF μπαίνει πριν
+                // από το κλικ, όχι μετά: το κλικ είναι που υποβάλλει τη φόρμα.
+                page.web.evaluateJavascript(FORM_SUBMIT_SHIM, null)
                 cb.resolve(callId, "{}")
             }
 
-            "awaitDownload" -> waitFor(req.optLong("timeout", 120_000), { page.pendingDownload != null }) { ok ->
+            "awaitDownload" -> awaitAnyDownload(page, req.optLong("timeout", 120_000)) { posted, ok ->
                 val pending = page.pendingDownload
                 val dest = page.downloadDest
                 page.pendingDownload = null
+
+                // Πρώτος δρόμος: η φόρμα υποβλήθηκε και το shim κράτησε τα bytes.
+                if (posted != null && dest != null) {
+                    if (acceptable(dest, posted)) {
+                        finishDownload(callId, cb, dest, posted, guessName(page.web.url.orEmpty(), null))
+                    } else {
+                        val detail = "η υποβολή της φόρμας δεν έδωσε PDF · " + describeBody(posted)
+                        logSink("[browser] ✗ $detail")
+                        cb.reject(callId, detail)
+                    }
+                    return@awaitAnyDownload
+                }
+
                 if (!ok || pending == null || dest == null) {
                     cb.reject(
                         callId,
-                        "δεν ξεκίνησε λήψη μέσα στον χρόνο. Κάποια κουμπιά ADF στέλνουν POST " +
-                            "και το DownloadListener δεν ενεργοποιείται πάντα.",
+                        "δεν ξεκίνησε λήψη μέσα στον χρόνο — ούτε ως POST φόρμας ούτε ως " +
+                            "κατέβασμα συνδέσμου.",
                     )
                 } else {
                     // Ο Referer διαβάζεται εδώ, όσο είμαστε στο main thread.
@@ -591,6 +607,40 @@ class WebViewBrowserPage(
     }
 
     /**
+     * Περιμένει λήψη από **οποιονδήποτε** από τους δύο δρόμους.
+     *
+     * Είτε το shim έπιασε την υποβολή της φόρμας (τα bytes έρχονται στο
+     * `posted`), είτε ενεργοποιήθηκε το κλασικό `DownloadListener` (`ok`).
+     */
+    private fun awaitAnyDownload(
+        page: Page,
+        timeout: Long,
+        done: (posted: ByteArray?, listenerFired: Boolean) -> Unit,
+    ) {
+        val deadline = System.currentTimeMillis() + timeout
+        fun probe() {
+            if (page.pendingDownload != null) { done(null, true); return }
+            page.web.evaluateJavascript("window.__smdDl") { raw ->
+                val value = if (raw == null || raw == "null") null else {
+                    runCatching { JSONArray("[$raw]").getString(0) }.getOrNull()
+                }
+                when {
+                    value != null && value.startsWith("ERR:") -> {
+                        logSink("[browser] η υποβολή φόρμας απέτυχε: " + value.removePrefix("ERR:"))
+                        done(null, page.pendingDownload != null)
+                    }
+                    value != null ->
+                        done(runCatching { Base64.decode(value, Base64.DEFAULT) }.getOrNull(), false)
+                    page.pendingDownload != null -> done(null, true)
+                    System.currentTimeMillis() >= deadline -> done(null, false)
+                    else -> main.postDelayed(::probe, POLL_MS)
+                }
+            }
+        }
+        probe()
+    }
+
+    /**
      * Κατέβασμα μέσα από τη σελίδα, που **ακολουθεί το ADF loopback**.
      *
      * Το Oracle ADF δεν σερβίρει το αρχείο στο πρώτο αίτημα. Απαντά με ένα
@@ -687,6 +737,76 @@ class WebViewBrowserPage(
         const val POLL_MS = 150L
         const val QUIET_PERIOD_MS = 400L
         const val IN_PAGE_TIMEOUT_MS = 90_000L
+
+        /**
+         * Πιάνει τη λήψη του ADF **εκεί που πραγματικά συμβαίνει**: στην υποβολή
+         * της φόρμας.
+         *
+         * Οι σύνδεσμοι εκτύπωσης του ETAK είναι `<a href="#" onclick="…">` —
+         * command links του JSF. Το κλικ δεν πλοηγεί πουθενά· συμπληρώνει κρυφά
+         * πεδία και κάνει **POST** τη φόρμα της σελίδας, και το PDF έρχεται ως
+         * απάντηση σε αυτό το POST.
+         *
+         * Γι' αυτό απέτυχαν όλες οι προηγούμενες προσπάθειες: το
+         * `DownloadListener` έδινε τη διεύθυνση της φόρμας, και κάθε GET πάνω
+         * της γύριζε τη σελίδα loopback του ADF. Δεν έφταιγε το loopback — αυτό
+         * ήταν το σύμπτωμα του ότι ζητούσαμε με λάθος μέθοδο.
+         *
+         * Εδώ η φόρμα υποβάλλεται **από την ίδια τη σελίδα**, με τα ίδια πεδία
+         * και την ίδια συνεδρία, και τα bytes κρατιούνται. Το `charset=UTF-8`
+         * στο `Content-Type` είναι υποχρεωτικό — χωρίς αυτό οι ελληνικοί
+         * χαρακτήρες φτάνουν στον JSF server ως ερωτηματικά.
+         */
+        const val FORM_SUBMIT_SHIM = """
+            (function () {
+              window.__smdDl = null;
+              window.__smdArmed = true;
+              if (window.__smdHooked) return;
+              window.__smdHooked = true;
+
+              var nativeSubmit = HTMLFormElement.prototype.submit;
+
+              function keep(buf) {
+                var b = new Uint8Array(buf), s = '', CH = 0x8000;
+                for (var i = 0; i < b.length; i += CH) {
+                  s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+                }
+                window.__smdDl = btoa(s);
+              }
+
+              HTMLFormElement.prototype.submit = function () {
+                if (!window.__smdArmed) return nativeSubmit.apply(this, arguments);
+                window.__smdArmed = false;
+                var form = this;
+                try {
+                  var body = new URLSearchParams();
+                  var data = new FormData(form);
+                  data.forEach(function (v, k) {
+                    if (typeof v === 'string') body.append(k, v);
+                  });
+                  fetch(form.action || location.href, {
+                    method: (form.method || 'POST').toUpperCase(),
+                    body: body.toString(),
+                    credentials: 'include',
+                    headers: {
+                      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                    }
+                  })
+                    .then(function (r) {
+                      if (!r.ok) throw new Error('HTTP ' + r.status);
+                      return r.arrayBuffer();
+                    })
+                    .then(keep)
+                    .catch(function (e) {
+                      window.__smdDl = 'ERR:' + (e && e.message ? e.message : e);
+                    });
+                } catch (e) {
+                  window.__smdDl = 'ERR:' + (e && e.message ? e.message : e);
+                }
+                return undefined;
+              };
+            })();
+        """
 
         /**
          * Χρειάζεται άνθρωπος αυτή η σελίδα;

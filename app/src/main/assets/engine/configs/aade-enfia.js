@@ -40,10 +40,13 @@ module.exports = {
     { key: 'year', label: 'Έτος (κενό = πιο πρόσφατο)', env: 'AADE_YEAR', optional: true },
     { key: 'years', label: 'Έτη χωρισμένα με κόμμα (υπερισχύει του «Έτος»)', env: 'AADE_YEARS', optional: true },
     { key: 'e9', label: 'Και δεδομένα Ε9/Περιουσιακής; (ναι/όχι)', env: 'AADE_E9', optional: true },
+    { key: 'ekk', label: 'Και το εκκαθαριστικό ΕΝΦΙΑ; (ναι/όχι — κενό = ναι)', env: 'AADE_ENFIA_EKK', optional: true },
   ],
 
   async run(http, inp, lib) {
     const wantE9 = /^(ναι|nai|yes|y|1)$/i.test((inp.e9 || '').trim());
+    // Κενό = ναι, ώστε παλιές κλήσεις χωρίς αυτό το input να μην αλλάξουν.
+    const wantEkk = !/^(οχι|όχι|ohi|no|n|0)$/i.test((inp.ekk || '').trim());
     const headed = /^(1|true|ναι)$/i.test(process.env.AADE_HEADED || '');
     const res = await withBrowser({ headed }, async ({ page }) => {
       // 1) landing -> entry link -> popup
@@ -130,7 +133,7 @@ module.exports = {
         //     αυτό κατεβαίνει **μία φορά** και το πραγματικό έτος μπαίνει στο
         //     όνομα του αρχείου από το id, όχι από την επιλογή.
         const ekkSel = 'a[id^="pt1:clPrintEkk"]';
-        if (!out.enfiaEkk && (await pop.count(ekkSel))) {
+        if (wantEkk && !out.enfiaEkk && (await pop.count(ekkSel))) {
           const ekkId = (await pop.attr(ekkSel, 'id')) || '';
           const ekkYear = (ekkId.match(/clPrintEkk(\d{4})/) || [])[1] || year;
           const dest = path.join(http.dlDir, 'ENFIA_EKK_' + inp.user + '_' + ekkYear + '.pdf');
@@ -195,7 +198,8 @@ module.exports = {
         }
       }
 
-      if (!out.enfiaEkk) { out.enfiaEkk = 'NoEkkButton'; http.log('[enfia] χωρίς κουμπί εκκαθαριστικού (καμία εκκαθάριση σε αυτά τα έτη)'); }
+      if (!wantEkk) out.enfiaEkk = 'NotRequested';
+      else if (!out.enfiaEkk) { out.enfiaEkk = 'NoEkkButton'; http.log('[enfia] χωρίς κουμπί εκκαθαριστικού (καμία εκκαθάριση σε αυτά τα έτη)'); }
 
       const jf = 'AADE_enfia_' + inp.user + '.json';
       fs.writeFileSync(path.join(http.dlDir, jf), JSON.stringify(out, null, 2));
