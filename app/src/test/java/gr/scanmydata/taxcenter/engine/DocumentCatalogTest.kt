@@ -72,6 +72,60 @@ class DocumentCatalogTest {
     }
 
     @Test
+    fun `ο ιδιώτης δεν βλέπει έντυπα επιχειρηματικής δραστηριότητας`() {
+        // Ο ιδιώτης είναι φυσικό πρόσωπο **χωρίς** δραστηριότητα: δεν τηρεί
+        // βιβλία, άρα δεν υπάρχει Ε3, ούτε ΦΠΑ, ούτε παρακρατούμενοι. Πριν του
+        // προσφέρονταν όλα, και η πύλη γύριζε άδειο χωρίς εξήγηση.
+        val business = listOf(
+            "e3", "e3-mydata", "f2", "f4", "f5", "fmy", "epix", "merismata",
+            "tokoi", "dikaiomata", "ergolavon", "anthektikotitas", "perivallon",
+            "symfonitika", "employer-efka", "employer-teka",
+        )
+        for (id in business) {
+            val item = DocumentCatalog.byId(id)!!
+            assertFalse("το $id δεν αφορά ιδιώτη", item.matches(ClientKind.PRIVATE))
+            assertTrue("το $id αφορά ατομική επιχείρηση", item.matches(ClientKind.SOLE))
+            assertTrue("το $id αφορά νομικό πρόσωπο", item.matches(ClientKind.LEGAL))
+        }
+    }
+
+    @Test
+    fun `στον ιδιώτη μένει ό,τι όντως τον αφορά`() {
+        // Ο κίνδυνος του φίλτρου είναι να κρύψει κάτι υπαρκτό. Τα ασφαλιστικά
+        // κρέμονται από τον ΑΜΚΑ και όχι από τα βιβλία: ένας ιδιώτης μπορεί
+        // κάλλιστα να έχει ασφαλιστικό ιστορικό ή παλιά οφειλή στο ΚΕΑΟ.
+        val stays = listOf(
+            "e1", "e2", "ekkatharistiko", "enfia", "e9", "property", "lease",
+            "debts", "tax-account", "traffic-fees", "efka-notices",
+            "efka-certificate", "keao", "atlas", "registry", "profile", "amka",
+        )
+        for (id in stays) {
+            assertTrue(
+                "το $id έπρεπε να ισχύει σε ιδιώτη",
+                DocumentCatalog.byId(id)!!.matches(ClientKind.PRIVATE),
+            )
+        }
+    }
+
+    @Test
+    fun `το φίλτρο ομάδας ακολουθεί το είδος του υπόχρεου`() {
+        assertTrue(
+            "ο ιδιώτης δεν έχει έντυπα ΦΠΑ",
+            DocumentCatalog.inGroup(DocumentCatalog.GROUP_VAT, ClientKind.PRIVATE).isEmpty(),
+        )
+        assertTrue(
+            DocumentCatalog.inGroup(DocumentCatalog.GROUP_VAT, ClientKind.SOLE).isNotEmpty(),
+        )
+        // Κενό είδος = καμία γνώση = κανένα φιλτράρισμα.
+        assertEquals(
+            DocumentCatalog.inGroup(DocumentCatalog.GROUP_VAT).size,
+            DocumentCatalog.inGroup(DocumentCatalog.GROUP_VAT, "").size,
+        )
+        assertTrue("ο ιδιώτης όντως στενεύει τον κατάλογο", DocumentCatalog.narrows(ClientKind.PRIVATE))
+        assertFalse("χωρίς είδος δεν στενεύει τίποτα", DocumentCatalog.narrows(""))
+    }
+
+    @Test
     fun `άγνωστο ή κενό είδος δεν αποκλείει τίποτα`() {
         // Στην αμφιβολία δοκιμάζουμε: μια σιωπηλή παράλειψη είναι χειρότερη από
         // μια αποτυχία που εξηγείται από την ίδια την πύλη.

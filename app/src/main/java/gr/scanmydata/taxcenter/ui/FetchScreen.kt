@@ -133,6 +133,10 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
     val picks = remember { mutableStateListOf<Pick>() }
     var nextUid by remember { mutableStateOf(1L) }
     var autoSend by remember { mutableStateOf(false) }
+    // Ο κατάλογος δείχνει εξ ορισμού μόνο ό,τι αφορά τον πελάτη, όταν ο πελάτης
+    // είναι ένας. Ο διακόπτης υπάρχει γιατί το «είδος» της καρτέλας μπορεί να
+    // είναι λάθος ή παλιό — και τότε ο χρήστης πρέπει να μπορεί να το αγνοήσει.
+    var showAllForms by remember { mutableStateOf(false) }
     var includeSecrets by remember { mutableStateOf(container.settings.includePasswordsInClientEmail) }
     var confirmSend by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -192,7 +196,29 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
 
             if (action == Action.FETCH) {
                 item {
-                    DocumentPicker { item ->
+                    // Ένας πελάτης = ξέρουμε τι τον αφορά. Πολλοί = δεν ξέρουμε,
+                    // και το να φιλτράρουμε με βάση τον πρώτο θα ήταν αυθαίρετο.
+                    val singleKind = if (selected.size == 1) selected.first().kind else ""
+                    val filterKind = if (showAllForms) "" else singleKind
+
+                    if (DocumentCatalog.narrows(singleKind)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (showAllForms) {
+                                    "Εμφανίζονται όλα τα έντυπα."
+                                } else {
+                                    "Μόνο τα έντυπα που αφορούν: " + singleKind
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { showAllForms = !showAllForms }) {
+                                Text(if (showAllForms) "Μόνο τα σχετικά" else "Όλα")
+                            }
+                        }
+                    }
+                    DocumentPicker(kind = filterKind) { item ->
                         picks.add(
                             Pick(
                                 uid = nextUid++,
@@ -530,12 +556,18 @@ private suspend fun buildPlans(
 
 // --------------------------------------------------------- επιλογή εντύπων
 
-/** Το μενού προσθήκης εντύπου, χωρισμένο σε ομάδες. */
+/**
+ * Το μενού προσθήκης εντύπου, χωρισμένο σε ομάδες.
+ *
+ * Με [kind] συμπληρωμένο δείχνει **μόνο** τα έντυπα που αφορούν αυτό το είδος
+ * υπόχρεου. Σε ιδιώτη αυτό βγάζει από τη μέση ΦΠΑ, Ε3, ΦΕΝΠ και τους
+ * παρακρατούμενους — έντυπα που δεν έχει, και που η πύλη θα γύριζε άδεια.
+ */
 @Composable
-private fun DocumentPicker(onPick: (DocumentCatalog.Item) -> Unit) {
+private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> Unit) {
     PickerDropdown(label = "Πρόσθεσε έντυπο", text = "— διάλεξε —") { dismiss ->
         DocumentCatalog.GROUPS.forEach { group ->
-            val items = DocumentCatalog.inGroup(group)
+            val items = DocumentCatalog.inGroup(group, kind)
             if (items.isEmpty()) return@forEach
             Text(
                 group,
@@ -809,8 +841,19 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
     Column(modifier.padding(16.dp)) {
 
         Text(
-            if (state.running) "${state.done}/${state.total} ολοκληρώθηκαν"
-            else "Τέλος — ${state.total - state.failed}/${state.total} επιτυχίες",
+            if (state.running) {
+                "${state.done}/${state.total} ολοκληρώθηκαν"
+            } else {
+                // Οι κενές δεν μετριούνται ούτε στις επιτυχίες ούτε στις
+                // αποτυχίες: ένα «40/40 επιτυχίες» με 12 άδεια είναι ψέμα.
+                buildString {
+                    append("Τέλος — ")
+                    append(state.total - state.failed - state.empty)
+                    append("/").append(state.total).append(" με έντυπα")
+                    if (state.empty > 0) append("  ·  ${state.empty} χωρίς")
+                    if (state.failed > 0) append("  ·  ${state.failed} απέτυχαν")
+                }
+            },
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(6.dp))
@@ -829,6 +872,44 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
             )
             Spacer(Modifier.height(8.dp))
             BrowserPanel(container)
+        }
+
+        // Το κενό αποτέλεσμα εξηγείται ρητά. Χωρίς αυτό, ο λογιστής βλέπει μια
+        // παρτίδα «χωρίς σφάλματα» και υποθέτει ότι έφυγαν έντυπα που δεν
+        // υπήρξαν ποτέ.
+        if (!state.running && state.empty > 0) {
+            Spacer(Modifier.height(12.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Δεν βρέθηκε έντυπο σε ${state.empty} από ${state.total} εκτελέσεις",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Η σύνδεση πέτυχε και η πύλη απάντησε — απλώς δεν υπάρχει " +
+                            "υποβεβλημένο έντυπο για αυτόν τον συνδυασμό πελάτη και " +
+                            "έτους. Συνήθως φταίει το έτος, ή ότι το έντυπο δεν " +
+                            "αφορά αυτόν τον υπόχρεο. Δεν στάλθηκε τίποτα γι' αυτές " +
+                            "τις γραμμές.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    val names = state.emptyClients
+                    if (names.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            names.take(6).joinToString(", ") +
+                                if (names.size > 6) " και άλλοι ${names.size - 6}" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
         }
 
         if (!state.running && state.pending.isNotEmpty()) {
@@ -871,6 +952,7 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                                 FetchController.Status.OK ->
                                     "✓ ${item.fileCount} έντυπα" +
                                         if (item.detail.isNotBlank()) " · ${item.detail}" else ""
+                                FetchController.Status.EMPTY -> "— ${item.detail}"
                                 FetchController.Status.FAILED -> "✗ ${item.detail}"
                                 FetchController.Status.CANCELLED -> "διακόπηκε"
                             },
@@ -878,6 +960,8 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                             color = when {
                                 item.status == FetchController.Status.FAILED || item.sendFailed ->
                                     MaterialTheme.colorScheme.error
+                                item.status == FetchController.Status.EMPTY ->
+                                    MaterialTheme.colorScheme.tertiary
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             },
                         )

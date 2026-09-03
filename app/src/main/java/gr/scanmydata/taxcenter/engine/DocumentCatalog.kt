@@ -25,8 +25,21 @@ import gr.scanmydata.taxcenter.data.ClientKind
  */
 object DocumentCatalog {
 
-    /** Σε ποιους υπόχρεους έχει νόημα το έντυπο. */
-    enum class Applies { ALL, LEGAL_ONLY, NATURAL_ONLY }
+    /**
+     * Σε ποιους υπόχρεους έχει νόημα το έντυπο.
+     *
+     * Το [BUSINESS_ONLY] είναι η κατηγορία που έλειπε. Ο **ιδιώτης** — φυσικό
+     * πρόσωπο χωρίς επιχειρηματική δραστηριότητα — δεν υποβάλλει Ε3, ούτε
+     * δηλώσεις ΦΠΑ, ούτε παρακρατούμενους φόρους: δεν έχει βιβλία. Μέχρι τώρα
+     * ο κατάλογος του τα πρόσφερε όλα, και τα ζητούσε από την πύλη, που
+     * γυρνούσε άδειο χωρίς εξήγηση.
+     *
+     * Οι διαδικασίες ΕΦΚΑ/ΑΤΛΑΣ/ΚΕΑΟ μένουν [NATURAL_ONLY] και **όχι**
+     * [BUSINESS_ONLY]: κρέμονται από τον ΑΜΚΑ, όχι από τα βιβλία. Ένας ιδιώτης
+     * μπορεί κάλλιστα να έχει ασφαλιστικό ιστορικό ή παλιά οφειλή στο ΚΕΑΟ, και
+     * το να του τα κρύψουμε θα ήταν χειρότερο λάθος από το να του τα δείξουμε.
+     */
+    enum class Applies { ALL, LEGAL_ONLY, NATURAL_ONLY, BUSINESS_ONLY }
 
     data class Item(
         val id: String,
@@ -58,6 +71,7 @@ object DocumentCatalog {
                 Applies.ALL -> true
                 Applies.LEGAL_ONLY -> normalised == ClientKind.LEGAL
                 Applies.NATURAL_ONLY -> normalised != ClientKind.LEGAL
+                Applies.BUSINESS_ONLY -> normalised != ClientKind.PRIVATE
             }
         }
     }
@@ -88,9 +102,11 @@ object DocumentCatalog {
         Item("e2", "Ε2 — Αναλυτική κατάσταση μισθωμάτων", GROUP_INCOME,
             "aade-income", mapOf("forms" to "E2"), needsYear = true),
         Item("e3", "Ε3 — Κατάσταση οικονομικών στοιχείων", GROUP_INCOME,
-            "aade-income", mapOf("forms" to "E3"), needsYear = true),
+            "aade-income", mapOf("forms" to "E3"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("e3-mydata", "Ε3 myDATA", GROUP_INCOME,
-            "aade-income", mapOf("forms" to "E3MYDATA"), needsYear = true),
+            "aade-income", mapOf("forms" to "E3MYDATA"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("ekkatharistiko", "Εκκαθαριστικό (πράξη διοικητικού προσδιορισμού)", GROUP_INCOME,
             "aade-income", mapOf("forms" to "EKK"), needsYear = true),
         Item("fenp", "Έντυπο Ν — ΦΕΝΠ (νομικά πρόσωπα)", GROUP_INCOME,
@@ -98,33 +114,45 @@ object DocumentCatalog {
 
         // --------------------------------------------------------------- ΦΠΑ
         Item("f2", "Φ2 — Δήλωση ΦΠΑ", GROUP_VAT,
-            "aade-general-forms", mapOf("form" to "Φ2"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "Φ2"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("f4", "Φ4 — Ανακεφαλαιωτικός πίνακας ενδοκοινοτικών παραδόσεων", GROUP_VAT,
-            "aade-general-forms", mapOf("form" to "Φ4"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "Φ4"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("f5", "Φ5 — Ανακεφαλαιωτικός πίνακας ενδοκοινοτικών αποκτήσεων", GROUP_VAT,
-            "aade-general-forms", mapOf("form" to "Φ5"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "Φ5"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
 
         // ------------------------------------------------- παρακρατούμενοι
         Item("fmy", "ΦΜΥ — Φόρος μισθωτών υπηρεσιών", GROUP_WITHHOLDING,
-            "aade-general-forms", mapOf("form" to "ΦΜΥ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΦΜΥ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("epix", "Αμοιβές επιχειρηματικής δραστηριότητας", GROUP_WITHHOLDING,
-            "aade-general-forms", mapOf("form" to "ΕΠΙΧ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΕΠΙΧ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("merismata", "Μερίσματα", GROUP_WITHHOLDING,
-            "aade-general-forms", mapOf("form" to "ΜΕΡΙΣΜΑΤΑ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΜΕΡΙΣΜΑΤΑ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("tokoi", "Τόκοι", GROUP_WITHHOLDING,
-            "aade-general-forms", mapOf("form" to "ΤΟΚΟΙ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΤΟΚΟΙ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("dikaiomata", "Δικαιώματα", GROUP_WITHHOLDING,
-            "aade-general-forms", mapOf("form" to "ΔΙΚΑΙΩΜΑΤΑ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΔΙΚΑΙΩΜΑΤΑ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("ergolavon", "Εργολάβων (Φ01-019)", GROUP_WITHHOLDING,
-            "aade-general-forms", mapOf("form" to "ΕΡΓΟΛΑΒΩΝ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΕΡΓΟΛΑΒΩΝ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
 
         // ------------------------------------------------------ λοιπά έντυπα
         Item("anthektikotitas", "Τέλος ανθεκτικότητας / διαμονής", GROUP_OTHER_FORMS,
-            "aade-general-forms", mapOf("form" to "ΑΝΘΕΚΤΙΚΟΤΗΤΑΣ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΑΝΘΕΚΤΙΚΟΤΗΤΑΣ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("perivallon", "Περιβαλλοντικό τέλος", GROUP_OTHER_FORMS,
-            "aade-general-forms", mapOf("form" to "ΠΕΡΙΒΑΛΛΟΝ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΠΕΡΙΒΑΛΛΟΝ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
         Item("symfonitika", "Κατάσταση συμφωνητικών", GROUP_OTHER_FORMS,
-            "aade-general-forms", mapOf("form" to "ΣΥΜΦΩΝΗΤΙΚΑ"), needsYear = true),
+            "aade-general-forms", mapOf("form" to "ΣΥΜΦΩΝΗΤΙΚΑ"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY),
 
         // ---------------------------------------------------------- ακίνητα
         Item("enfia", "ΕΝΦΙΑ — Εκκαθαριστικό", GROUP_PROPERTY,
@@ -159,9 +187,11 @@ object DocumentCatalog {
         // --------------------------------------------------------- εργοδότης
         Item("employer-efka", "Οικονομική καρτέλα εργοδότη — ΕΦΚΑ", GROUP_EMPLOYER,
             "efka-employer-card", mapOf("which" to "EFKA"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY,
             note = "Θέλει κωδικούς ΙΚΑ εργοδότη, όχι TAXISnet."),
         Item("employer-teka", "Οικονομική καρτέλα εργοδότη — ΤΕΚΑ", GROUP_EMPLOYER,
             "efka-employer-card", mapOf("which" to "TEKA"), needsYear = true,
+            applies = Applies.BUSINESS_ONLY,
             note = "Θέλει κωδικούς ΙΚΑ εργοδότη, όχι TAXISnet."),
 
         // ----------------------------------------------------------- μητρώο
@@ -178,6 +208,22 @@ object DocumentCatalog {
 
     fun byId(id: String): Item? = ALL.firstOrNull { it.id == id }
 
-    /** Τα έντυπα μιας ομάδας, με τη σειρά που δηλώθηκαν. */
-    fun inGroup(group: String): List<Item> = ALL.filter { it.group == group }
+    /**
+     * Τα έντυπα μιας ομάδας, με τη σειρά που δηλώθηκαν.
+     *
+     * Με [kind] συμπληρωμένο κρατά μόνο όσα αφορούν αυτό το είδος υπόχρεου.
+     * Κενό [kind] σημαίνει «δεν ξέρω ποιανού» — δηλαδή παρτίδα με πολλούς
+     * πελάτες, όπου δεν υπάρχει ένα σωστό φίλτρο.
+     */
+    fun inGroup(group: String, kind: String = ""): List<Item> =
+        ALL.filter { it.group == group && (kind.isBlank() || it.matches(kind)) }
+
+    /**
+     * Κρύβει το φίλτρο αυτού του είδους έστω ένα έντυπο;
+     *
+     * Χρησιμεύει για να μη λέει η οθόνη «φιλτραρισμένα» όταν δεν φιλτράρει
+     * τίποτα — ένα μήνυμα που δεν αντιστοιχεί σε αλλαγή είναι θόρυβος.
+     */
+    fun narrows(kind: String): Boolean =
+        kind.isNotBlank() && ALL.any { !it.matches(kind) }
 }

@@ -124,14 +124,25 @@ fun AppShell(container: AppContainer) {
     val route = backStack?.destination?.route
     val base = route?.substringBefore('?')
 
-    // Η «Λήψη εντύπων» έχει δύο διαδρομές — με και χωρίς προεπιλεγμένο πελάτη —
-    // και πρέπει να φωτίζεται στο μενού και στις δύο.
-    val current = Destination.entries.firstOrNull { it.route == base }
-        ?: if (base?.startsWith(Destination.Fetch.route + "/") == true) {
-            Destination.Fetch
-        } else {
-            Destination.NewClient
-        }
+    // Ποιο στοιχείο του μενού φωτίζεται.
+    //
+    // Οι οθόνες που **δεν** είναι θέσεις του μενού δείχνουν αυτήν από την οποία
+    // ανοίγουν: η καρτέλα πελάτη ανήκει στους «Πελάτες», το αρχείο ενεργειών
+    // στις «Ρυθμίσεις». Η προηγούμενη έκδοση έπεφτε σε `NewClient` για καθετί
+    // άγνωστο, οπότε μέσα σε καρτέλα πελάτη το μενού έδειχνε «Νέος πελάτης» —
+    // δηλαδή έλεγε ψέματα για το πού βρίσκεσαι.
+    //
+    // `null` σημαίνει «καμία επιλογή φωτισμένη», και είναι σωστότερο από μια
+    // λάθος επιλογή.
+    val current: Destination? = when {
+        base == null -> null
+        base == LOGS_ROUTE -> Destination.SettingsScreen
+        base == CLIENT_ROUTE || base.startsWith("$CLIENT_ROUTE/") -> Destination.Clients
+        // Η «Λήψη εντύπων» έχει δύο διαδρομές — με και χωρίς προεπιλεγμένο
+        // πελάτη — και πρέπει να φωτίζεται και στις δύο.
+        base.startsWith(Destination.Fetch.route + "/") -> Destination.Fetch
+        else -> Destination.entries.firstOrNull { it.route == base }
+    }
 
     // Το όνομα του ανοιχτού πελάτη, για την κεφαλίδα. Σε οθόνη με τρεις
     // καρτέλες, το ποιανού είναι πρέπει να φαίνεται χωρίς να γυρίσεις πίσω.
@@ -184,9 +195,20 @@ fun AppShell(container: AppContainer) {
                         onClick = {
                             scope.launch { drawerState.close() }
                             navController.navigate(destination.route) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                // **Χωρίς** `saveState`/`restoreState`.
+                                //
+                                // Το ζεύγος τους δεν θυμάται μια οθόνη· θυμάται
+                                // ολόκληρη τη στοίβα κάτω από τον προορισμό. Και
+                                // η καρτέλα ενός πελάτη είναι μέρος της στοίβας
+                                // των «Πελατών». Έτσι όποιος έφευγε από καρτέλα
+                                // και ξαναπατούσε «Πελάτες» προσγειωνόταν πάλι
+                                // στην καρτέλα — και η επιλογή του μενού έμοιαζε
+                                // να «μην πιάνει» μέχρι να πατήσει πίσω.
+                                //
+                                // Το μενού είναι πλοήγηση πρώτου επιπέδου:
+                                // καθαρίζει ό,τι είναι από πάνω, δεν το θυμάται.
+                                popUpTo(navController.graph.startDestinationId)
                                 launchSingleTop = true
-                                restoreState = true
                             }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
@@ -295,11 +317,12 @@ fun AppShell(container: AppContainer) {
                     documents = documentCount,
                     currentRoute = route,
                 ),
+                // Ίδιοι κανόνες με το μενού: η ξενάγηση δεν πρέπει να αφήνει
+                // πίσω της στοίβα που ο χρήστης δεν έφτιαξε.
                 onNavigate = { destination ->
                     navController.navigate(destination.route) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        popUpTo(navController.graph.startDestinationId)
                         launchSingleTop = true
-                        restoreState = true
                     }
                 },
             )

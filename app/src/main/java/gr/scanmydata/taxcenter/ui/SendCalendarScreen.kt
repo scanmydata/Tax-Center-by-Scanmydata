@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -35,6 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,7 +91,36 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
     // Το πλέγμα μαζεύεται όταν ο χρήστης κοιτάζει τη λίστα. Σε τηλέφωνο το
     // ημερολόγιο πιάνει τη μισή οθόνη, και μόλις διαλέξεις ημέρα η δουλειά
     // είναι πια κάτω — δεν έχει νόημα να κρατά τον χώρο.
-    var calendarOpen by remember { mutableStateOf(true) }
+    //
+    // `MutableState` και όχι `by`: η τιμή διαβάζεται και γράφεται μέσα από τη
+    // σύνδεση nested-scroll παρακάτω, που ζει σε `remember` και δεν μπορεί να
+    // κρατήσει delegate.
+    val calendarOpen = remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+
+    // Σύμπτυξη με την **κίνηση**, όχι μόνο με την επιλογή ημέρας.
+    //
+    // Η προηγούμενη έκδοση μάζευε το πλέγμα μόνο όταν διάλεγες ημέρα. Όποιος
+    // κατέβαινε κατευθείαν στη λίστα κρατούσε το ημερολόγιο στη μέση οθόνη και
+    // κυλούσε τις αποστολές μέσα από μια γραμματοθυρίδα.
+    //
+    // Ο έλεγχος γίνεται στο `onPreScroll`, δηλαδή στην πρόθεση του χρήστη πριν
+    // καν την καταναλώσει η λίστα: έτσι δουλεύει και όταν η λίστα είναι κοντή
+    // και δεν κυλά καθόλου. Δεν καταναλώνεται τίποτα — επιστρέφεται μηδέν.
+    val collapseOnScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -3f) {
+                    calendarOpen.value = false
+                } else if (available.y > 3f && !listState.canScrollBackward) {
+                    // Ξαναπάνω από την κορυφή της λίστας: ο χρήστης γυρίζει στο
+                    // ημερολόγιο, όχι στις εγγραφές.
+                    calendarOpen.value = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     val range = remember(anchor, weekView) { visibleRange(anchor, weekView) }
     val all: List<SendEntity> by container.db.sends()
@@ -123,9 +157,9 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 IconButton(onClick = { anchor = if (weekView) anchor.plusWeeks(1) else anchor.plusMonths(1) }) {
                     Text("›", style = MaterialTheme.typography.titleLarge)
                 }
-                IconButton(onClick = { calendarOpen = !calendarOpen }) {
+                IconButton(onClick = { calendarOpen.value = !calendarOpen.value }) {
                     Text(
-                        if (calendarOpen) "⌃" else "⌄",
+                        if (calendarOpen.value) "⌃" else "⌄",
                         style = MaterialTheme.typography.titleLarge,
                     )
                 }
@@ -202,7 +236,7 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
 
-        if (calendarOpen) {
+        if (calendarOpen.value) {
             Spacer(Modifier.height(12.dp))
             WeekdayHeader()
             CalendarGrid(
@@ -213,7 +247,7 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 onSelect = {
                     selected = it
                     // Διάλεξες ημέρα: η δουλειά είναι πια η λίστα από κάτω.
-                    calendarOpen = false
+                    calendarOpen.value = false
                 },
             )
         }
@@ -235,8 +269,8 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             if (selected != null) {
                 TextButton(onClick = { selected = null }) { Text("Όλη η περίοδος") }
             }
-            if (!calendarOpen) {
-                TextButton(onClick = { calendarOpen = true }) { Text("Ημερολόγιο") }
+            if (!calendarOpen.value) {
+                TextButton(onClick = { calendarOpen.value = true }) { Text("Ημερολόγιο") }
             }
             TextButton(
                 enabled = sends.isNotEmpty(),
@@ -259,7 +293,10 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.height(6.dp))
-        LazyColumn(Modifier.weight(1f)) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).nestedScroll(collapseOnScroll),
+        ) {
             items(listed, key = { it.id }) { send ->
                 SendRow(
                     send = send,

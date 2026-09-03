@@ -20,10 +20,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -100,7 +100,8 @@ val TOUR: List<TourStep> = listOf(
             "και τα στέλνει με το Gmail σου. Όλα γίνονται στη συσκευή — δεν υπάρχει " +
             "διακομιστής μας και κανένα δεδομένο πελάτη δεν φεύγει προς εμάς.\n\n" +
             "Θα σε πάω από τα τέσσερα βήματα που χρειάζονται για την πρώτη σου λήψη. " +
-            "Μπορείς να συνεχίσεις να δουλεύεις κανονικά όσο τρέχει.",
+            "Το «Επόμενο» σε **πηγαίνει** στην οθόνη που περιγράφει κάθε βήμα — " +
+            "μπορείς να δουλέψεις εκεί κανονικά και να συνεχίσεις όποτε θέλεις.",
         icon = R.drawable.ic_menu_help,
     ),
 
@@ -134,7 +135,8 @@ val TOUR: List<TourStep> = listOf(
         title = "3. Κατέβασε έντυπα",
         body = "«Πρόσθεσε έντυπο» και διάλεξε — τα έντυπα είναι χωρισμένα σε ομάδες. " +
             "**Κάθε επιλογή κρατά δικά της έτη**: μπορείς να ζητήσεις Ε1 του 2025 και " +
-            "Ε9 του 2027 μαζί.\n\n" +
+            "Ε9 του 2027 μαζί. Με **έναν** επιλεγμένο πελάτη ο κατάλογος δείχνει μόνο " +
+            "όσα τον αφορούν.\n\n" +
             "Διάλεξε πελάτες και πάτα Έναρξη. Ο διακόπτης «Αποστολή με email μόλις " +
             "κατέβουν» κάνει λήψη και αποστολή σε ένα βήμα.",
         icon = R.drawable.ic_menu_fetch,
@@ -205,8 +207,21 @@ fun TourBar(
     if (!TourState.active) return
     val step = TOUR.getOrNull(TourState.step) ?: return
     val completed = step.done(facts)
-    val alreadyThere = step.destination != null &&
-        facts.currentRoute?.substringBefore('?') == step.destination.route
+
+    // Η πλοήγηση γίνεται **μόνη της** μόλις μπεις στο βήμα.
+    //
+    // Υπήρχε δεύτερο κουμπί «Πάμε εκεί»: ο χρήστης έπρεπε να πατήσει δύο φορές
+    // για ένα βήμα, και το κουμπί που έμοιαζε «το επόμενο» δεν τον πήγαινε εκεί
+    // που περιέγραφε το κείμενο. Μια ξενάγηση που σε *πάει* διαβάζεται σωστά·
+    // μια που σε *προτρέπει* να πας διαβάζεται σαν κείμενο.
+    //
+    // Το κλειδί είναι το βήμα και μόνο: αν κλειδώναμε και στη διαδρομή, κάθε
+    // χειροκίνητη πλοήγηση του χρήστη θα τον έσερνε πίσω στο βήμα — η ξενάγηση
+    // θα γινόταν φυλακή.
+    LaunchedEffect(TourState.step) {
+        val target = TOUR.getOrNull(TourState.step)?.destination ?: return@LaunchedEffect
+        if (facts.currentRoute?.substringBefore('?') != target.route) onNavigate(target)
+    }
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(
@@ -268,16 +283,7 @@ fun TourBar(
                         TextButton(onClick = { TourState.finish() }) { Text("Κλείσιμο") }
                         Spacer(Modifier.weight(1f))
 
-                        // Η πλοήγηση είναι **πάντα** διαθέσιμη όσο υπάρχει
-                        // προορισμός και δεν είμαστε ήδη εκεί. Πριν εμφανιζόταν
-                        // μόνο σε ανολοκλήρωτο βήμα, οπότε σε κάποιον που είχε
-                        // ήδη συνδέσει λογαριασμό η ξενάγηση δεν πήγαινε ποτέ
-                        // πουθενά — και διαβαζόταν σαν κείμενο.
-                        if (step.destination != null && !alreadyThere) {
-                            OutlinedButton(onClick = { onNavigate(step.destination) }) {
-                                Text("Πάμε εκεί")
-                            }
-                        }
+                        // Ένα κουμπί. Πηγαίνει και προχωρά μαζί.
                         Button(onClick = { TourState.next() }) {
                             Text(if (TourState.step == TOUR.lastIndex) "Τέλος" else "Επόμενο")
                         }

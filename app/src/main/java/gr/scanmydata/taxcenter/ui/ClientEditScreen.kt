@@ -207,10 +207,25 @@ fun ClientEditScreen(
                                     if (profile.kind.isNotBlank()) kind = profile.kind
                                     if (profile.doy.isNotBlank()) doy = profile.doy
                                     if (profile.email.isNotBlank()) emailAade = profile.email
+                                    // Ιδιώτης ή ατομική: ο ΑΜΚΑ έρχεται μαζί με
+                                    // τα υπόλοιπα. Ερχόταν και πριν — απλώς δεν
+                                    // τον έγραφε κανείς στο πεδίο, οπότε η
+                                    // «αυτόματη άντληση ΑΜΚΑ» φαινόταν νεκρή ενώ
+                                    // η δεύτερη σύνδεση στο MyAMKA είχε ήδη γίνει.
+                                    if (profile.amka.isNotBlank()) amka = profile.amka
                                     active = profile.active
                                     if (!isNew && profile.afm.isNotBlank() && profile.afm != afmClean) {
                                         "⚠ Ο λογαριασμός ανήκει σε άλλο ΑΦΜ (${profile.afm}) — " +
                                             "έλεγξε τους κωδικούς. Τα στοιχεία δεν εφαρμόστηκαν στο ΑΦΜ."
+                                    } else if (profile.amkaNote.isNotBlank()) {
+                                        // Ο ΑΜΚΑ είναι δεύτερη σύνδεση, σε άλλη
+                                        // πύλη. Η αποτυχία του δεν ακυρώνει την
+                                        // άντληση — αλλά πρέπει να λέγεται.
+                                        "Συμπληρώθηκαν από το Μητρώο. Ο ΑΜΚΑ δεν ήρθε: " +
+                                            profile.amkaNote
+                                    } else if (profile.amka.isNotBlank()) {
+                                        "Συμπληρώθηκαν από το Μητρώο, μαζί με τον ΑΜΚΑ. " +
+                                            "Έλεγξέ τα και αποθήκευσε."
                                     } else {
                                         "Συμπληρώθηκαν από το Μητρώο. Έλεγξέ τα και αποθήκευσε."
                                     }

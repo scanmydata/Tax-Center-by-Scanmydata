@@ -39,7 +39,18 @@ class FetchController(
     private val driveSync: gr.scanmydata.taxcenter.google.DriveSync,
 ) {
 
-    enum class Status { PENDING, RUNNING, OK, FAILED, CANCELLED }
+    /**
+     * Η κατάσταση μιας γραμμής της ουράς.
+     *
+     * Το [EMPTY] δεν είναι αποτυχία και δεν είναι επιτυχία: η σύνδεση έγινε, η
+     * πύλη απάντησε, απλώς δεν υπάρχει υποβεβλημένο έντυπο για αυτόν τον πελάτη
+     * και αυτό το έτος. Μέχρι τώρα εμφανιζόταν ως «✓ 0 έντυπα», που είναι το
+     * χειρότερο μήνυμα: μοιάζει με επιτυχία και αφήνει τον λογιστή να νομίζει
+     * ότι στάλθηκε κάτι. Ξεχωριστή κατάσταση σημαίνει ότι φαίνεται, ότι
+     * μετριέται χωριστά, και ότι η «επανάληψη αποτυχιών» **δεν** το ξαναζητά —
+     * το αποτέλεσμα θα ήταν πάλι κενό.
+     */
+    enum class Status { PENDING, RUNNING, OK, EMPTY, FAILED, CANCELLED }
 
     data class Item(
         val afm: String,
@@ -94,6 +105,15 @@ class FetchController(
     ) {
         val done: Int get() = items.count { it.status != Status.PENDING && it.status != Status.RUNNING }
         val failed: Int get() = items.count { it.status == Status.FAILED }
+
+        /** Πέτυχαν αλλά δεν βρήκαν έντυπο. Χωριστός αριθμός από τις αποτυχίες. */
+        val empty: Int get() = items.count { it.status == Status.EMPTY }
+
+        /** Ποιοι πελάτες έμειναν χωρίς έντυπο, χωρίς επαναλήψεις ονόματος. */
+        val emptyClients: List<String>
+            get() = items.filter { it.status == Status.EMPTY }
+                .map { it.clientName }
+                .distinct()
         val total: Int get() = items.size
         val idle: Boolean get() = !running && items.isEmpty()
         val pendingChanges: Int get() = pending.sumOf { it.changes.size }
@@ -186,11 +206,23 @@ class FetchController(
                     ).first()
 
                     proposeUpdates(item, outcome)
+                    val pdfs = outcome.files.count { it.endsWith(".pdf", ignoreCase = true) }
+                    // Μια διαδικασία που **δεν** παράγει έγγραφα (άντληση
+                    // στοιχείων, email, ΑΜΚΑ) δεν κρίνεται από τα PDF της.
+                    val status = when {
+                        !outcome.ok -> Status.FAILED
+                        plan.producesDocuments && pdfs == 0 -> Status.EMPTY
+                        else -> Status.OK
+                    }
                     mark(
                         index = index,
-                        status = if (outcome.ok) Status.OK else Status.FAILED,
-                        detail = if (outcome.ok) "" else describe(outcome.reason),
-                        fileCount = outcome.files.count { it.endsWith(".pdf", ignoreCase = true) },
+                        status = status,
+                        detail = when (status) {
+                            Status.FAILED -> describe(outcome.reason)
+                            Status.EMPTY -> "δεν βρέθηκε έντυπο για αυτόν τον πελάτη"
+                            else -> ""
+                        },
+                        fileCount = pdfs,
                     )
                 }
                 if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt)
