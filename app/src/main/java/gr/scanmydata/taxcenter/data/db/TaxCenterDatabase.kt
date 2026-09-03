@@ -31,7 +31,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         RunLogEntity::class,
         DriveFileEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class TaxCenterDatabase : RoomDatabase() {
@@ -111,6 +111,19 @@ abstract class TaxCenterDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4: οικογενειακή κατάσταση και ΑΦΜ συζύγου στην καρτέλα.
+         *
+         * `NOT NULL DEFAULT ''`, ώστε οι υπάρχουσες γραμμές να μένουν έγκυρες
+         * χωρίς ξαναγράψιμο — καμία καρτέλα δεν πειράζεται κατά την αναβάθμιση.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `clients` ADD COLUMN `maritalStatus` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `clients` ADD COLUMN `spouseAfm` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var instance: TaxCenterDatabase? = null
 
@@ -123,7 +136,7 @@ abstract class TaxCenterDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(KeyStoreKeys.databasePassphrase(app))
             return Room.databaseBuilder(app, TaxCenterDatabase::class.java, NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
         }
 

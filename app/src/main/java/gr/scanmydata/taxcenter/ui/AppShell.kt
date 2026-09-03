@@ -251,6 +251,7 @@ fun AppShell(container: AppContainer) {
                         onOpenDocuments = { id ->
                             navController.navigate("$CLIENT_ROUTE/$id/documents")
                         },
+                        onOpenFetch = { navController.navigate(Destination.Fetch.route) },
                     )
                 }
                 composable(

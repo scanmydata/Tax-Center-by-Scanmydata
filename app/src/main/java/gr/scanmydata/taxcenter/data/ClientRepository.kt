@@ -169,6 +169,7 @@ class ClientRepository(
         doy: String? = null,
         amka: String? = null,
         emailAade: String? = null,
+        maritalStatus: String? = null,
     ) {
         val existing = db.clients().byId(clientId) ?: return
         db.clients().update(
@@ -179,6 +180,7 @@ class ClientRepository(
                 doy = doy ?: existing.doy,
                 amkaEnc = amka?.let { crypto.enc(it) } ?: existing.amkaEnc,
                 emailAade = emailAade ?: existing.emailAade,
+                maritalStatus = maritalStatus ?: existing.maritalStatus,
                 updatedAt = System.currentTimeMillis(),
             ),
         )
@@ -313,4 +315,80 @@ class ClientRepository(
             Field.IKA_INSURED_USER, Field.IKA_INSURED_PASS,
         )
     }
+    /**
+     * Συνδέει δύο καρτέλες ως συζύγους — **και προς τις δύο κατευθύνσεις**.
+     *
+     * Η μονόπλευρη σύνδεση είναι σχεδόν χειρότερη από καμία: ανοίγεις την άλλη
+     * καρτέλα, δεν βλέπεις σχέση, τη δηλώνεις ξανά, και καταλήγεις με δύο
+     * εγγραφές που λένε διαφορετικά πράγματα.
+     *
+     * Αν η άλλη καρτέλα δεν υπάρχει ακόμη, γράφεται μόνο η πλευρά που ξέρουμε·
+     * η σύνδεση θα κλείσει μόνη της όταν καταχωρηθεί ο σύζυγος.
+     */
+    suspend fun linkSpouse(clientId: Long, spouseAfm: String) {
+        val afm = Normalize.afm(spouseAfm)
+        val client = db.clients().byId(clientId) ?: return
+        if (afm.isBlank() || afm == client.afm) return
+        val now = System.currentTimeMillis()
+        db.clients().update(client.copy(spouseAfm = afm, updatedAt = now))
+        db.clients().byAfm(afm)?.let { other ->
+            if (other.spouseAfm != client.afm) {
+                db.clients().update(other.copy(spouseAfm = client.afm, updatedAt = now))
+            }
+        }
+        db.audit().log(
+            AuditEntity(
+                ts = now,
+                action = "LINK_SPOUSE",
+                afm = client.afm,
+                // Χωρίς τον ΑΦΜ του συζύγου: το αρχείο καταγράφει ποιανού
+                // πελάτη τα δεδομένα άγγιξε η ενέργεια, ποτέ τιμές τρίτων.
+                detail = "σύνδεση σχέσης συζύγου",
+            ),
+        )
+    }
+
+    /**
+     * Δημιουργεί καρτέλα συζύγου από όσα ξέρουμε, και κλείνει τη σχέση.
+     *
+     * **Χωρίς διαπιστευτήρια**: δεν τα έχουμε, και δεν τα μαντεύουμε. Η νέα
+     * καρτέλα είναι ιδιώτης μέχρι να τρέξει άντληση στοιχείων πάνω της. Αν ο
+     * ΑΦΜ υπάρχει ήδη, δεν δημιουργείται τίποτα — απλώς συνδέεται.
+     *
+     * Επιστρέφει το id της καρτέλας του συζύγου.
+     */
+    suspend fun createSpouse(
+        clientId: Long,
+        spouseAfm: String,
+        lastName: String,
+        firstName: String,
+    ): Long {
+        val afm = Normalize.afm(spouseAfm)
+        if (afm.isBlank()) return 0L
+        val now = System.currentTimeMillis()
+        val existing = db.clients().byAfm(afm)
+        val id = existing?.id ?: db.clients().insert(
+            ClientEntity(
+                afm = afm,
+                name = lastName.trim(),
+                firstName = firstName.trim(),
+                kind = ClientKind.PRIVATE,
+                importedAt = now,
+                updatedAt = now,
+            ),
+        )
+        if (existing == null) {
+            db.audit().log(
+                AuditEntity(
+                    ts = now,
+                    action = "CREATE_SPOUSE",
+                    afm = afm,
+                    detail = "καρτέλα από σχέση ETAK",
+                ),
+            )
+        }
+        linkSpouse(clientId, afm)
+        return id
+    }
+
 }

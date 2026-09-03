@@ -84,9 +84,36 @@ class FetchController(
         KIND("Είδος"),
         DOY("ΔΟΥ"),
         AMKA("ΑΜΚΑ"),
+        MARITAL("Οικογενειακή κατάσταση"),
     }
 
     data class Change(val field: UpdateField, val before: String, val after: String)
+
+    /**
+     * Σύζυγος που βρέθηκε στις σχέσεις του ETAK.
+     *
+     * Το Μητρώο λέει μόνο «ΕΓΓΑΜΟΣ-Η»· τον **ΑΦΜ** τον δίνει αποκλειστικά το
+     * ETAK, και μόνο όταν ο σύζυγος εμφανίζεται στο Ε9 του πελάτη. Γι' αυτό η
+     * αυτόματη δημιουργία καρτέλας κρέμεται από τη λήψη ΕΝΦΙΑ/Ε9 και όχι από
+     * την άντληση στοιχείων.
+     *
+     * Δεν γράφεται τίποτα χωρίς έγκριση: μια νέα καρτέλα πελάτη είναι
+     * μεγαλύτερη ενέργεια από μια αλλαγή πεδίου.
+     */
+    data class SpouseFind(
+        val clientId: Long,
+        val clientName: String,
+        val spouseAfm: String,
+        val lastName: String,
+        val firstName: String,
+        val relation: String,
+        /** Υπάρχει ήδη καρτέλα με αυτό το ΑΦΜ; Τότε αρκεί σύνδεση. */
+        val alreadyClient: Boolean = false,
+    ) {
+        val displayName: String
+            get() = listOf(lastName, firstName).filter { it.isNotBlank() }
+                .joinToString(" ").ifBlank { spouseAfm }
+    }
 
     /**
      * Μια προτεινόμενη ενημέρωση καρτέλας από μαζική άντληση.
@@ -120,6 +147,8 @@ class FetchController(
         val browserRunning: Boolean = false,
         /** Ενημερώσεις καρτέλας που περιμένουν έγκριση. */
         val pending: List<PendingUpdate> = emptyList(),
+        /** Σύζυγοι που εντοπίστηκαν και περιμένουν έγκριση. */
+        val spouses: List<SpouseFind> = emptyList(),
     ) {
         val done: Int get() = items.count { it.status != Status.PENDING && it.status != Status.RUNNING }
         val failed: Int get() = items.count { it.status == Status.FAILED }
@@ -443,6 +472,7 @@ class FetchController(
                 kind = json.optString("kind").trim(),
                 doy = json.optString("doy").trim(),
                 email = json.optString("email").trim(),
+                maritalStatus = json.optString("maritalStatus").trim(),
                 active = json.optBoolean("active", true),
             )
         } catch (e: Exception) {
@@ -505,12 +535,69 @@ class FetchController(
         val doy: String = "",
         val email: String = "",
         val amka: String = "",
+        /** «ΕΓΓΑΜΟΣ-Η», «ΑΓΑΜΟΣ-Η»… όπως το γράφει το Μητρώο. */
+        val maritalStatus: String = "",
         /** Γιατί δεν ήρθε ο ΑΜΚΑ, όταν έπρεπε να υπάρχει. Δεν είναι σφάλμα. */
         val amkaNote: String = "",
         val active: Boolean = true,
         val error: String = "",
     ) {
         val ok: Boolean get() = error.isBlank()
+    }
+
+    /**
+     * Τα βήματα μιας **μαζικής ενημέρωσης καρτελών**.
+     *
+     * Είναι η ίδια δουλειά με το «Άντληση στοιχείων» της καρτέλας, για πολλούς
+     * πελάτες: ονοματεπώνυμο, ΔΟΥ, είδος, οικογενειακή κατάσταση, email και —
+     * όπου έχει νόημα — ΑΜΚΑ. Τίποτα δεν γράφεται χωρίς έγκριση· τα
+     * αποτελέσματα περνούν από την ίδια οθόνη «πριν → μετά».
+     *
+     * Παραλείπονται σιωπηλά όσοι δεν έχουν κωδικούς TAXISnet: η εναλλακτική
+     * θα ήταν δεκάδες βέβαιες αποτυχίες σύνδεσης.
+     */
+    suspend fun refreshPlans(clients: List<ClientEntity>): List<Plan> {
+        val plans = ArrayList<Plan>()
+        for (client in clients) {
+            for (id in REFRESH_ITEMS) {
+                val item = DocumentCatalog.byId(id) ?: continue
+                if (!item.matches(client.kind)) continue
+                if (missingCredentials(repository, client, item.configId).isNotEmpty()) continue
+                val inputs = HashMap(item.inputs)
+                // Μόνο η άντληση μητρώου δέχεται ΑΦΜ-στόχο· οι άλλες δύο
+                // δουλεύουν πάνω στον λογαριασμό που συνδέθηκε.
+                if (item.configId == CONFIG_PROFILE) inputs["vat"] = client.afm
+                plans += Plan(
+                    job = ProcessRunner.Job(
+                        client = client,
+                        configId = item.configId,
+                        extraInputs = inputs,
+                    ),
+                    label = item.label,
+                    producesDocuments = false,
+                )
+            }
+        }
+        return plans
+    }
+
+    /** Δέχεται μια πρόταση συζύγου: φτιάχνει ή απλώς συνδέει την καρτέλα. */
+    suspend fun applySpouse(find: SpouseFind) {
+        repository.createSpouse(
+            clientId = find.clientId,
+            spouseAfm = find.spouseAfm,
+            lastName = find.lastName,
+            firstName = find.firstName,
+        )
+        _state.value = _state.value.copy(
+            spouses = _state.value.spouses.filterNot { it.spouseAfm == find.spouseAfm && it.clientId == find.clientId },
+        )
+    }
+
+    fun discardSpouse(find: SpouseFind) {
+        _state.value = _state.value.copy(
+            spouses = _state.value.spouses.filterNot { it.spouseAfm == find.spouseAfm && it.clientId == find.clientId },
+        )
     }
 
     /** Καθαρίζει τη λίστα μετά το τέλος, ώστε η οθόνη να ξαναρχίζει καθαρή. */
@@ -589,9 +676,11 @@ class FetchController(
                 propose(UpdateField.FIRST_NAME, client.firstName, json.optString("firstName"))
                 propose(UpdateField.KIND, client.kind, json.optString("kind"))
                 propose(UpdateField.DOY, client.doy, json.optString("doy"))
+                propose(UpdateField.MARITAL, client.maritalStatus, json.optString("maritalStatus"))
             }
 
             CONFIG_AMKA -> propose(UpdateField.AMKA, repository.amka(client), json.optString("amka"))
+            CONFIG_ENFIA -> noteSpouses(job, json)
         }
 
         if (changes.isEmpty()) return
@@ -620,6 +709,7 @@ class FetchController(
                 doy = value[UpdateField.DOY],
                 amka = value[UpdateField.AMKA],
                 emailAade = value[UpdateField.EMAIL_AADE],
+                maritalStatus = value[UpdateField.MARITAL],
             )
         }
         _state.value = _state.value.copy(pending = emptyList())
@@ -631,6 +721,10 @@ class FetchController(
     }
 
     companion object {
+        /** Ποιες διαδικασίες τρέχει η μαζική ενημέρωση καρτελών. */
+        private val REFRESH_ITEMS = listOf("profile", "email", "amka")
+
+        const val CONFIG_ENFIA = "aade-enfia"
         const val CONFIG_EMAIL = "aade-email"
         const val CONFIG_PROFILE = "aade-profile"
         const val CONFIG_AMKA = "amka-retrieve"

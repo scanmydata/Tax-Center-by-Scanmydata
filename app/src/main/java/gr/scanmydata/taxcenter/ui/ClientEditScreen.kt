@@ -91,6 +91,8 @@ fun ClientEditScreen(
     var kind by remember { mutableStateOf("") }
     var amka by remember { mutableStateOf("") }
     var doy by remember { mutableStateOf("") }
+    var maritalStatus by remember { mutableStateOf("") }
+    var spouseAfm by remember { mutableStateOf("") }
     var active by remember { mutableStateOf(true) }
 
     var emailAade by remember { mutableStateOf("") }
@@ -120,6 +122,8 @@ fun ClientEditScreen(
         kind = ClientKind.normalise(client.kind)
         amka = withContext(Dispatchers.IO) { container.repository.amka(client) }
         doy = client.doy
+        maritalStatus = client.maritalStatus
+        spouseAfm = client.spouseAfm
         active = client.active
         emailAade = client.emailAade
         emailManual = client.emailManual
@@ -213,6 +217,9 @@ fun ClientEditScreen(
                                     // «αυτόματη άντληση ΑΜΚΑ» φαινόταν νεκρή ενώ
                                     // η δεύτερη σύνδεση στο MyAMKA είχε ήδη γίνει.
                                     if (profile.amka.isNotBlank()) amka = profile.amka
+                                    if (profile.maritalStatus.isNotBlank()) {
+                                        maritalStatus = profile.maritalStatus
+                                    }
                                     active = profile.active
                                     if (!isNew && profile.afm.isNotBlank() && profile.afm != afmClean) {
                                         "⚠ Ο λογαριασμός ανήκει σε άλλο ΑΦΜ (${profile.afm}) — " +
@@ -299,6 +306,40 @@ fun ClientEditScreen(
         }
 
         FormField("ΔΟΥ", doy) { doy = it }
+
+        // Οικογενειακή κατάσταση και σύζυγος — μόνο όπου υπάρχει φυσικό
+        // πρόσωπο από πίσω. Σε νομικό πρόσωπο δεν είναι κενά πεδία, δεν
+        // υφίστανται, όπως και ο ΑΜΚΑ.
+        if (hasAmka) {
+            FormField("Οικογενειακή κατάσταση (από το Μητρώο)", maritalStatus) {
+                maritalStatus = it
+            }
+            OutlinedTextField(
+                value = spouseAfm,
+                onValueChange = { spouseAfm = it.filter(Char::isDigit).take(9) },
+                label = { Text("ΑΦΜ συζύγου") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                supportingText = {
+                    Text(
+                        when {
+                            spouseAfm.isNotBlank() ->
+                                "Η σχέση γράφεται και στις δύο καρτέλες, αν υπάρχει η άλλη."
+                            maritalStatus.contains("ΕΓΓΑΜ", ignoreCase = true) ->
+                                "Ο πελάτης δηλώνεται έγγαμος. Το Μητρώο δεν δίνει τον ΑΦΜ " +
+                                    "του συζύγου — τον δίνει το ETAK μόνο όταν εμφανίζεται " +
+                                    "στο Ε9, αλλιώς συμπλήρωσέ τον εδώ."
+                            else ->
+                                "Χρειάζεται για τη σύνδεση των δύο καρτελών. Το εκκαθαριστικό " +
+                                    "συζύγου δεν το χρειάζεται — βγαίνει από την κοινή δήλωση."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Switch(checked = active, onCheckedChange = { active = it })
@@ -466,9 +507,25 @@ fun ClientEditScreen(
                                 emailAade = emailAade.trim(),
                                 emailManual = emailManual.trim(),
                                 emailPreferred = if (preferManual) emailManual.trim() else "",
+                                maritalStatus = maritalStatus.trim(),
+                                // Η αμοιβαία σύνδεση γίνεται μετά την
+                                // αποθήκευση, από το repository: εδώ γράφεται
+                                // μόνο η δική μας πλευρά.
+                                spouseAfm = Normalize.afm(spouseAfm),
                             )
                             withContext(Dispatchers.IO) {
-                                container.repository.saveClient(entity, credentials.toMap())
+                                val savedId =
+                                    container.repository.saveClient(entity, credentials.toMap())
+                                // Η σχέση γράφεται και στην καρτέλα του
+                                // συζύγου. Μονόπλευρη σύνδεση σημαίνει ότι από
+                                // την άλλη πλευρά δεν φαίνεται τίποτα, και
+                                // κάποια στιγμή δηλώνεται ξανά ανάποδα.
+                                if (spouseAfm.isNotBlank()) {
+                                    container.repository.linkSpouse(
+                                        clientId = if (savedId != 0L) savedId else clientId,
+                                        spouseAfm = spouseAfm,
+                                    )
+                                }
                             }
                             onDone()
                             ""

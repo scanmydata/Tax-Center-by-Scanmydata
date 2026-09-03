@@ -20,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,8 +67,11 @@ fun ClientsScreen(
     container: AppContainer,
     onOpenClient: (Long) -> Unit = {},
     onOpenDocuments: (Long) -> Unit = {},
+    /** Πού πάει η οθόνη όταν ξεκινήσει μαζική ενημέρωση. */
+    onOpenFetch: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    var confirmRefresh by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val authorizer = rememberGoogleAuthorizer()
 
@@ -128,6 +132,16 @@ fun ClientsScreen(
                         tint = MaterialTheme.colorScheme.error,
                     )
                 }
+            }
+            // Η μαζική ενημέρωση δουλεύει και χωρίς επιλογή — τότε αφορά όσους
+            // δείχνει το φίλτρο. Η οθόνη επιβεβαίωσης λέει ρητά πόσοι είναι,
+            // ώστε ένα κενό πεδίο αναζήτησης να μη σημαίνει κατά λάθος 400
+            // συνδέσεις στο GSIS.
+            IconButton(onClick = { confirmRefresh = true }) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = "Ενημέρωση στοιχείων από το Μητρώο",
+                )
             }
         }
 
@@ -213,6 +227,64 @@ fun ClientsScreen(
                         "Απέτυχε: ${e.message}"
                     }
                 }
+            },
+        )
+    }
+
+    if (confirmRefresh) {
+        val targets = if (picked.isEmpty()) filtered else filtered.filter { it.id in picked }
+        AlertDialog(
+            onDismissRequest = { confirmRefresh = false },
+            title = { Text("Ενημέρωση ${targets.size} καρτελών") },
+            text = {
+                Column {
+                    Text(
+                        "Θα γίνει σύνδεση στο TAXISnet **μία φορά για κάθε πελάτη** και " +
+                            "θα διαβαστούν ονοματεπώνυμο, ΔΟΥ, είδος υπόχρεου, " +
+                            "οικογενειακή κατάσταση, email και — όπου έχει νόημα — ΑΜΚΑ.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Τίποτα δεν γράφεται αυτόματα: στο τέλος βλέπεις «πριν → μετά» " +
+                            "ανά πεδίο και διαλέγεις. Όσοι δεν έχουν κωδικούς TAXISnet " +
+                            "παραλείπονται.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    )
+                    if (targets.size > 20) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Είναι πολλοί. Οι συνδέσεις γίνονται αυστηρά μία-μία, οπότε " +
+                                "θα πάρει ώρα — μπορείς να φύγεις από την οθόνη.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = targets.isNotEmpty(),
+                    onClick = {
+                        confirmRefresh = false
+                        scope.launch {
+                            val plans = withContext(Dispatchers.IO) {
+                                container.fetch.refreshPlans(targets)
+                            }
+                            if (plans.isEmpty()) {
+                                status = "Κανένας από τους επιλεγμένους δεν έχει κωδικούς TAXISnet."
+                            } else {
+                                picked.clear()
+                                container.fetch.start(plans)
+                                onOpenFetch()
+                            }
+                        }
+                    },
+                ) { Text("Ενημέρωση") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRefresh = false }) { Text("Άκυρο") }
             },
         )
     }

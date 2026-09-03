@@ -1045,6 +1045,51 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
             }
         }
 
+        // Σύζυγοι που βρήκε το ETAK. Χωριστά από τις «αλλαγές πεδίων»: εδώ
+        // δεν αλλάζει τιμή, δημιουργείται **καρτέλα πελάτη**.
+        state.spouses.forEach { find ->
+            Spacer(Modifier.height(12.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Βρέθηκε ${find.relation.lowercase()} στο Ε9 του ${find.clientName}",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${find.displayName} · ΑΦΜ ${find.spouseAfm}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (find.alreadyClient) {
+                            "Υπάρχει ήδη καρτέλα με αυτό το ΑΦΜ — θα συνδεθούν οι δύο " +
+                                "καρτέλες μεταξύ τους."
+                        } else {
+                            "Θα δημιουργηθεί καρτέλα ιδιώτη με ΑΦΜ και ονοματεπώνυμο. " +
+                                "**Χωρίς κωδικούς** — δεν τους έχουμε και δεν τους " +
+                                "μαντεύουμε· η καρτέλα θα δουλέψει μόλις τους βάλεις."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = { scope.launch { controller.applySpouse(find) } }) {
+                            Text(if (find.alreadyClient) "Σύνδεση" else "Δημιουργία καρτέλας")
+                        }
+                        OutlinedButton(onClick = { controller.discardSpouse(find) }) {
+                            Text("Όχι")
+                        }
+                    }
+                }
+            }
+        }
+
         if (!state.running && state.pending.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             Card(
