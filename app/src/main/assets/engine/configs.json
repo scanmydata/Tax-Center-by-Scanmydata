@@ -246,7 +246,7 @@
         },
         {
           "key": "forms",
-          "label": "Έντυπα (E1,E2,E3,E3MYDATA,EKK — κενό=E1,E2,E3,EKK)",
+          "label": "Έντυπα (E1,E2,E3,E3MYDATA,EKK,EKK_SYZ — κενό=E1,E2,E3,EKK)",
           "env": "AADE_FORMS",
           "hidden": false,
           "optional": false

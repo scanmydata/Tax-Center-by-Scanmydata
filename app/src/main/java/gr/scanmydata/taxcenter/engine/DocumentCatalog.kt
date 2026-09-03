@@ -129,6 +129,14 @@ object DocumentCatalog {
             applies = Applies.BUSINESS_ONLY),
         Item("ekkatharistiko", "Εκκαθαριστικό (πράξη διοικητικού προσδιορισμού)", GROUP_INCOME,
             "aade-income", mapOf("forms" to "EKK"), needsYear = true),
+        // Τυπώνεται με τους κωδικούς του **ίδιου** του υπόχρεου: η κοινή δήλωση
+        // δίνει και τα δύο εκκαθαριστικά. Δεν χρειάζονται κωδικοί συζύγου, και
+        // δεν ζητούνται. Σε άγαμο υπόχρεο το κουμπί λείπει από τη σελίδα και η
+        // διαδικασία το προσπερνά μόνη της.
+        Item("ekkatharistiko-syz", "Εκκαθαριστικό συζύγου", GROUP_INCOME,
+            "aade-income", mapOf("forms" to "EKK_SYZ"), needsYear = true,
+            applies = Applies.NATURAL_ONLY,
+            note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
         Item("fenp", "Έντυπο Ν — ΦΕΝΠ (νομικά πρόσωπα)", GROUP_INCOME,
             "aade-fenp", needsYear = true, applies = Applies.LEGAL_ONLY),
 

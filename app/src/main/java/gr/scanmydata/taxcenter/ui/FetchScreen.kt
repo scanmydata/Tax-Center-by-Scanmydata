@@ -596,14 +596,15 @@ private suspend fun buildPlans(
 @Composable
 private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
     OutlinedButton(
-        onClick = { open = true },
+        onClick = { open = !open },
         modifier = Modifier.fillMaxWidth(),
-    ) { Text("Πρόσθεσε έντυπο") }
+    ) { Text(if (open) "Κλείσιμο καταλόγου" else "Πρόσθεσε έντυπο") }
 
     if (!open) return
 
-    var query by remember { mutableStateOf("") }
     val needle = query.trim().lowercase()
     val groups = remember(needle, kind) {
         DocumentCatalog.GROUPS.map { group ->
@@ -616,61 +617,63 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
         }.filter { it.second.isNotEmpty() }
     }
 
-    AlertDialog(
-        onDismissRequest = { open = false },
-        title = { Text("Πρόσθεσε έντυπο") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Αναζήτηση εντύπου") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                if (groups.isEmpty()) {
-                    Text(
-                        "Κανένα έντυπο δεν ταιριάζει με «" + query.trim() + "».",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    groups.forEach { (group, items) ->
-                        item(key = "g-" + group) {
-                            Text(
-                                group,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
-                            )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        label = { Text("Αναζήτηση εντύπου") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(4.dp))
+
+    // `Column` με φραγμένο ύψος και δικό του scroll, **όχι** LazyColumn: αυτό
+    // ζει μέσα σε `item {}` ενός LazyColumn, και μια δεύτερη τεμπέλικη λίστα με
+    // απεριόριστο ύψος ρίχνει το Compose.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 340.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        if (groups.isEmpty()) {
+            Text(
+                "Κανένα έντυπο δεν ταιριάζει με «" + query.trim() + "».",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+        groups.forEach { (group, items) ->
+            Text(
+                group,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+            )
+            items.forEach { entry ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onPick(entry)
+                            query = ""
+                            open = false
                         }
-                        items(items, key = { it.id }) { entry ->
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        onPick(entry)
-                                        open = false
-                                    }
-                                    .padding(vertical = 8.dp),
-                            ) {
-                                Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                                if (entry.note.isNotBlank()) {
-                                    Text(
-                                        entry.note,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                    )
-                                }
-                            }
-                        }
+                        .padding(vertical = 8.dp),
+                ) {
+                    Text(entry.label, style = MaterialTheme.typography.bodyMedium)
+                    if (entry.note.isNotBlank()) {
+                        Text(
+                            entry.note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        )
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = { open = false }) { Text("Κλείσιμο") } },
-    )
+        }
+    }
+    Spacer(Modifier.height(4.dp))
 }
 
 /**
@@ -913,7 +916,10 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
     val context = LocalContext.current
     var reviewing by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
-    // Ποια έντυπα δείχνει ο διάλογος επιλογής, όταν μια γραμμή έβγαλε πάνω από ένα.
+    // Τα έντυπα της γραμμής που ξεδιπλώθηκε — εμφανίζονται **μέσα** στη
+    // γραμμή. Ένα popup για δύο ονόματα αρχείων είναι δυσανάλογο, και κρύβει
+    // ακριβώς τη λίστα από την οποία ήρθε.
+    var expanded by remember { mutableStateOf("") }
     var choice by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
     // Το SharedPreferences δεν ειδοποιεί το Compose· κρατάμε αντίγραφο και
     // γράφουμε πίσω, ώστε ο διακόπτης εδώ και η ρύθμιση να λένε το ίδιο.
@@ -939,7 +945,10 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                             message = "Τα αρχεία δεν βρίσκονται πια στη συσκευή."
                         documents.size == 1 ->
                             message = DocumentActions.open(context, documents.first())
-                        else -> choice = documents
+                        else -> {
+                            choice = documents
+                            expanded = if (expanded == row.key) "" else row.key
+                        }
                     }
                 }
             }
@@ -970,11 +979,27 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
             modifier = Modifier.fillMaxWidth(),
         )
 
+        // Ο browser τρέχει κρυφός. Εμφανίζεται μόνο όταν η σελίδα ζητά
+        // άνθρωπο — ή όταν ο χρήστης θέλει να δει τι γίνεται.
+        if (state.browserRunning && !state.browserActive) {
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Η διαδικασία χρησιμοποιεί browser που τρέχει στο παρασκήνιο. " +
+                        "Θα εμφανιστεί μόνος του αν ζητηθεί κωδικός μιας χρήσης ή CAPTCHA.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { controller.showBrowser() }) { Text("Εμφάνιση") }
+            }
+        }
+
         if (state.browserActive) {
             Spacer(Modifier.height(12.dp))
             Text(
-                "Η διαδικασία χρησιμοποιεί πραγματικό browser. Αν ζητηθεί κωδικός " +
-                    "μιας χρήσης ή CAPTCHA, συμπλήρωσέ το εδώ — η εφαρμογή δεν τα παρακάμπτει.",
+                "Η σελίδα ζητά κάτι που πρέπει να κάνεις εσύ — κωδικό μιας χρήσης ή " +
+                    "CAPTCHA. Συμπλήρωσέ το εδώ· η εφαρμογή δεν τα παρακάμπτει.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
             )
@@ -1072,7 +1097,17 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                 val groups = state.items.groupBy { it.clientId to it.clientName }
                 groups.forEach { (key, rows) ->
                     item(key = "c-${key.first}-${key.second}") {
-                        ClientProgressCard(name = key.second, rows = rows, onOpen = openRow)
+                        ClientProgressCard(
+                            name = key.second,
+                            rows = rows,
+                            onOpen = openRow,
+                            expandedKey = expanded,
+                            choices = choice,
+                            onOpenFile = { document ->
+                                expanded = ""
+                                message = DocumentActions.open(context, document)
+                            },
+                        )
                     }
                 }
             } else {
@@ -1089,6 +1124,12 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                                 style = MaterialTheme.typography.titleSmall,
                             )
                             ProgressLine(row)
+                            if (expanded == row.key) {
+                                FileChoices(choice) { document ->
+                                    expanded = ""
+                                    message = DocumentActions.open(context, document)
+                                }
+                            }
                         }
                     }
                 }
@@ -1111,34 +1152,6 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                 }
             }
         }
-    }
-
-    if (choice.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { choice = emptyList() },
-            title = { Text("${choice.size} έντυπα σε αυτή τη γραμμή") },
-            text = {
-                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-                    choice.forEach { document ->
-                        Text(
-                            document.fileName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val target = document
-                                    choice = emptyList()
-                                    message = DocumentActions.open(context, target)
-                                }
-                                .padding(vertical = 10.dp),
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { choice = emptyList() }) { Text("Κλείσιμο") }
-            },
-        )
     }
 
     if (reviewing) {
@@ -1257,6 +1270,9 @@ private fun ClientProgressCard(
     name: String,
     rows: List<FetchController.Item>,
     onOpen: (FetchController.Item) -> Unit,
+    expandedKey: String,
+    choices: List<DocumentEntity>,
+    onOpenFile: (DocumentEntity) -> Unit,
 ) {
     val ok = rows.count { it.status == FetchController.Status.OK }
     val empty = rows.count { it.status == FetchController.Status.EMPTY }
@@ -1290,6 +1306,7 @@ private fun ClientProgressCard(
                 ) {
                     Text(row.configTitle, style = MaterialTheme.typography.bodySmall)
                     ProgressLine(row)
+                    if (expandedKey == row.key) FileChoices(choices, onOpenFile)
                 }
             }
         }
@@ -1318,4 +1335,27 @@ private fun ProgressLine(row: FetchController.Item) {
             else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         },
     )
+}
+
+/**
+ * Τα αρχεία μιας γραμμής, **μέσα** στη γραμμή.
+ *
+ * Ήταν διάλογος. Για δύο ονόματα αρχείων ένα popup είναι δυσανάλογο: σκεπάζει
+ * τη λίστα από την οποία ήρθε, και θέλει δεύτερο πάτημα για να φύγει.
+ */
+@Composable
+private fun FileChoices(documents: List<DocumentEntity>, onOpen: (DocumentEntity) -> Unit) {
+    if (documents.isEmpty()) return
+    Spacer(Modifier.height(4.dp))
+    documents.forEach { document ->
+        Text(
+            "· " + document.fileName,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpen(document) }
+                .padding(vertical = 6.dp),
+        )
+    }
 }

@@ -153,6 +153,14 @@ module.exports = {
         ? !/ΔΙΑΚΟΠ|ΑΝΕΝΕΡΓ/i.test(tag(epix, 'katastashepixeirhshs'))
         : /ΚΑΝΟΝΙΚΗ/i.test(tag(fysiko, 'katastashforologoumenoy')),
       businessStart: tag(epix, 'hmenarxhs'),
+      // Η οικογενειακή κατάσταση έρχεται ήδη μέσα στο μητρώο φυσικού
+      // (`oikogkatastash`, π.χ. «ΕΓΓΑΜΟΣ-Η») και μέχρι τώρα πεταγόταν.
+      //
+      // **Δεν** δίνει τον ΑΦΜ του συζύγου — αυτόν τον δίνει μόνο το ETAK, και
+      // μόνο όταν ο σύζυγος εμφανίζεται στο Ε9. Λέει όμως **αν** υπάρχει, που
+      // αρκεί για να ζητηθεί το εκκαθαριστικό συζύγου (τυπώνεται με τους
+      // κωδικούς του ίδιου του υπόχρεου) και για να προταθεί καρτέλα.
+      maritalStatus: tag(fysiko, 'oikogkatastash'),
       retrievedAt: new Date().toISOString(),
     };
 

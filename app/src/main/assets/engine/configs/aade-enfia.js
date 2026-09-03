@@ -172,6 +172,23 @@ module.exports = {
                 }));
               });
               out.e9GridsYear = year;
+              // Οι σχέσεις ρητά, από το grid που έχει στήλη «Σχέση».
+              try {
+                const rel = (out.e9Grids || []).find(g => (g.headers || []).some(h => /Σχέση/i.test(h)));
+                if (rel) {
+                  const idx = (name) => (rel.headers || []).findIndex(h => new RegExp(name, 'i').test(h));
+                  const iAfm = idx('Α\\.?Φ\\.?Μ'), iEp = idx('Επώνυμο'), iOn = idx('Όνομα'), iSx = idx('Σχέση');
+                  out.relations = (rel.rows || [])
+                    .filter(r => iAfm >= 0 && /^\d{9}$/.test(String(r[iAfm] || '').trim()))
+                    .map(r => ({
+                      afm: String(r[iAfm]).trim(),
+                      lastName: iEp >= 0 ? String(r[iEp] || '').trim() : '',
+                      firstName: iOn >= 0 ? String(r[iOn] || '').trim() : '',
+                      relation: iSx >= 0 ? String(r[iSx] || '').trim() : '',
+                    }));
+                  http.log('[enfia] σχέσεις: ' + out.relations.map(r => r.relation).join(', '));
+                }
+              } catch (e) { out.relationsError = String(e && e.message || e); }
               http.log('[enfia] Ε9 grids: ' + (out.e9Grids || []).length + ' (έτος ' + year + ')');
             } catch (e) { out.e9Error = String(e && e.message || e); }
           }

@@ -108,8 +108,16 @@ class FetchController(
         val items: List<Item> = emptyList(),
         val startedAt: Long = 0,
         val finishedAt: Long = 0,
-        /** Αληθές όσο τρέχει βήμα που χρειάζεται πραγματικό browser. */
+        /**
+         * Το WebView είναι **στην οθόνη**.
+         *
+         * Δεν ταυτίζεται πια με το [browserRunning]: η σελίδα δουλεύει κρυφά
+         * και εμφανίζεται μόνο όταν ζητά άνθρωπο (OTP/CAPTCHA) ή όταν το ζητά
+         * ρητά ο χρήστης.
+         */
         val browserActive: Boolean = false,
+        /** Τρέχει βήμα που χρησιμοποιεί πραγματικό browser, ορατό ή όχι. */
+        val browserRunning: Boolean = false,
         /** Ενημερώσεις καρτέλας που περιμένουν έγκριση. */
         val pending: List<PendingUpdate> = emptyList(),
     ) {
@@ -140,6 +148,15 @@ class FetchController(
      */
     @Volatile
     var browserContainer: ViewGroup? = null
+
+    /** Ο ενεργός browser, για να μπορεί ο χρήστης να ζητήσει να τον δει. */
+    @Volatile
+    private var browser: WebViewBrowserPage? = null
+
+    /** «Εμφάνιση σελίδας» — όταν ο χρήστης θέλει να δει τι κάνει η διαδικασία. */
+    fun showBrowser() {
+        browser?.reveal()
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
@@ -198,7 +215,13 @@ class FetchController(
                 downloadRoot = { currentOutDir },
                 container = { browserContainer },
                 logSink = { },
+                // Η σελίδα ανακοίνωσε ότι χρειάζεται άνθρωπο. Μέχρι τότε τρέχει
+                // κρυφή: ο λογιστής βλέπει την πρόοδο, όχι το ADF να φορτώνει.
+                onNeedsUser = { visible ->
+                    _state.value = _state.value.copy(browserActive = visible)
+                },
             )
+            this.browser = browser
             val browserConfigs = assets.catalog().filter { it.needsBrowser }.map { it.id }.toSet()
             try {
                 plans.forEachIndexed { index, plan ->
@@ -206,7 +229,7 @@ class FetchController(
                     currentOutDir = runner.outputDir(item)
                     val needsBrowser = item.configId in browserConfigs
                     mark(index, Status.RUNNING, "")
-                    _state.value = _state.value.copy(browserActive = needsBrowser)
+                    _state.value = _state.value.copy(browserRunning = needsBrowser)
                     notifyProgress(index)
 
                     // Ένα job τη φορά, ώστε ο φάκελος εξόδου του browser να
@@ -247,10 +270,12 @@ class FetchController(
                 }
             } finally {
                 browser.shutdown()
+                this.browser = null
                 _state.value = _state.value.copy(
                     running = false,
                     finishedAt = System.currentTimeMillis(),
                     browserActive = false,
+                    browserRunning = false,
                     items = _state.value.items.map {
                         if (it.status == Status.PENDING || it.status == Status.RUNNING) {
                             it.copy(status = Status.CANCELLED, detail = "διακόπηκε")

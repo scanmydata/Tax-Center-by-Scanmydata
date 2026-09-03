@@ -33,6 +33,7 @@ const FORMS = {
   E3:      { code: 's3',  flagKey: 'e3_print',      flagVal: 'e3_print',      button: 'PBE3_PRINT_PDF',         menuFrom: 2023, reportBase: 'E3Form', label: 'E3' },
   E3MYDATA:{ code: 's3',  flagKey: 'e3_print',      flagVal: 'e3md_print',    button: 'E3MY_PRINT_PDF',         menuFrom: 2024, reportBase: 'E3Form', label: 'E3_myDATA' },
   EKK:     { code: 's1',  flagKey: 'print_e0_ypo',  flagVal: 'print_e0_ypo',  button: 'PB_EKKATH_PDF',          menuFrom: 2024, reportBase: 'E0Form', label: 'Εκκαθαριστικό' },
+  EKK_SYZ: { code: 's1s', flagKey: 'print_e0_syz',  flagVal: 'print_e0_syz',  button: 'PB_EKKATH_PDF_SYZ',      menuFrom: 2024, reportBase: 'E0Form', label: 'Εκκαθαριστικό_συζύγου' },
 };
 const codeInput = (html, name) => (html.match(new RegExp('name="' + name + '"[^>]*value="([^"]*)"', 'i')) || [])[1] || '';
 // έντυπο διαθέσιμο; νεότερα έτη -> το κουμπί εκτύπωσης υπάρχει & ΔΕΝ είναι disabled· παλιά -> υπάρχει print code
@@ -52,7 +53,7 @@ module.exports = {
     { key: 'user', label: 'TAXISnet username', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
     { key: 'year', label: 'Έτος (φορολ. έτος)', env: 'AADE_YEAR' },
-    { key: 'forms', label: 'Έντυπα (E1,E2,E3,E3MYDATA,EKK — κενό=E1,E2,E3,EKK)', env: 'AADE_FORMS' },
+    { key: 'forms', label: 'Έντυπα (E1,E2,E3,E3MYDATA,EKK,EKK_SYZ — κενό=E1,E2,E3,EKK)', env: 'AADE_FORMS' },
   ],
 
   async run(http, inp, lib) {
@@ -100,7 +101,9 @@ module.exports = {
           pdf = await http.postForPdf(new URL('/reports/rwservlet', L.AADE).toString(), { cmdkey: 'INC00S', p_afm: code, report, desname: report, desformat: 'pdf', destype: 'cache' });
         }
         if (!pdf) { result.forms[k] = { label: F.label, status: 'NoPDF' }; http.log('[' + k + '] δεν επέστρεψε PDF'); continue; }
-        const f = F.label.replace(/[^0-9A-Za-zΑ-Ωα-ω_]/g, '') + '_' + afm + '_' + Y + '.pdf';
+        // Εύρος Ά(U+0386)–ώ(U+03CE): περιλαμβάνει τους τονισμένους και το
+        // τελικό σίγμα. Το παλιό «Α-Ω, α-ω» τα έκοβε — «Εκκαθαριστικ».
+        const f = F.label.replace(/[^0-9A-Za-zΆ-ώ_]/g, '') + '_' + afm + '_' + Y + '.pdf';
         fs.writeFileSync(path.join(http.dlDir, f), pdf); pdfs.push(f);
         result.forms[k] = { label: F.label, pdf: f, bytes: pdf.length, comment };
         http.log('[' + k + '] ✅ PDF -> ' + f + ' (' + pdf.length + ' b)');

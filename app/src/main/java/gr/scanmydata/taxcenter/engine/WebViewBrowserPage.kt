@@ -2,6 +2,7 @@ package gr.scanmydata.taxcenter.engine
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.Base64
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -33,8 +34,14 @@ import java.util.concurrent.atomic.AtomicInteger
  * callback του `evaluateJavascript`. Ο JS host (που έχει το `__bridge`) είναι
  * χωριστό WebView που δεν πλοηγείται ποτέ.
  *
- * Ο χρήστης βλέπει τη σελίδα όταν ο [container] είναι διαθέσιμος — απαραίτητο
- * για OTP/CAPTCHA, που **δεν παρακάμπτονται**.
+ * **Κρυφό εξ ορισμού.** Ο χρήστης δεν έχει λόγο να βλέπει μια σελίδα που
+ * χειρίζεται μόνη της· βλέπει το αποτέλεσμα. Το WebView μπαίνει στην οθόνη
+ * **μόνο** όταν η σελίδα ζητά κάτι που πρέπει να κάνει άνθρωπος — κωδικό μιας
+ * χρήσης ή CAPTCHA — ή όταν το ζητήσει ρητά ο χρήστης.
+ *
+ * Αυτό δεν είναι παράκαμψη: το αντίθετο. Ο κώδικας **αναγνωρίζει** ότι
+ * χρειάζεται άνθρωπος και τον φέρνει μπροστά. Ό,τι δεν αναγνωριστεί καταλήγει
+ * σε timeout, που είναι ορατή αποτυχία — όχι σιωπηλή απόπειρα παράκαμψης.
  */
 class WebViewBrowserPage(
     private val context: Context,
@@ -48,7 +55,28 @@ class WebViewBrowserPage(
     /** Πού μπαίνει το WebView για να το δει ο χρήστης. null = εκτός οθόνης. */
     private val container: (() -> ViewGroup?)? = null,
     private val logSink: (String) -> Unit = {},
+    /** Ειδοποιεί ότι η σελίδα χρειάζεται τον χρήστη (OTP/CAPTCHA). */
+    private val onNeedsUser: (Boolean) -> Unit = {},
 ) : JsHost.BrowserPageHost {
+
+    /**
+     * Είναι το WebView στην οθόνη;
+     *
+     * Ξεκινά **κλειστό**. Ανοίγει μόνο από τον ανιχνευτή OTP/CAPTCHA ή από το
+     * [reveal] που πατά ο χρήστης, και μένει ανοιχτό μέχρι το τέλος της
+     * διαδικασίας: αν χρειάστηκε άνθρωπος μία φορά, θα ξαναχρειαστεί.
+     */
+    @Volatile
+    private var userVisible = false
+
+    /** Ο χρήστης ζήτησε να δει τη σελίδα. */
+    fun reveal() {
+        main.post {
+            userVisible = true
+            pages.keys.lastOrNull()?.let(::attach)
+            onNeedsUser(true)
+        }
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private val pages = HashMap<String, Page>()
@@ -199,14 +227,31 @@ class WebViewBrowserPage(
                             "και το DownloadListener δεν ενεργοποιείται πάντα.",
                     )
                 } else {
-                    // Η λήψη γίνεται εκτός main thread· η απάντηση επιστρέφει σε αυτό.
+                    // Ο Referer διαβάζεται εδώ, όσο είμαστε στο main thread.
+                    val referer = page.web.url
                     Thread {
-                        val err = fetchToFile(pending.url, pending.userAgent, dest)
+                        val direct = fetchBytes(pending.url, pending.userAgent, referer)
                         main.post {
-                            if (err != null) {
-                                cb.reject(callId, err)
+                            if (direct != null && acceptable(dest, direct)) {
+                                finishDownload(callId, cb, dest, direct, pending.suggested)
                             } else {
-                                cb.resolve(callId, JSONObject().put("filename", pending.suggested).toString())
+                                // Το ADF παράγει σύνδεσμο δεμένο με τη συνεδρία,
+                                // που συχνά **δεν επαναλαμβάνεται** από έξω: το
+                                // OkHttp έπαιρνε πίσω τη σελίδα σφάλματος και τη
+                                // σώζαμε ως «PDF» ~8 KB. Δεύτερη προσπάθεια μέσα
+                                // από την ίδια τη σελίδα, όπου η συνεδρία ζει.
+                                logSink("[browser] η άμεση λήψη δεν έδωσε PDF — δοκιμή μέσα από τη σελίδα")
+                                fetchInPage(page, pending.url) { bytes, error ->
+                                    when {
+                                        bytes != null && acceptable(dest, bytes) ->
+                                            finishDownload(callId, cb, dest, bytes, pending.suggested)
+                                        else -> cb.reject(
+                                            callId,
+                                            "η πύλη δεν επέστρεψε αρχείο PDF" +
+                                                (error?.let { ": $it" } ?: ""),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }.start()
@@ -264,6 +309,13 @@ class WebViewBrowserPage(
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(assets.pageHelper, null)
+                // Χρειάζεται άνθρωπος; Τότε — και μόνο τότε — βγαίνει στην οθόνη.
+                view.evaluateJavascript(NEEDS_USER_JS) { answer ->
+                    if (answer == "true" && !userVisible) {
+                        logSink("[browser] η σελίδα ζητά τον χρήστη — εμφάνιση")
+                        reveal()
+                    }
+                }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -306,6 +358,7 @@ class WebViewBrowserPage(
     }
 
     private fun attach(handle: String) {
+        if (!userVisible) return
         val holder = container?.invoke() ?: return
         val web = pages[handle]?.web ?: return
         holder.removeAllViews()
@@ -413,24 +466,114 @@ class WebViewBrowserPage(
      *
      * Το `DownloadListener` δίνει μόνο URL — η συνεδρία ζει στο `CookieManager`.
      */
-    private fun fetchToFile(url: String, userAgent: String?, dest: File): String? = try {
+    /** Κατεβάζει με OkHttp, με τα cookies **και** τον Referer της σελίδας. */
+    private fun fetchBytes(url: String, userAgent: String?, referer: String?): ByteArray? = try {
         val cookies = CookieManager.getInstance().getCookie(url)
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", userAgent ?: UA)
-            .apply { if (!cookies.isNullOrBlank()) header("Cookie", cookies) }
+            .header("Accept", "application/pdf,application/octet-stream,*/*")
+            .apply {
+                if (!cookies.isNullOrBlank()) header("Cookie", cookies)
+                if (!referer.isNullOrBlank() && referer != "about:blank") header("Referer", referer)
+            }
             .build()
         http.newCall(req).execute().use { res ->
-            if (!res.isSuccessful) {
-                "λήψη απέτυχε: HTTP ${res.code}"
-            } else {
-                dest.parentFile?.mkdirs()
-                res.body?.byteStream()?.use { input -> dest.outputStream().use(input::copyTo) }
-                null
-            }
+            if (res.isSuccessful) res.body?.bytes() else null
         }
     } catch (e: Exception) {
-        e.message ?: e.toString()
+        logSink("[browser] άμεση λήψη απέτυχε: ${e.message}")
+        null
+    }
+
+    /**
+     * Είναι αυτό που ζητήσαμε, ή σελίδα σφάλματος με κατάληξη .pdf;
+     *
+     * Ο engine το ελέγχει ήδη παντού αλλού με τα magic bytes `%PDF` — πολλά
+     * endpoints της ΑΑΔΕ στέλνουν `application/octet-stream` και το
+     * Content-Type δεν λέει τίποτα. Στη διαδρομή του WebView ο έλεγχος έλειπε,
+     * και γι' αυτό κατέληγαν στη συσκευή αρχεία 8 KB που άνοιγαν σε λευκό.
+     */
+    private fun acceptable(dest: File, bytes: ByteArray): Boolean {
+        if (bytes.isEmpty()) return false
+        if (!dest.name.endsWith(".pdf", ignoreCase = true)) return true
+        if (bytes.size < 5) return false
+        return String(bytes, 0, 4, Charsets.US_ASCII) == "%PDF"
+    }
+
+    private fun finishDownload(
+        callId: String,
+        cb: NativeBridge.JsCallbacks,
+        dest: File,
+        bytes: ByteArray,
+        suggested: String,
+    ) {
+        try {
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(bytes)
+            logSink("[browser] ✅ ${dest.name} (${bytes.size} b)")
+            cb.resolve(callId, JSONObject().put("filename", suggested).toString())
+        } catch (e: Exception) {
+            cb.reject(callId, "δεν γράφτηκε το αρχείο: ${e.message}")
+        }
+    }
+
+    /**
+     * Δεύτερη προσπάθεια **μέσα από τη σελίδα**.
+     *
+     * Το `fetch` της ίδιας της σελίδας μοιράζεται συνεδρία, cookies και origin
+     * με το ADF, οπότε πετυχαίνει εκεί που ένα εξωτερικό αίτημα γυρίζει
+     * ανακατεύθυνση σε σελίδα σφάλματος.
+     *
+     * Το αποτέλεσμα αφήνεται σε `window` και διαβάζεται με polling: αυτό το
+     * WebView φορτώνει σελίδες τρίτων και **δεν έχει κανένα
+     * `@JavascriptInterface`** — ο κανόνας δεν χαλαρώνει για μια ευκολία.
+     */
+    private fun fetchInPage(page: Page, url: String, done: (ByteArray?, String?) -> Unit) {
+        val js = """
+            (function () {
+              window.__smdDl = null;
+              fetch(${jsStr(url)}, { credentials: 'include' })
+                .then(function (r) {
+                  if (!r.ok) throw new Error('HTTP ' + r.status);
+                  return r.arrayBuffer();
+                })
+                .then(function (buf) {
+                  var b = new Uint8Array(buf), s = '', CH = 0x8000;
+                  for (var i = 0; i < b.length; i += CH) {
+                    s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+                  }
+                  window.__smdDl = btoa(s);
+                })
+                .catch(function (e) {
+                  window.__smdDl = 'ERR:' + (e && e.message ? e.message : e);
+                });
+            })();
+        """.trimIndent()
+        page.web.evaluateJavascript(js, null)
+
+        val deadline = System.currentTimeMillis() + IN_PAGE_TIMEOUT_MS
+        fun probe() {
+            page.web.evaluateJavascript("window.__smdDl") { raw ->
+                val value = if (raw == null || raw == "null") null else {
+                    runCatching { JSONArray("[$raw]").getString(0) }.getOrNull()
+                }
+                when {
+                    value == null ->
+                        if (System.currentTimeMillis() >= deadline) {
+                            done(null, "λήξη χρόνου")
+                        } else {
+                            main.postDelayed(::probe, POLL_MS)
+                        }
+                    value.startsWith("ERR:") -> done(null, value.removePrefix("ERR:"))
+                    else -> done(
+                        runCatching { Base64.decode(value, Base64.DEFAULT) }.getOrNull(),
+                        null,
+                    )
+                }
+            }
+        }
+        main.postDelayed(::probe, POLL_MS)
     }
 
     private fun guessName(url: String, contentDisposition: String?): String {
@@ -450,5 +593,28 @@ class WebViewBrowserPage(
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         const val POLL_MS = 150L
         const val QUIET_PERIOD_MS = 400L
+        const val IN_PAGE_TIMEOUT_MS = 90_000L
+
+        /**
+         * Χρειάζεται άνθρωπος αυτή η σελίδα;
+         *
+         * Ψάχνει CAPTCHA και πεδία κωδικού μιας χρήσης. Ένα ψευδώς θετικό
+         * απλώς δείχνει τη σελίδα — ακίνδυνο. Ένα ψευδώς αρνητικό καταλήγει σε
+         * timeout, που φαίνεται. Η ασυμμετρία είναι σκόπιμη.
+         */
+        const val NEEDS_USER_JS = """
+            (function () {
+              try {
+                if (document.querySelector(
+                  'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, #captcha, [id*="captcha" i]'
+                )) return true;
+                if (document.querySelector(
+                  'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i]'
+                )) return true;
+                var t = document.body ? (document.body.innerText || '') : '';
+                return /κωδικ[όο]ς μιας χρ[ήη]σης|μιας χρ[ήη]σης|one[- ]time code/i.test(t);
+              } catch (e) { return false; }
+            })()
+        """
     }
 }
