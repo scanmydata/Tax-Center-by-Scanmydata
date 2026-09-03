@@ -17,6 +17,7 @@ import gr.scanmydata.taxcenter.ui.AppShell
 import gr.scanmydata.taxcenter.ui.LockScreen
 import gr.scanmydata.taxcenter.ui.SplashScreen
 import gr.scanmydata.taxcenter.ui.theme.TaxCenterTheme
+import gr.scanmydata.taxcenter.ui.theme.ThemeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -44,6 +45,10 @@ class MainActivity : FragmentActivity() {
             AppLock.unlock()
             container.settings.firstRunCompleted = true
         }
+
+        // Το θέμα διαβάζεται **πριν** από το πρώτο σχέδιο, αλλιώς η εφαρμογή
+        // ξεκινά στο κλασικό και αλλάζει μπροστά στα μάτια του χρήστη.
+        ThemeState.set(container.settings.themeVariant)
 
         setContent {
             TaxCenterTheme {

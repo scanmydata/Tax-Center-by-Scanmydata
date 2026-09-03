@@ -179,7 +179,21 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_GROUP_FETCH, false)
         set(v) = prefs.edit().putBoolean(KEY_GROUP_FETCH, v).apply()
 
+    /**
+     * Ποιο θέμα βλέπει ο χρήστης. Αποθηκεύεται με το όνομα της τιμής, ώστε μια
+     * μελλοντική προσθήκη ή αφαίρεση να μη μετατοπίζει τις υπόλοιπες.
+     */
+    var themeVariant: gr.scanmydata.taxcenter.ui.theme.ThemeVariant
+        get() = runCatching {
+            gr.scanmydata.taxcenter.ui.theme.ThemeVariant.valueOf(
+                prefs.getString(KEY_THEME, null)
+                    ?: gr.scanmydata.taxcenter.ui.theme.ThemeVariant.CLASSIC.name,
+            )
+        }.getOrDefault(gr.scanmydata.taxcenter.ui.theme.ThemeVariant.CLASSIC)
+        set(v) = prefs.edit().putString(KEY_THEME, v.name).apply()
+
     private companion object {
+        const val KEY_THEME = "theme_variant"
         const val KEY_GROUP_FETCH = "group_fetch_by_client"
         const val KEY_DRIVE_MODE = "drive_mode"
         const val KEY_FIRST_RUN_DONE = "first_run_completed"

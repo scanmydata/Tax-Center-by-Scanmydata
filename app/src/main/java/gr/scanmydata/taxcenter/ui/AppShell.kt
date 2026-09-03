@@ -263,6 +263,7 @@ fun AppShell(container: AppContainer) {
                         clientId = entry.arguments?.getLong("id") ?: 0L,
                         onDone = { navController.popBackStack() },
                         onFetchFor = { id -> navController.navigate("fetch/$id") },
+                        onOpenClient = { id -> navController.navigate("$CLIENT_ROUTE/$id") },
                     )
                 }
                 // Ίδια οθόνη, ανοιγμένη στην καρτέλα «Έγγραφα». Χωριστή

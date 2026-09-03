@@ -3,6 +3,7 @@ package gr.scanmydata.taxcenter.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,6 +73,10 @@ fun ClientsScreen(
     modifier: Modifier = Modifier,
 ) {
     var confirmRefresh by remember { mutableStateOf(false) }
+    // Η μαζική διαγραφή αγγίζει αρχεία και βάση· η προετοιμασία της ενημέρωσης
+    // διαβάζει διαπιστευτήρια για κάθε πελάτη. Καμία από τις δύο δεν πρέπει να
+    // δέχεται δεύτερο πάτημα στη μέση.
+    var working by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val authorizer = rememberGoogleAuthorizer()
 
@@ -96,7 +101,8 @@ fun ClientsScreen(
         picked.mapNotNull { byId[it] }
     }
 
-    Column(modifier.padding(16.dp)) {
+    Box(modifier) {
+    Column(Modifier.padding(16.dp)) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -231,6 +237,9 @@ fun ClientsScreen(
         )
     }
 
+    BusyOverlay(visible = working.isNotBlank(), text = working)
+    }
+
     if (confirmRefresh) {
         val targets = if (picked.isEmpty()) filtered else filtered.filter { it.id in picked }
         AlertDialog(
@@ -269,9 +278,11 @@ fun ClientsScreen(
                     onClick = {
                         confirmRefresh = false
                         scope.launch {
+                            working = "Προετοιμασία ${targets.size} καρτελών…"
                             val plans = withContext(Dispatchers.IO) {
                                 container.fetch.refreshPlans(targets)
                             }
+                            working = ""
                             if (plans.isEmpty()) {
                                 status = "Κανένας από τους επιλεγμένους δεν έχει κωδικούς TAXISnet."
                             } else {

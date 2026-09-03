@@ -64,6 +64,8 @@ fun ClientCardScreen(
     clientId: Long,
     onDone: () -> Unit,
     onFetchFor: (Long) -> Unit,
+    /** Άνοιγμα **άλλης** καρτέλας — σήμερα μόνο του συζύγου. */
+    onOpenClient: (Long) -> Unit = {},
     initialTab: Int = 0,
     modifier: Modifier = Modifier,
 ) {
@@ -81,7 +83,12 @@ fun ClientCardScreen(
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Αποστολές") })
         }
         when (tab) {
-            0 -> ClientEditScreen(container = container, clientId = clientId, onDone = onDone)
+            0 -> ClientEditScreen(
+                container = container,
+                clientId = clientId,
+                onDone = onDone,
+                onOpenClient = onOpenClient,
+            )
             1 -> ClientDocumentsTab(
                 container = container,
                 client = client,

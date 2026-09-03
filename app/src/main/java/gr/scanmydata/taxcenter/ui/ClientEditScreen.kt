@@ -76,6 +76,7 @@ fun ClientEditScreen(
     container: AppContainer,
     clientId: Long,
     onDone: () -> Unit,
+    onOpenClient: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -93,6 +94,11 @@ fun ClientEditScreen(
     var doy by remember { mutableStateOf("") }
     var maritalStatus by remember { mutableStateOf("") }
     var spouseAfm by remember { mutableStateOf("") }
+    // Η καρτέλα του συζύγου, αν υπάρχει — και το όνομα που ήρθε από την
+    // άντληση, που μπορεί να υπάρχει **πριν** από την καρτέλα.
+    var spouseClient by remember { mutableStateOf<ClientEntity?>(null) }
+    var spouseName by remember { mutableStateOf("") }
+    var linking by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf(true) }
 
     var emailAade by remember { mutableStateOf("") }
@@ -106,6 +112,17 @@ fun ClientEditScreen(
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+
+    // Ποιος είναι ο σύζυγος: ξαναρωτιέται σε κάθε αλλαγή του ΑΦΜ, ώστε η
+    // γραμμή από κάτω να ενημερώνεται και όταν τον πληκτρολογεί ο χρήστης.
+    LaunchedEffect(spouseAfm) {
+        val clean = Normalize.afm(spouseAfm)
+        spouseClient = if (clean.length != 9) {
+            null
+        } else {
+            withContext(Dispatchers.IO) { container.db.clients().byAfm(clean) }
+        }
+    }
 
     LaunchedEffect(clientId) {
         if (isNew) return@LaunchedEffect
@@ -154,7 +171,8 @@ fun ClientEditScreen(
     val taxisUser = credentials[Field.TAXIS_USER].orEmpty()
     val taxisPass = credentials[Field.TAXIS_PASS].orEmpty()
 
-    Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+    Box(modifier) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
 
         Text(if (isNew) "Νέος πελάτης" else "Καρτέλα πελάτη", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
@@ -224,6 +242,9 @@ fun ClientEditScreen(
                                     // μητρώου, στην ίδια σύνδεση.
                                     if (profile.spouseAfm.isNotBlank()) {
                                         spouseAfm = profile.spouseAfm
+                                    }
+                                    if (profile.spouseName.isNotBlank()) {
+                                        spouseName = profile.spouseName
                                     }
                                     active = profile.active
                                     if (!isNew && profile.afm.isNotBlank() && profile.afm != afmClean) {
@@ -331,9 +352,9 @@ fun ClientEditScreen(
                             spouseAfm.isNotBlank() ->
                                 "Η σχέση γράφεται και στις δύο καρτέλες, αν υπάρχει η άλλη."
                             maritalStatus.contains("ΕΓΓΑΜ", ignoreCase = true) ->
-                                "Ο πελάτης δηλώνεται έγγαμος. Το Μητρώο δεν δίνει τον ΑΦΜ " +
-                                    "του συζύγου — τον δίνει το ETAK μόνο όταν εμφανίζεται " +
-                                    "στο Ε9, αλλιώς συμπλήρωσέ τον εδώ."
+                                "Ο πελάτης δηλώνεται έγγαμος. Πάτα «Άντληση στοιχείων» για " +
+                                    "να έρθει ο ΑΦΜ του συζύγου από τις σχέσεις μητρώου, ή " +
+                                    "συμπλήρωσέ τον εδώ."
                             else ->
                                 "Χρειάζεται για τη σύνδεση των δύο καρτελών. Το εκκαθαριστικό " +
                                     "συζύγου δεν το χρειάζεται — βγαίνει από την κοινή δήλωση."
@@ -343,6 +364,64 @@ fun ClientEditScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            // Ποιος είναι, και πώς πας εκεί.
+            //
+            // Ένας ΑΦΜ χωρίς όνομα δεν λέει τίποτα, και το να ψάχνεις τον
+            // σύζυγο στη λίστα πελατών για να δεις την καρτέλα του είναι τρία
+            // βήματα για μια σχέση που η εφαρμογή ήδη γνωρίζει.
+            val shownName = spouseClient?.displayName?.takeIf { it.isNotBlank() }
+                ?: spouseName
+            if (spouseAfm.length == 9) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        shownName.ifBlank { "Άγνωστο όνομα" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (shownName.isBlank()) {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (spouseClient != null) {
+                        TextButton(onClick = { onOpenClient(spouseClient!!.id) }) {
+                            Text("Άνοιγμα καρτέλας")
+                        }
+                    } else {
+                        TextButton(
+                            enabled = !linking,
+                            onClick = {
+                                scope.launch {
+                                    linking = true
+                                    val id = withContext(Dispatchers.IO) {
+                                        container.repository.createSpouse(
+                                            clientId = clientId,
+                                            spouseAfm = spouseAfm,
+                                            lastName = spouseName,
+                                            firstName = "",
+                                        )
+                                    }
+                                    spouseClient = withContext(Dispatchers.IO) {
+                                        container.db.clients().byAfm(Normalize.afm(spouseAfm))
+                                    }
+                                    linking = false
+                                    if (id != 0L) onOpenClient(id)
+                                }
+                            },
+                        ) { Text("Δημιουργία καρτέλας") }
+                    }
+                }
+                if (spouseClient == null) {
+                    Text(
+                        "Δεν υπάρχει ακόμη καρτέλα με αυτό το ΑΦΜ. Θα δημιουργηθεί " +
+                            "χωρίς κωδικούς — δεν τους έχουμε από πουθενά.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
         }
 
@@ -576,6 +655,13 @@ fun ClientEditScreen(
             )
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    BusyOverlay(
+        visible = busy,
+        text = status.ifBlank { "Σύνδεση στην πύλη…" },
+        detail = "Οι συνδέσεις γίνονται μία-μία. Μη φύγεις από την οθόνη.",
+    )
     }
 
     if (confirmDelete) {

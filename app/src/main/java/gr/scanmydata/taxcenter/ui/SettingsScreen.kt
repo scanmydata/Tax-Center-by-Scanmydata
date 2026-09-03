@@ -50,6 +50,8 @@ import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.google.DriveSync
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
 import gr.scanmydata.taxcenter.mail.MailTemplateStore
+import gr.scanmydata.taxcenter.ui.theme.ThemeState
+import gr.scanmydata.taxcenter.ui.theme.ThemeVariant
 import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -95,6 +97,7 @@ fun SettingsScreen(
     var syncBusy by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
     var groupFetch by remember { mutableStateOf(settings.groupFetchByClient) }
+    var theme by remember { mutableStateOf(settings.themeVariant) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsStatus by remember { mutableStateOf("") }
 
@@ -270,10 +273,62 @@ fun SettingsScreen(
 
         SettingsSection(
             title = "Εμφάνιση",
-            summary = if (groupFetch) "λήψη: ανά πελάτη" else "λήψη: μία γραμμή ανά έντυπο",
+            summary = theme.label + "  ·  " +
+                if (groupFetch) "λήψη ανά πελάτη" else "λήψη ανά έντυπο",
             open = openSection,
             onOpen = { openSection = it },
         ) {
+            Text("Θέμα", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Αλλάζει η εμφάνιση, **όχι** η λειτουργία: ίδιες οθόνες, ίδια " +
+                    "κουμπιά, ίδιες ροές.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
+            Spacer(Modifier.height(8.dp))
+            ThemeVariant.entries.forEach { option ->
+                Card(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .clickable {
+                            theme = option
+                            settings.themeVariant = option
+                            // Και οι δύο πηγές: το SharedPreferences για την
+                            // επόμενη εκκίνηση, το ThemeState για τώρα.
+                            ThemeState.set(option)
+                        },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (option == theme) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                    ),
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = option == theme, onClick = null)
+                        Spacer(Modifier.height(0.dp))
+                        Column(Modifier.padding(start = 10.dp)) {
+                            Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                option.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Η παλέτα «Nord» είναι του Arctic Ice Studio, υπό άδεια MIT.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+
+            Spacer(Modifier.height(16.dp))
             SettingSwitch(
                 title = "Ομαδοποίηση της λήψης ανά πελάτη",
                 description = "Μία κάρτα ανά πελάτη αντί για μία ανά έντυπο. Σε " +

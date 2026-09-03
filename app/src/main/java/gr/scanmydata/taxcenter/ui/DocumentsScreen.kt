@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -97,7 +98,13 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         byClient.filter { (client, _) -> client.effectiveEmail.isNotBlank() }
     }
 
-    Column(modifier.padding(16.dp)) {
+    // Η αποστολή περνά από το Gmail API, ένα μήνυμα ανά πελάτη. Σε μαζική
+    // αποστολή κρατά όσο και οι παραλήπτες — και ένα δεύτερο πάτημα θα έστελνε
+    // τα ίδια έντυπα δεύτερη φορά.
+    var sending by remember { mutableStateOf(false) }
+
+    Box(modifier) {
+    Column(Modifier.padding(16.dp)) {
 
         // Η διαγραφή είναι **πάνω δεξιά**, εκεί που την ψάχνει το χέρι, και
         // εμφανίζεται μόνο όταν υπάρχει επιλογή. Ήταν κουμπί κειμένου στο κάτω
@@ -184,6 +191,9 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
     }
 
+    BusyOverlay(visible = sending, text = status.ifBlank { "Αποστολή…" })
+    }
+
     if (confirmDeleteDocs) {
         AlertDialog(
             onDismissRequest = { confirmDeleteDocs = false },
@@ -225,8 +235,10 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             onConfirm = { chosen, note ->
                 sendTarget = null
                 scope.launch {
+                    sending = true
                     status = "Αποστολή σε ${client.effectiveEmail}…"
                     status = sendOne(container, authorizer, client, chosen, note)
+                    sending = false
                 }
             },
         )
@@ -242,15 +254,22 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             onConfirm = {
                 bulkConfirm = false
                 scope.launch {
+                    sending = true
                     var sent = 0
                     var failed = 0
-                    for ((client, docs) in bulkTargets) {
-                        status = "Αποστολή ${sent + failed + 1}/${bulkTargets.size} — ${client.displayName}…"
-                        val result = sendOne(container, authorizer, client, docs, "")
-                        if (result.startsWith("Απέτυχε")) failed++ else sent++
+                    try {
+                        for ((client, docs) in bulkTargets) {
+                            status = "Αποστολή ${sent + failed + 1}/${bulkTargets.size} — ${client.displayName}…"
+                            val result = sendOne(container, authorizer, client, docs, "")
+                            if (result.startsWith("Απέτυχε")) failed++ else sent++
+                        }
+                        status = "Ολοκληρώθηκε: $sent εστάλησαν, $failed απέτυχαν. " +
+                            "Δες το ημερολόγιο αποστολών για λεπτομέρειες."
+                    } finally {
+                        // Και σε ακύρωση της σύνθεσης: μια επικάλυψη που δεν
+                        // φεύγει είναι κλειδωμένη οθόνη.
+                        sending = false
                     }
-                    status = "Ολοκληρώθηκε: $sent εστάλησαν, $failed απέτυχαν. " +
-                        "Δες το ημερολόγιο αποστολών για λεπτομέρειες."
                 }
             },
         )
