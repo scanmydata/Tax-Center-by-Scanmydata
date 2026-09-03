@@ -33,7 +33,12 @@ class DocumentCatalogTest {
 
     @Test
     fun `κάθε έγγραφο ανήκει σε ομάδα που εμφανίζεται`() {
+        // Μοναδική επιτρεπτή εξαίρεση η «ενημέρωση καρτέλας», που δεν είναι
+        // έντυπο και αποσύρθηκε από τον κατάλογο επιλογής επίτηδες. Οτιδήποτε
+        // άλλο εκτός ομάδων εμφάνισης θα ήταν έντυπο που υπάρχει στον κώδικα
+        // και δεν μπορεί να ζητηθεί από πουθενά — δηλαδή σιωπηλά χαμένο.
         for (item in DocumentCatalog.ALL) {
+            if (item.group == DocumentCatalog.GROUP_CARD) continue
             assertTrue(
                 "η ομάδα «${item.group}» του ${item.id} δεν είναι στη λίστα εμφάνισης",
                 item.group in DocumentCatalog.GROUPS,
