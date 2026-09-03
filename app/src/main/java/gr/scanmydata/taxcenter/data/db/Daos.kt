@@ -67,6 +67,11 @@ interface ClientDao {
             kind = incoming.kind.ifBlank { existing.kind },
             amkaEnc = incoming.amkaEnc.ifBlank { existing.amkaEnc },
             doy = incoming.doy.ifBlank { existing.doy },
+            // ΠΡΟΣΟΧΗ: κάθε νέο πεδίο του `ClientEntity` πρέπει να μπει και εδώ.
+            // Ό,τι λείπει από αυτή τη λίστα κρατά την **παλιά** τιμή και η νέα
+            // χάνεται χωρίς σφάλμα — ο χειρότερος τρόπος να σπάσει κάτι.
+            maritalStatus = incoming.maritalStatus.ifBlank { existing.maritalStatus },
+            spouseAfm = incoming.spouseAfm.ifBlank { existing.spouseAfm },
             // Το «ανενεργός» είναι πληροφορία, όχι κενό — περνά όπως έρχεται.
             active = incoming.active,
             sourceFile = incoming.sourceFile.ifBlank { existing.sourceFile },

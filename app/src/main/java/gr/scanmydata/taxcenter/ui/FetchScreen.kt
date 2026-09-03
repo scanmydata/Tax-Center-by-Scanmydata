@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -618,62 +619,90 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
     }
 
     Spacer(Modifier.height(8.dp))
-    OutlinedTextField(
-        value = query,
-        onValueChange = { query = it },
-        label = { Text("Αναζήτηση εντύπου") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Spacer(Modifier.height(4.dp))
 
-    // `Column` με φραγμένο ύψος και δικό του scroll, **όχι** LazyColumn: αυτό
-    // ζει μέσα σε `item {}` ενός LazyColumn, και μια δεύτερη τεμπέλικη λίστα με
-    // απεριόριστο ύψος ρίχνει το Compose.
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(max = 340.dp)
-            .verticalScroll(rememberScrollState()),
+    // Δική του επιφάνεια, με περίγραμμα. Ενσωματωμένος **και** αδιάκριτος ήταν
+    // χειρότερος από popup: τα έντυπα προς επιλογή ανακατεύονταν οπτικά με τις
+    // ήδη επιλεγμένες γραμμές και με τη λίστα πελατών από κάτω, και δεν
+    // φαινόταν πού αρχίζει και πού τελειώνει ο κατάλογος.
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        if (groups.isEmpty()) {
+        Column(Modifier.padding(12.dp)) {
             Text(
-                "Κανένα έντυπο δεν ταιριάζει με «" + query.trim() + "».",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
-        }
-        groups.forEach { (group, items) ->
-            Text(
-                group,
-                style = MaterialTheme.typography.labelMedium,
+                "Κατάλογος εντύπων",
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
             )
-            items.forEach { entry ->
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onPick(entry)
-                            query = ""
-                            open = false
-                        }
-                        .padding(vertical = 8.dp),
-                ) {
-                    Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                    if (entry.note.isNotBlank()) {
-                        Text(
-                            entry.note,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Αναζήτηση εντύπου") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(4.dp))
+
+            // `Column` με φραγμένο ύψος και δικό του scroll, **όχι** LazyColumn:
+            // αυτό ζει μέσα σε `item {}` ενός LazyColumn, και μια δεύτερη
+            // τεμπέλικη λίστα με απεριόριστο ύψος ρίχνει το Compose.
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (groups.isEmpty()) {
+                    Text(
+                        "Κανένα έντυπο δεν ταιριάζει με «" + query.trim() + "».",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+                groups.forEachIndexed { index, (group, items) ->
+                    if (index > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant,
                         )
+                    }
+                    Text(
+                        group,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                    )
+                    items.forEach { entry ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onPick(entry)
+                                    query = ""
+                                    open = false
+                                }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Text(entry.label, style = MaterialTheme.typography.bodyMedium)
+                            if (entry.note.isNotBlank()) {
+                                Text(
+                                    entry.note,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        .copy(alpha = 0.8f),
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(8.dp))
 }
 
 /**

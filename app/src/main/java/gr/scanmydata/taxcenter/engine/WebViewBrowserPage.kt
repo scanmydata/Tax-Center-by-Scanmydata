@@ -245,11 +245,18 @@ class WebViewBrowserPage(
                                     when {
                                         bytes != null && acceptable(dest, bytes) ->
                                             finishDownload(callId, cb, dest, bytes, pending.suggested)
-                                        else -> cb.reject(
-                                            callId,
-                                            "η πύλη δεν επέστρεψε αρχείο PDF" +
-                                                (error?.let { ": $it" } ?: ""),
-                                        )
+                                        else -> {
+                                            val detail = buildString {
+                                                append("η πύλη δεν επέστρεψε αρχείο PDF")
+                                                error?.let { append(" · μέσα από τη σελίδα: ").append(it) }
+                                                append(" · άμεσα: ").append(describeBody(direct))
+                                                if (error == null) {
+                                                    append(" · σελίδα: ").append(describeBody(bytes))
+                                                }
+                                            }
+                                            logSink("[browser] ✗ $detail")
+                                            cb.reject(callId, detail)
+                                        }
                                     }
                                 }
                             }
@@ -466,6 +473,22 @@ class WebViewBrowserPage(
      *
      * Το `DownloadListener` δίνει μόνο URL — η συνεδρία ζει στο `CookieManager`.
      */
+    /**
+     * Τι ήρθε αντί για PDF — για το αρχείο διαγνωστικών.
+     *
+     * Χωρίς αυτό, η αποτυχία λέει μόνο «δεν επέστρεψε PDF» και δεν υπάρχει
+     * τρόπος να ξεχωρίσεις σελίδα σύνδεσης από σφάλμα εφαρμογής από άδειο
+     * αποτέλεσμα. Κόβεται στους 200 χαρακτήρες και περνά από τον [Redactor].
+     */
+    private fun describeBody(bytes: ByteArray?): String {
+        if (bytes == null) return "καμία απάντηση"
+        if (bytes.isEmpty()) return "άδεια απάντηση"
+        val head = String(bytes, 0, minOf(bytes.size, 400), Charsets.UTF_8)
+            .replace(Regex("\\s+"), " ")
+            .take(200)
+        return "${bytes.size} bytes · " + Redactor.scrub(head)
+    }
+
     /** Κατεβάζει με OkHttp, με τα cookies **και** τον Referer της σελίδας. */
     private fun fetchBytes(url: String, userAgent: String?, referer: String?): ByteArray? = try {
         val cookies = CookieManager.getInstance().getCookie(url)

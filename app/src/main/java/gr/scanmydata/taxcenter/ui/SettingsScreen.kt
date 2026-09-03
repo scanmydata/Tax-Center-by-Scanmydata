@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +37,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -91,6 +95,8 @@ fun SettingsScreen(
     var syncBusy by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
     var groupFetch by remember { mutableStateOf(settings.groupFetchByClient) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    var diagnosticsStatus by remember { mutableStateOf("") }
 
     // Οι ρυθμίσεις έγιναν αρκετές ώστε η μία στήλη να μη διαβάζεται: ο χρήστης
     // κυλούσε τριάντα οθόνες ψάχνοντας το ένα πεδίο που ήθελε. Τώρα κάθε ομάδα
@@ -333,6 +339,36 @@ fun SettingsScreen(
                 onChange = { diagnostics = it; settings.diagnostics = it },
                 warn = true,
             )
+
+            // Πού πάνε. Μέχρι τώρα ο διακόπτης άναβε και δεν οδηγούσε πουθενά:
+            // οι γραμμές γράφονταν στη βάση και δεν φαινόταν καμία, αφού η
+            // αναλυτική όψη εκτελέσεων είχε αφαιρεθεί από το μενού.
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Οι γραμμές αποθηκεύονται **μέσα στην εφαρμογή**, στην " +
+                    "κρυπτογραφημένη βάση — όχι σε αρχείο του τηλεφώνου, και δεν " +
+                    "φεύγουν πουθενά μόνες τους.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = { showDiagnostics = true }) { Text("Εμφάνιση") }
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            val removed = withContext(Dispatchers.IO) {
+                                container.db.runLogs().wipe()
+                            }
+                            diagnosticsStatus = "Καθαρίστηκαν $removed εκτελέσεις."
+                        }
+                    },
+                ) { Text("Καθαρισμός") }
+            }
+            if (diagnosticsStatus.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(diagnosticsStatus, style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         SettingsSection(
@@ -620,6 +656,10 @@ fun SettingsScreen(
 
     if (emailHelp) EmailSettingsHelp { emailHelp = false }
 
+    if (showDiagnostics) {
+        DiagnosticsDialog(container = container, onDismiss = { showDiagnostics = false })
+    }
+
     restoreTarget?.let { entry ->
         AlertDialog(
             onDismissRequest = { restoreTarget = null },
@@ -806,4 +846,75 @@ private fun HelpEntry(title: String, body: String) {
     Spacer(Modifier.height(2.dp))
     Text(body, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(12.dp))
+}
+
+/**
+ * Τι κατέγραψε ο engine, όσο ήταν ανοιχτά τα διαγνωστικά.
+ *
+ * Υπάρχει επειδή ένας διακόπτης χωρίς οθόνη είναι άχρηστος: ο χρήστης τον
+ * άναβε και δεν είχε πού να δει το αποτέλεσμα. Η αναλυτική όψη εκτελέσεων είχε
+ * αφαιρεθεί από το μενού ώστε να μη φαίνονται τα endpoints των πυλών στην
+ * καθημερινή χρήση — εδώ είναι στη σωστή θέση, γιατί φτάνεις μόνο αφού ανάψεις
+ * ρητά τα διαγνωστικά.
+ *
+ * Οι γραμμές έχουν ήδη περάσει από τον `Redactor` κατά την εγγραφή: κωδικοί,
+ * κλειδάριθμοι και κλειδιά δεν φτάνουν ποτέ εδώ. Οι **διευθύνσεις των πυλών**
+ * φτάνουν, γι' αυτό και η προειδοποίηση δίπλα στην αντιγραφή.
+ */
+@Composable
+private fun DiagnosticsDialog(container: AppContainer, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val runs by container.db.runLogs().observeRecent(100)
+        .collectAsState(initial = emptyList())
+
+    val text = remember(runs) {
+        runs.joinToString("\n\n") { run ->
+            buildString {
+                append(if (run.ok) "OK  " else "ΑΠΕΤΥΧΕ  ")
+                append(run.configId).append("  ΑΦΜ ").append(run.afm)
+                append("  ").append(run.durationMs).append(" ms")
+                if (run.fileCount > 0) append("  ").append(run.fileCount).append(" αρχεία")
+                if (run.reason.isNotBlank()) append("\n").append(run.reason)
+                if (run.lines.isNotBlank()) append("\n").append(run.lines)
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Διαγνωστικά — ${runs.size} εκτελέσεις") },
+        text = {
+            Column {
+                if (runs.isEmpty()) {
+                    Text(
+                        "Καμία καταγραφή. Οι αναλυτικές γραμμές κρατιούνται μόνο για " +
+                            "εκτελέσεις που έγιναν **αφού** άναψες τα διαγνωστικά.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    Text(
+                        "Περιέχουν τις διευθύνσεις των πυλών. Κωδικοί και κλειδάριθμοι " +
+                            "δεν καταγράφονται ποτέ, αλλά μη τα δημοσιεύεις αυτούσια.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = runs.isNotEmpty(),
+                onClick = { clipboard.setText(AnnotatedString(text)) },
+            ) { Text("Αντιγραφή") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Κλείσιμο") } },
+    )
 }

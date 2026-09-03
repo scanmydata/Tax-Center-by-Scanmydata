@@ -473,6 +473,8 @@ class FetchController(
                 doy = json.optString("doy").trim(),
                 email = json.optString("email").trim(),
                 maritalStatus = json.optString("maritalStatus").trim(),
+                spouseAfm = json.optString("spouseAfm").trim(),
+                spouseName = json.optString("spouseName").trim(),
                 active = json.optBoolean("active", true),
             )
         } catch (e: Exception) {
@@ -537,6 +539,9 @@ class FetchController(
         val amka: String = "",
         /** «ΕΓΓΑΜΟΣ-Η», «ΑΓΑΜΟΣ-Η»… όπως το γράφει το Μητρώο. */
         val maritalStatus: String = "",
+        /** Από τις σχέσεις μητρώου — ενεργή σχέση ΣΥΖΥΓΟΣ και μόνο. */
+        val spouseAfm: String = "",
+        val spouseName: String = "",
         /** Γιατί δεν ήρθε ο ΑΜΚΑ, όταν έπρεπε να υπάρχει. Δεν είναι σφάλμα. */
         val amkaNote: String = "",
         val active: Boolean = true,
@@ -677,6 +682,7 @@ class FetchController(
                 propose(UpdateField.KIND, client.kind, json.optString("kind"))
                 propose(UpdateField.DOY, client.doy, json.optString("doy"))
                 propose(UpdateField.MARITAL, client.maritalStatus, json.optString("maritalStatus"))
+                noteSpouseFromRegistry(job, json)
             }
 
             CONFIG_AMKA -> propose(UpdateField.AMKA, repository.amka(client), json.optString("amka"))
@@ -688,6 +694,39 @@ class FetchController(
         _state.value = _state.value.copy(
             pending = _state.value.pending.filterNot { it.clientId == client.id } + update,
         )
+    }
+
+    /**
+     * Ο σύζυγος από τις **σχέσεις μητρώου** — η αξιόπιστη πηγή.
+     *
+     * Το `getSxeseisFysiko` είναι καθαρό HTTP, τρέχει με την ίδια σύνδεση που
+     * κάνει ήδη η άντληση, και απαντά ανεξάρτητα από το αν ο σύζυγος έχει
+     * ακίνητα. Το ETAK (βλ. [noteSpouses]) μένει ως δεύτερη πηγή, αλλά δίνει
+     * σχέση μόνο όταν ο σύζυγος εμφανίζεται στο Ε9 του πελάτη — που συχνά δεν
+     * ισχύει.
+     *
+     * Το ονοματεπώνυμο έρχεται ως ένα κομμάτι («ΕΠΩΝΥΜΟ ΟΝΟΜΑ») και μπαίνει
+     * **ολόκληρο** στην επωνυμία. Δεν το σπάμε στο κενό: ένα «ΠΑΠΑ ΓΕΩΡΓΙΟΥ
+     * ΜΑΡΙΑ» θα γινόταν λάθος, και η σωστή διάσπαση έρχεται μόνη της μόλις
+     * τρέξει άντληση στην καρτέλα του συζύγου.
+     */
+    private suspend fun noteSpouseFromRegistry(job: ProcessRunner.Job, json: JSONObject) {
+        val afm = json.optString("spouseAfm").trim()
+        if (afm.length != 9) return
+        val client = repository.byAfm(job.client.afm) ?: return
+        if (afm == client.afm || client.spouseAfm == afm) return
+        val find = SpouseFind(
+            clientId = client.id,
+            clientName = client.displayName,
+            spouseAfm = afm,
+            lastName = json.optString("spouseName").trim(),
+            firstName = "",
+            relation = "ΣΥΖΥΓΟΣ",
+            alreadyClient = repository.byAfm(afm) != null,
+        )
+        val existing = _state.value.spouses
+        if (existing.any { it.clientId == find.clientId && it.spouseAfm == find.spouseAfm }) return
+        _state.value = _state.value.copy(spouses = existing + find)
     }
 
     /**
@@ -763,7 +802,7 @@ class FetchController(
 
     companion object {
         /** Ποιες διαδικασίες τρέχει η μαζική ενημέρωση καρτελών. */
-        private val REFRESH_ITEMS = listOf("profile", "email", "amka")
+        private val REFRESH_ITEMS = listOf("profile", "amka")
 
         const val CONFIG_ENFIA = "aade-enfia"
         const val CONFIG_EMAIL = "aade-email"

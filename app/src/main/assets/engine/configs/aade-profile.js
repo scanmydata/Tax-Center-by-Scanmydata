@@ -138,6 +138,32 @@ module.exports = {
     http.dump('profile_ldap.xml', ldap);
     const mail = pickEmail(ldap);
 
+    // ── Σχέσεις φυσικού προσώπου ──────────────────────────────────────────
+    //
+    // Κρατάμε **μόνο** τον/τη σύζυγο, και μόνο ενεργή σχέση (`hmdiakophs` κενό).
+    // Οι υπόλοιπες σχέσεις — κληρονόμοι, συσχετιζόμενοι — είναι τρίτα πρόσωπα
+    // που δεν είναι πελάτες του γραφείου· δεν έχουμε λόγο να τα αντιγράψουμε
+    // (ελαχιστοποίηση, άρθρο 5 παρ. 1 στοιχ. γ).
+    const spouse = { afm: '', name: '', since: '' };
+    if (hasFysiko) {
+      try {
+        const raw = await G(W + '/getSxeseisFysiko/' + encodeURIComponent(afm));
+        http.dump('profile_sxeseis.json', raw);
+        const rows = JSON.parse(raw || '[]');
+        const found = (Array.isArray(rows) ? rows : []).find((r) =>
+          /ΣΥΖΥΓ/i.test(String(r && r.eidossxeshs || '')) && !r.hmdiakophs);
+        if (found) {
+          spouse.afm = String(found.afmsxeshs || '').trim();
+          spouse.name = String(found.epwnymia || '').trim();
+          spouse.since = String(found.hmenarxhs || '').trim();
+          http.log('[profile] βρέθηκε σύζυγος στις σχέσεις μητρώου');
+        }
+      } catch (e) {
+        // Δεν χαλάει η άντληση: τα στοιχεία ταυτότητας έχουν ήδη βρεθεί.
+        http.log('[profile] σχέσεις: ' + (e && e.message ? e.message : e));
+      }
+    }
+
     const out = {
       portal: this.portal,
       afm,
@@ -161,6 +187,9 @@ module.exports = {
       // αρκεί για να ζητηθεί το εκκαθαριστικό συζύγου (τυπώνεται με τους
       // κωδικούς του ίδιου του υπόχρεου) και για να προταθεί καρτέλα.
       maritalStatus: tag(fysiko, 'oikogkatastash'),
+      spouseAfm: spouse.afm,
+      spouseName: spouse.name,
+      spouseSince: spouse.since,
       retrievedAt: new Date().toISOString(),
     };
 

@@ -189,11 +189,12 @@ object DocumentCatalog {
         Item("enfia", "ΕΝΦΙΑ — Εκκαθαριστικό", GROUP_PROPERTY,
             "aade-enfia", mapOf("e9" to "όχι"), needsYear = true, batchYears = true,
             note = "Δίνει πάντα την τελευταία εκκαθάριση — το έτος του PDF είναι " +
-                "στο όνομα του αρχείου. Ορατός browser· ίσως ζητηθεί κωδικός μιας χρήσης."),
+                "στο όνομα του αρχείου. Το έτος N αφορά την περιουσία της 1ης " +
+                "Ιανουαρίου N, δηλαδή τις μεταβολές του N-1."),
         Item("e9", "Ε9 / Περιουσιακή κατάσταση (ETAK)", GROUP_PROPERTY,
             "aade-enfia", mapOf("e9" to "ναι"), needsYear = true, batchYears = true,
-            note = "Πολλά έτη κατεβαίνουν με μία σύνδεση. Ορατός browser· ίσως " +
-                "ζητηθεί κωδικός μιας χρήσης."),
+            note = "Πολλά έτη με μία σύνδεση. Το έτος N αφορά την περιουσία της " +
+                "1ης Ιανουαρίου N — οι μεταβολές του 2026 φαίνονται στο 2027."),
         Item("property", "Περιουσιακή κατάσταση (myPROPERTY)", GROUP_PROPERTY,
             "aade-property", needsYear = true),
         Item("lease", "Μισθωτήρια — πληροφοριακά στοιχεία μισθώσεων", GROUP_PROPERTY,

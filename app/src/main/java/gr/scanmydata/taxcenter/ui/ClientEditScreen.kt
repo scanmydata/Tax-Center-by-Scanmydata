@@ -220,6 +220,11 @@ fun ClientEditScreen(
                                     if (profile.maritalStatus.isNotBlank()) {
                                         maritalStatus = profile.maritalStatus
                                     }
+                                    // Ο ΑΦΜ συζύγου έρχεται από τις σχέσεις
+                                    // μητρώου, στην ίδια σύνδεση.
+                                    if (profile.spouseAfm.isNotBlank()) {
+                                        spouseAfm = profile.spouseAfm
+                                    }
                                     active = profile.active
                                     if (!isNew && profile.afm.isNotBlank() && profile.afm != afmClean) {
                                         "⚠ Ο λογαριασμός ανήκει σε άλλο ΑΦΜ (${profile.afm}) — " +
@@ -230,9 +235,9 @@ fun ClientEditScreen(
                                         // άντληση — αλλά πρέπει να λέγεται.
                                         "Συμπληρώθηκαν από το Μητρώο. Ο ΑΜΚΑ δεν ήρθε: " +
                                             profile.amkaNote
-                                    } else if (profile.amka.isNotBlank()) {
-                                        "Συμπληρώθηκαν από το Μητρώο, μαζί με τον ΑΜΚΑ. " +
-                                            "Έλεγξέ τα και αποθήκευσε."
+                                    } else if (profile.spouseName.isNotBlank()) {
+                                        "Συμπληρώθηκαν από το Μητρώο. Βρέθηκε και " +
+                                            "σύζυγος: " + profile.spouseName + "."
                                     } else {
                                         "Συμπληρώθηκαν από το Μητρώο. Έλεγξέ τα και αποθήκευσε."
                                     }
