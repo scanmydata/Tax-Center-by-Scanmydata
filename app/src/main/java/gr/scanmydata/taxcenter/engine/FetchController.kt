@@ -149,13 +149,18 @@ class FetchController(
     @Volatile
     var browserContainer: ViewGroup? = null
 
-    /** Ο ενεργός browser, για να μπορεί ο χρήστης να ζητήσει να τον δει. */
+    /**
+     * Ο ενεργός browser, για να μπορεί ο χρήστης να ζητήσει να τον δει.
+     *
+     * Ξεχωριστό όνομα από την τοπική μεταβλητή μέσα στο `scope.launch`: εκεί
+     * το `this` είναι ο CoroutineScope, όχι ο controller.
+     */
     @Volatile
-    private var browser: WebViewBrowserPage? = null
+    private var activeBrowser: WebViewBrowserPage? = null
 
     /** «Εμφάνιση σελίδας» — όταν ο χρήστης θέλει να δει τι κάνει η διαδικασία. */
     fun showBrowser() {
-        browser?.reveal()
+        activeBrowser?.reveal()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -221,7 +226,7 @@ class FetchController(
                     _state.value = _state.value.copy(browserActive = visible)
                 },
             )
-            this.browser = browser
+            activeBrowser = browser
             val browserConfigs = assets.catalog().filter { it.needsBrowser }.map { it.id }.toSet()
             try {
                 plans.forEachIndexed { index, plan ->
@@ -270,7 +275,7 @@ class FetchController(
                 }
             } finally {
                 browser.shutdown()
-                this.browser = null
+                activeBrowser = null
                 _state.value = _state.value.copy(
                     running = false,
                     finishedAt = System.currentTimeMillis(),
