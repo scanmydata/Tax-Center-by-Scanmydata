@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -52,9 +53,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import gr.scanmydata.taxcenter.data.db.ClientEntity
+import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.engine.DocumentCatalog
 import gr.scanmydata.taxcenter.engine.FetchController
 import gr.scanmydata.taxcenter.engine.ProcessRunner
@@ -524,6 +527,26 @@ private suspend fun buildPlans(
                 skip("χωρίς τα απαιτούμενα διαπιστευτήρια")
                 continue
             }
+            // Εξαίρεση: όπου η διαδικασία δέχεται **λίστα** ετών, όλα τα έτη
+            // πάνε σε μία εκτέλεση. Στο ETAK αυτό δεν είναι βελτιστοποίηση —
+            // είναι ο μόνος τρόπος να μη γίνουν τρεις συνεδρίες GSIS για τρία
+            // έτη του ίδιου πελάτη.
+            if (item.batchYears && item.needsYear) {
+                val list = pick.years.filter { it.isNotBlank() }
+                val inputs = HashMap(item.inputs)
+                if (list.isNotEmpty()) inputs["years"] = list.joinToString(",")
+                plans += FetchController.Plan(
+                    job = ProcessRunner.Job(
+                        client = client,
+                        configId = item.configId,
+                        extraInputs = inputs,
+                    ),
+                    label = item.label + if (list.isNotEmpty()) " " + list.joinToString(", ") else "",
+                    producesDocuments = item.producesDocuments,
+                )
+                continue
+            }
+
             // Μία επιλογή με τρία έτη γίνεται τρεις εκτελέσεις. Οι πύλες
             // δέχονται ένα έτος τη φορά — η ομαδοποίηση είναι δική μας ευκολία,
             // όχι κάτι που ξέρει η ΑΑΔΕ.
@@ -557,46 +580,97 @@ private suspend fun buildPlans(
 // --------------------------------------------------------- επιλογή εντύπων
 
 /**
- * Το μενού προσθήκης εντύπου, χωρισμένο σε ομάδες.
+ * Η επιλογή εντύπου — **διάλογος με αναζήτηση**, όχι πτυσσόμενο μενού.
  *
- * Με [kind] συμπληρωμένο δείχνει **μόνο** τα έντυπα που αφορούν αυτό το είδος
+ * Τριάντα έντυπα σε εννιά ομάδες δεν χωρούν σε dropdown τηλεφώνου: το μενού
+ * γινόταν μια λίστα που ήθελε κύλιση, χωρίς τρόπο να πεις «Φ2» και να το βρεις.
+ * Με τη σημείωση κάθε εντύπου από κάτω, ακόμη λιγότερο.
+ *
+ * Η αναζήτηση πιάνει ετικέτα, ομάδα **και** σημείωση: ο λογιστής πληκτρολογεί
+ * «μισθωτ» ή «ΕΦΚΑ» εξίσου συχνά με το «Ε2».
+ *
+ * Με [kind] συμπληρωμένο δείχνει μόνο τα έντυπα που αφορούν αυτό το είδος
  * υπόχρεου. Σε ιδιώτη αυτό βγάζει από τη μέση ΦΠΑ, Ε3, ΦΕΝΠ και τους
  * παρακρατούμενους — έντυπα που δεν έχει, και που η πύλη θα γύριζε άδεια.
  */
 @Composable
 private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> Unit) {
-    PickerDropdown(label = "Πρόσθεσε έντυπο", text = "— διάλεξε —") { dismiss ->
-        DocumentCatalog.GROUPS.forEach { group ->
-            val items = DocumentCatalog.inGroup(group, kind)
-            if (items.isEmpty()) return@forEach
-            Text(
-                group,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp),
-            )
-            items.forEach { item ->
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(item.label)
-                            if (item.note.isNotBlank()) {
-                                Text(
-                                    item.note,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                )
+    var open by remember { mutableStateOf(false) }
+    OutlinedButton(
+        onClick = { open = true },
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("Πρόσθεσε έντυπο") }
+
+    if (!open) return
+
+    var query by remember { mutableStateOf("") }
+    val needle = query.trim().lowercase()
+    val groups = remember(needle, kind) {
+        DocumentCatalog.GROUPS.map { group ->
+            group to DocumentCatalog.inGroup(group, kind).filter { item ->
+                needle.isBlank() ||
+                    item.label.lowercase().contains(needle) ||
+                    item.group.lowercase().contains(needle) ||
+                    item.note.lowercase().contains(needle)
+            }
+        }.filter { it.second.isNotEmpty() }
+    }
+
+    AlertDialog(
+        onDismissRequest = { open = false },
+        title = { Text("Πρόσθεσε έντυπο") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Αναζήτηση εντύπου") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                if (groups.isEmpty()) {
+                    Text(
+                        "Κανένα έντυπο δεν ταιριάζει με «" + query.trim() + "».",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    groups.forEach { (group, items) ->
+                        item(key = "g-" + group) {
+                            Text(
+                                group,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                            )
+                        }
+                        items(items, key = { it.id }) { entry ->
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onPick(entry)
+                                        open = false
+                                    }
+                                    .padding(vertical = 8.dp),
+                            ) {
+                                Text(entry.label, style = MaterialTheme.typography.bodyMedium)
+                                if (entry.note.isNotBlank()) {
+                                    Text(
+                                        entry.note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                                    )
+                                }
                             }
                         }
-                    },
-                    onClick = {
-                        onPick(item)
-                        dismiss()
-                    },
-                )
+                    }
+                }
             }
-        }
-    }
+        },
+        confirmButton = { TextButton(onClick = { open = false }) { Text("Κλείσιμο") } },
+    )
 }
 
 /**
@@ -836,7 +910,41 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
     val controller = container.fetch
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var reviewing by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    // Ποια έντυπα δείχνει ο διάλογος επιλογής, όταν μια γραμμή έβγαλε πάνω από ένα.
+    var choice by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
+    // Το SharedPreferences δεν ειδοποιεί το Compose· κρατάμε αντίγραφο και
+    // γράφουμε πίσω, ώστε ο διακόπτης εδώ και η ρύθμιση να λένε το ίδιο.
+    var grouped by remember { mutableStateOf(container.settings.groupFetchByClient) }
+
+    /**
+     * Πάτημα σε ολοκληρωμένη γραμμή = άνοιγμα του εντύπου της.
+     *
+     * Μέχρι τώρα η οθόνη προόδου ήταν αδιέξοδο: έλεγε «✓ 2 έντυπα» και ο μόνος
+     * τρόπος να τα δεις ήταν να φύγεις και να τα ξαναβρείς στα Έγγραφα.
+     */
+    val openRow: (FetchController.Item) -> Unit = { row ->
+        scope.launch {
+            when {
+                row.files.isEmpty() ->
+                    message = "Αυτή η γραμμή δεν παρήγαγε έντυπο."
+                else -> {
+                    val documents = withContext(Dispatchers.IO) {
+                        container.db.documents().byClientAndNames(row.clientId, row.files)
+                    }
+                    when {
+                        documents.isEmpty() ->
+                            message = "Τα αρχεία δεν βρίσκονται πια στη συσκευή."
+                        documents.size == 1 ->
+                            message = DocumentActions.open(context, documents.first())
+                        else -> choice = documents
+                    }
+                }
+            }
+        }
+    }
 
     Column(modifier.padding(16.dp)) {
 
@@ -936,35 +1044,52 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        if (message.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(message, style = MaterialTheme.typography.bodySmall)
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Πάτημα σε ολοκληρωμένη γραμμή ανοίγει το έντυπο.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = {
+                grouped = !grouped
+                container.settings.groupFetchByClient = grouped
+            }) { Text(if (grouped) "Αναλυτικά" else "Ανά πελάτη") }
+        }
+
+        Spacer(Modifier.height(6.dp))
         LazyColumn(Modifier.weight(1f)) {
-            items(state.items, key = { it.key }) { item ->
-                Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                    Column(Modifier.padding(10.dp)) {
-                        Text(
-                            "${item.clientName} — ${item.configTitle}",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            when (item.status) {
-                                FetchController.Status.PENDING -> "σε αναμονή"
-                                FetchController.Status.RUNNING -> "εκτελείται…"
-                                FetchController.Status.OK ->
-                                    "✓ ${item.fileCount} έντυπα" +
-                                        if (item.detail.isNotBlank()) " · ${item.detail}" else ""
-                                FetchController.Status.EMPTY -> "— ${item.detail}"
-                                FetchController.Status.FAILED -> "✗ ${item.detail}"
-                                FetchController.Status.CANCELLED -> "διακόπηκε"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = when {
-                                item.status == FetchController.Status.FAILED || item.sendFailed ->
-                                    MaterialTheme.colorScheme.error
-                                item.status == FetchController.Status.EMPTY ->
-                                    MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            },
-                        )
+            if (grouped) {
+                // Ομαδοποίηση με `clientId` και όχι με το όνομα: δύο πελάτες
+                // μπορεί να λέγονται ίδια, και μια νέα καρτέλα χωρίς όνομα δεν
+                // πρέπει να συγχωνεύεται με άλλη.
+                val groups = state.items.groupBy { it.clientId to it.clientName }
+                groups.forEach { (key, rows) ->
+                    item(key = "c-${key.first}-${key.second}") {
+                        ClientProgressCard(name = key.second, rows = rows, onOpen = openRow)
+                    }
+                }
+            } else {
+                items(state.items, key = { it.key }) { row ->
+                    Card(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .clickable { openRow(row) },
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(
+                                "${row.clientName} — ${row.configTitle}",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            ProgressLine(row)
+                        }
                     }
                 }
             }
@@ -986,6 +1111,34 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                 }
             }
         }
+    }
+
+    if (choice.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { choice = emptyList() },
+            title = { Text("${choice.size} έντυπα σε αυτή τη γραμμή") },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    choice.forEach { document ->
+                        Text(
+                            document.fileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val target = document
+                                    choice = emptyList()
+                                    message = DocumentActions.open(context, target)
+                                }
+                                .padding(vertical = 10.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { choice = emptyList() }) { Text("Κλείσιμο") }
+            },
+        )
     }
 
     if (reviewing) {
@@ -1089,4 +1242,80 @@ private fun BrowserPanel(container: AppContainer) {
     DisposableEffect(Unit) {
         onDispose { controller.browserContainer = null }
     }
+}
+
+/**
+ * Μία κάρτα ανά πελάτη αντί για μία ανά έντυπο.
+ *
+ * Σε παρτίδα «5 έντυπα × 40 πελάτες» η αναλυτική λίστα είναι 200 κάρτες — που
+ * σε τηλέφωνο σημαίνει ότι κανείς δεν τη διαβάζει. Εδώ η πρώτη γραμμή απαντά
+ * στην ερώτηση που όντως έχει ο λογιστής («ποιοι πελάτες έχουν πρόβλημα;») και
+ * οι λεπτομέρειες μένουν από κάτω, μικρότερες.
+ */
+@Composable
+private fun ClientProgressCard(
+    name: String,
+    rows: List<FetchController.Item>,
+    onOpen: (FetchController.Item) -> Unit,
+) {
+    val ok = rows.count { it.status == FetchController.Status.OK }
+    val empty = rows.count { it.status == FetchController.Status.EMPTY }
+    val failed = rows.count { it.status == FetchController.Status.FAILED }
+    val files = rows.sumOf { it.fileCount }
+
+    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(10.dp)) {
+            Text(name.ifBlank { "(χωρίς όνομα)" }, style = MaterialTheme.typography.titleSmall)
+            Text(
+                buildString {
+                    append(files).append(" έντυπα από ").append(rows.size).append(" εκτελέσεις")
+                    if (empty > 0) append("  ·  ").append(empty).append(" χωρίς")
+                    if (failed > 0) append("  ·  ").append(failed).append(" απέτυχαν")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = when {
+                    failed > 0 -> MaterialTheme.colorScheme.error
+                    empty > 0 -> MaterialTheme.colorScheme.tertiary
+                    ok > 0 -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                },
+            )
+            Spacer(Modifier.height(4.dp))
+            rows.forEach { row ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpen(row) }
+                        .padding(vertical = 4.dp),
+                ) {
+                    Text(row.configTitle, style = MaterialTheme.typography.bodySmall)
+                    ProgressLine(row)
+                }
+            }
+        }
+    }
+}
+
+/** Η μία γραμμή κατάστασης, κοινή στις δύο όψεις. */
+@Composable
+private fun ProgressLine(row: FetchController.Item) {
+    Text(
+        when (row.status) {
+            FetchController.Status.PENDING -> "σε αναμονή"
+            FetchController.Status.RUNNING -> "εκτελείται…"
+            FetchController.Status.OK ->
+                "✓ ${row.fileCount} έντυπα" +
+                    if (row.detail.isNotBlank()) " · ${row.detail}" else ""
+            FetchController.Status.EMPTY -> "— ${row.detail}"
+            FetchController.Status.FAILED -> "✗ ${row.detail}"
+            FetchController.Status.CANCELLED -> "διακόπηκε"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = when {
+            row.status == FetchController.Status.FAILED || row.sendFailed ->
+                MaterialTheme.colorScheme.error
+            row.status == FetchController.Status.EMPTY -> MaterialTheme.colorScheme.tertiary
+            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        },
+    )
 }

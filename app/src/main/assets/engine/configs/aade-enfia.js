@@ -38,6 +38,7 @@ module.exports = {
     { key: 'user', label: 'TAXISnet username', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
     { key: 'year', label: 'Έτος (κενό = πιο πρόσφατο)', env: 'AADE_YEAR', optional: true },
+    { key: 'years', label: 'Έτη χωρισμένα με κόμμα (υπερισχύει του «Έτος»)', env: 'AADE_YEARS', optional: true },
     { key: 'e9', label: 'Και δεδομένα Ε9/Περιουσιακής; (ναι/όχι)', env: 'AADE_E9', optional: true },
   ],
 
@@ -86,64 +87,98 @@ module.exports = {
       if (!(await pop.count(yearSel))) return { ok: false, reason: 'NoYearSelect', out: { url: pop.url() } };
       const opts = await pop.options(yearSel);
       const yearsAvail = opts.map(o => (o.title || o.text).trim()).filter(Boolean);
-      let year = (inp.year || '').trim();
-      if (!year) { const sel = opts.find(o => o.selected); year = sel ? (sel.title || sel.text).trim() : yearsAvail.sort().slice(-1)[0]; }
-      const match = opts.find(o => (o.title || o.text).trim() === year || o.value === year);
-      if (!match) return { ok: false, reason: 'YearNotAvailable', out: { yearsAvail } };
-      http.log('[enfia] έτη: ' + yearsAvail.join(', ') + ' | επιλογή: ' + year);
-      if (match.value) await pop.selectByValue(yearSel, match.value); else await pop.selectByLabel(yearSel, match.text);
-      await pop.sleep(2500);
 
-      // 5) BOTH prints live under the «Περιουσιακή Κατάσταση» tab; clicking it also applies the year
-      if (await pop.count('a[id="pt1:estatesAndLandsTab::disAcr"]')) await pop.click('a[id="pt1:estatesAndLandsTab::disAcr"]');
-      else if (await pop.count('a:has-text("Περιουσιακή Κατάσταση")')) await pop.click('a:has-text("Περιουσιακή Κατάσταση")');
-      await pop.waitLoad(); await pop.sleep(2500);
+      // Πολλά έτη σε ΜΙΑ συνεδρία. Το GSIS κλειδώνει τον λογαριασμό με πολλές
+      // ταυτόχρονες συνδέσεις (OAM-6), και μια χωριστή σύνδεση ανά έτος είναι
+      // ακριβώς ο τρόπος να το πετύχεις.
+      const asked = String(inp.years || inp.year || '').split(',').map(s => s.trim()).filter(Boolean);
+      const unknownYears = asked.filter(y => !yearsAvail.includes(y));
+      let years = asked.filter(y => yearsAvail.includes(y));
+      if (!years.length) {
+        if (asked.length) return { ok: false, reason: 'YearNotAvailable', out: { yearsAvail, asked } };
+        const sel = opts.find(o => o.selected);
+        years = [sel ? (sel.title || sel.text).trim() : yearsAvail.slice().sort().slice(-1)[0]];
+      }
+      years.sort().reverse();
+      http.log('[enfia] διαθέσιμα: ' + yearsAvail.join(', ') + ' | ζητούνται: ' + years.join(', '));
+      if (unknownYears.length) http.log('[enfia] ⚠ άγνωστα έτη (παραλείπονται): ' + unknownYears.join(', '));
 
-      const out = { portal: this.portal, user: inp.user, year, yearsAvailable: yearsAvail, retrievedAt: new Date().toISOString() };
+      const out = {
+        portal: this.portal, user: inp.user, year: years[0], years,
+        yearsAvailable: yearsAvail, unknownYears, retrievedAt: new Date().toISOString(),
+      };
       const files = [];
 
-      // 5a) ΕΝΦΙΑ Εκκαθαριστικό — a[id^="pt1:clPrintEkk"] «Εκτύπωση εκκαθαριστικού τελευταίας εκκαθάρισης για το έτος N»
-      //     (η χρονιά στο id = έτος τελευταίας εκκαθάρισης, ΟΧΙ κατ' ανάγκη το επιλεγμένο)
-      const ekkSel = 'a[id^="pt1:clPrintEkk"]';
-      if (await pop.count(ekkSel)) {
-        const ekkId = (await pop.attr(ekkSel, 'id')) || '';
-        const ekkYear = (ekkId.match(/clPrintEkk(\d{4})/) || [])[1] || year;
-        const dest = path.join(http.dlDir, 'ENFIA_EKK_' + inp.user + '_' + ekkYear + '.pdf');
-        http.log('[enfia] λήψη Εκκαθαριστικού (έτος εκκαθ. ' + ekkYear + ')');
-        try {
-          const dl = await pop.expectDownload(() => pop.click(ekkSel), dest);
-          const bytes = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-          out.enfiaEkk = { pdf: path.basename(dest), ekkYear, suggested: dl.filename, bytes }; files.push(path.basename(dest));
-          http.log('[enfia] ✅ ' + path.basename(dest) + ' (' + bytes + ' b)');
-        } catch (e) { out.enfiaEkk = { error: String(e && e.message || e) }; http.log('[enfia] εκκαθ. download error ' + (e && e.message ? e.message : e)); }
-      } else { out.enfiaEkk = 'NoEkkButton'; http.log('[enfia] χωρίς κουμπί εκκαθαριστικού (καμία εκκαθάριση)'); }
+      for (const year of years) {
+        const match = opts.find(o => (o.title || o.text).trim() === year || o.value === year);
+        if (!match) continue;
+        if (match.value) await pop.selectByValue(yearSel, match.value); else await pop.selectByLabel(yearSel, match.text);
+        await pop.sleep(2500);
 
-      // 5b/6) Ε9 / Περιουσιακή — a[id="pt1:iterPerStatus:0:cl24"] «Εκτύπωση περιουσιακής κατάστασης για το έτος {year}»
-      if (wantE9) {
-        const perSel = 'a[id="pt1:iterPerStatus:0:cl24"]';
-        const perSel2 = (await pop.count(perSel)) ? perSel : 'a:has-text("Εκτύπωση περιουσιακής")';
-        if (await pop.count(perSel2)) {
-          const dest = path.join(http.dlDir, 'PERIOUSIAKI_' + inp.user + '_' + year + '.pdf');
-          http.log('[enfia] λήψη Περιουσιακής/Ε9 ' + year);
+        // BOTH prints live under the «Περιουσιακή Κατάσταση» tab· το κλικ
+        // εφαρμόζει και το έτος. Ξαναπατιέται σε κάθε επανάληψη επίτηδες: το
+        // ADF ξαναχτίζει το panel μετά από κάθε αλλαγή έτους.
+        if (await pop.count('a[id="pt1:estatesAndLandsTab::disAcr"]')) await pop.click('a[id="pt1:estatesAndLandsTab::disAcr"]');
+        else if (await pop.count('a:has-text("Περιουσιακή Κατάσταση")')) await pop.click('a:has-text("Περιουσιακή Κατάσταση")');
+        await pop.waitLoad(); await pop.sleep(2500);
+
+        // 5a) ΕΝΦΙΑ Εκκαθαριστικό — a[id^="pt1:clPrintEkk"].
+        //
+        //     ΠΡΟΣΟΧΗ: δίνει ΠΑΝΤΑ την **τελευταία** εκκαθάριση, ό,τι έτος κι
+        //     αν είναι επιλεγμένο (επαληθεύτηκε: επιλογή 2025 -> PDF 2022). Το
+        //     έτος του dropdown κρίνει μόνο αν εμφανίζεται ο σύνδεσμος. Γι'
+        //     αυτό κατεβαίνει **μία φορά** και το πραγματικό έτος μπαίνει στο
+        //     όνομα του αρχείου από το id, όχι από την επιλογή.
+        const ekkSel = 'a[id^="pt1:clPrintEkk"]';
+        if (!out.enfiaEkk && (await pop.count(ekkSel))) {
+          const ekkId = (await pop.attr(ekkSel, 'id')) || '';
+          const ekkYear = (ekkId.match(/clPrintEkk(\d{4})/) || [])[1] || year;
+          const dest = path.join(http.dlDir, 'ENFIA_EKK_' + inp.user + '_' + ekkYear + '.pdf');
+          http.log('[enfia] λήψη Εκκαθαριστικού (έτος εκκαθ. ' + ekkYear + ')');
           try {
-            const dl = await pop.expectDownload(() => pop.click(perSel2), dest);
+            const dl = await pop.expectDownload(() => pop.click(ekkSel), dest);
             const bytes = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-            out.periousiaki = { pdf: path.basename(dest), suggested: dl.filename, bytes }; files.push(path.basename(dest));
+            out.enfiaEkk = { pdf: path.basename(dest), ekkYear, selectedYear: year, suggested: dl.filename, bytes }; files.push(path.basename(dest));
             http.log('[enfia] ✅ ' + path.basename(dest) + ' (' + bytes + ' b)');
-          } catch (e) { out.periousiaki = { error: String(e && e.message || e) }; }
+          } catch (e) { out.enfiaEkk = { error: String(e && e.message || e) }; http.log('[enfia] εκκαθ. download error ' + (e && e.message ? e.message : e)); }
         }
-        try {
-          out.e9Grids = await pop.evaluate(() => {
-            const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
-            return [...document.querySelectorAll('div[role="grid"]')].map((g, gi) => ({
-              gridIndex: gi, gridId: g.id || '',
-              headers: [...g.querySelectorAll('[role="columnheader"], th')].map(h => clean(h.innerText)).filter(Boolean),
-              rows: [...g.querySelectorAll('[role="row"]')].map(r => [...r.querySelectorAll('[role="gridcell"], td')].map(c => clean(c.innerText))).filter(r => r.some(Boolean)),
-            }));
-          });
-          http.log('[enfia] Ε9 grids: ' + (out.e9Grids || []).length);
-        } catch (e) { out.e9Error = String(e && e.message || e); }
+
+        // 5b/6) Ε9 / Περιουσιακή — αυτή ΟΝΤΩΣ ακολουθεί το επιλεγμένο έτος.
+        if (wantE9) {
+          const perSel = 'a[id="pt1:iterPerStatus:0:cl24"]';
+          const perSel2 = (await pop.count(perSel)) ? perSel : 'a:has-text("Εκτύπωση περιουσιακής")';
+          if (await pop.count(perSel2)) {
+            const dest = path.join(http.dlDir, 'PERIOUSIAKI_' + inp.user + '_' + year + '.pdf');
+            http.log('[enfia] λήψη Περιουσιακής/Ε9 ' + year);
+            try {
+              const dl = await pop.expectDownload(() => pop.click(perSel2), dest);
+              const bytes = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+              (out.periousiaki || (out.periousiaki = {}))[year] = { pdf: path.basename(dest), suggested: dl.filename, bytes };
+              files.push(path.basename(dest));
+              http.log('[enfia] ✅ ' + path.basename(dest) + ' (' + bytes + ' b)');
+            } catch (e) { (out.periousiaki || (out.periousiaki = {}))[year] = { error: String(e && e.message || e) }; }
+          }
+          // Τα grids μόνο για το πρώτο (νεότερο) έτος: είναι η εικόνα της
+          // περιουσίας σήμερα, και σε τρία έτη θα τριπλασίαζαν το JSON χωρίς
+          // να προσθέτουν κάτι που δεν είναι ήδη στα PDF.
+          if (!out.e9Grids) {
+            try {
+              out.e9Grids = await pop.evaluate(() => {
+                const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+                return [...document.querySelectorAll('div[role="grid"]')].map((g, gi) => ({
+                  gridIndex: gi, gridId: g.id || '',
+                  headers: [...g.querySelectorAll('[role="columnheader"], th')].map(h => clean(h.innerText)).filter(Boolean),
+                  rows: [...g.querySelectorAll('[role="row"]')].map(r => [...r.querySelectorAll('[role="gridcell"], td')].map(c => clean(c.innerText))).filter(r => r.some(Boolean)),
+                }));
+              });
+              out.e9GridsYear = year;
+              http.log('[enfia] Ε9 grids: ' + (out.e9Grids || []).length + ' (έτος ' + year + ')');
+            } catch (e) { out.e9Error = String(e && e.message || e); }
+          }
+        }
       }
+
+      if (!out.enfiaEkk) { out.enfiaEkk = 'NoEkkButton'; http.log('[enfia] χωρίς κουμπί εκκαθαριστικού (καμία εκκαθάριση σε αυτά τα έτη)'); }
 
       const jf = 'AADE_enfia_' + inp.user + '.json';
       fs.writeFileSync(path.join(http.dlDir, jf), JSON.stringify(out, null, 2));

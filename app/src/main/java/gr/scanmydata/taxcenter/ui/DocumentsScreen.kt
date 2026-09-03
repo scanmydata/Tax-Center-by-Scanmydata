@@ -16,11 +16,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -95,6 +99,30 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
     Column(modifier.padding(16.dp)) {
 
+        // Η διαγραφή είναι **πάνω δεξιά**, εκεί που την ψάχνει το χέρι, και
+        // εμφανίζεται μόνο όταν υπάρχει επιλογή. Ήταν κουμπί κειμένου στο κάτω
+        // μέρος, δίπλα στο «Άκυρο»: δύο παρόμοια κουμπιά σε μέγεθος αντίχειρα,
+        // το ένα μη αναστρέψιμο.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (pickedDocuments.isEmpty()) "Έγγραφα"
+                else "${pickedDocuments.size} επιλεγμένα",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (pickedDocuments.isNotEmpty()) {
+                TextButton(onClick = { pickedDocuments.clear() }) { Text("Άκυρο") }
+                IconButton(onClick = { confirmDeleteDocs = true }) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Διαγραφή ${pickedDocuments.size} εντύπων",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -154,22 +182,6 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             }
         }
 
-        if (pickedDocuments.isNotEmpty()) {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "${pickedDocuments.size} επιλεγμένα",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { pickedDocuments.clear() }) { Text("Άκυρο") }
-                TextButton(onClick = { confirmDeleteDocs = true }) {
-                    Text("Διαγραφή", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
     }
 
     if (confirmDeleteDocs) {

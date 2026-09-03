@@ -16,6 +16,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -140,7 +144,20 @@ private fun ClientDocumentsTab(
                     picked.addAll(documents.map { it.id })
                 }
             }) { Text(if (picked.size == documents.size) "Κανένα" else "Όλα") }
-            TextButton(onClick = onFetch) { Text("Λήψη") }
+            if (picked.isEmpty()) {
+                TextButton(onClick = onFetch) { Text("Λήψη") }
+            } else {
+                // Ίδια θέση και ίδιο εικονίδιο με τη λίστα πελατών και τα
+                // Έγγραφα: η διαγραφή πρέπει να είναι στο ίδιο σημείο σε κάθε
+                // οθόνη, αλλιώς κάποια στιγμή πατιέται κατά λάθος.
+                IconButton(onClick = { confirmDelete = true }) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Διαγραφή ${picked.size} εντύπων",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         }
         Text(
             "Πάτημα ανοίγει το έντυπο· παρατεταμένο πάτημα το επιλέγει.",
@@ -205,9 +222,7 @@ private fun ClientDocumentsTab(
                         }
                     },
                 ) { Text("Αποστολή ${picked.size}") }
-                OutlinedButton(onClick = { confirmDelete = true }) {
-                    Text("Διαγραφή ${picked.size}")
-                }
+                OutlinedButton(onClick = { picked.clear() }) { Text("Άκυρο") }
             }
         }
     }

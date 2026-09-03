@@ -80,7 +80,12 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
     var weekView by remember { mutableStateOf(false) }
     var anchor by remember { mutableStateOf(LocalDate.now(ZONE)) }
-    var selected by remember { mutableStateOf<LocalDate?>(LocalDate.now(ZONE)) }
+    // **Καμία** προεπιλεγμένη ημέρα.
+    //
+    // Ήταν «σήμερα», και επειδή τις περισσότερες μέρες δεν στέλνεται τίποτα, το
+    // ημερολόγιο άνοιγε άδειο: ο χρήστης έβλεπε μια οθόνη χωρίς αποστολές και
+    // συμπέραινε ότι χάθηκαν. Η σωστή προεπιλογή είναι ολόκληρη η περίοδος.
+    var selected by remember { mutableStateOf<LocalDate?>(null) }
     var kindFilter by remember { mutableStateOf("") }
     var failedOnly by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -88,13 +93,18 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
     // Τα φίλτρα είναι κλειστά εξ ορισμού. Έπαιρναν τέσσερις σειρές μόνιμα, και
     // σε τηλέφωνο έμεναν δύο-τρεις γραμμές για τη λίστα — που είναι η ουσία.
     var showFilters by remember { mutableStateOf(false) }
-    // Το πλέγμα μαζεύεται όταν ο χρήστης κοιτάζει τη λίστα. Σε τηλέφωνο το
-    // ημερολόγιο πιάνει τη μισή οθόνη, και μόλις διαλέξεις ημέρα η δουλειά
-    // είναι πια κάτω — δεν έχει νόημα να κρατά τον χώρο.
+    // Το πλέγμα **συμπιέζεται**, δεν εξαφανίζεται.
     //
-    // `MutableState` και όχι `by`: η τιμή διαβάζεται και γράφεται μέσα από τη
-    // σύνδεση nested-scroll παρακάτω, που ζει σε `remember` και δεν μπορεί να
-    // κρατήσει delegate.
+    // Η προηγούμενη έκδοση το έκρυβε ολόκληρο, και μαζί του κάθε ένδειξη για το
+    // πού βρίσκεσαι μέσα στον μήνα — η οθόνη έμοιαζε να «χάνει τα πάντα».
+    // Συμπιεσμένο σημαίνει μία σειρά αντί για έξι: η εβδομάδα γύρω από την
+    // επιλεγμένη ημέρα, με τους ίδιους αριθμούς αποστολών στα κελιά.
+    //
+    // Κρίσιμο: η σύμπτυξη αλλάζει **μόνο** το πλέγμα. Το διάστημα που ρωτιέται
+    // η βάση μένει ο μήνας, οπότε η λίστα από κάτω δεν κονταίνει.
+    //
+    // `MutableState` και όχι `by`: η τιμή γράφεται μέσα από τη σύνδεση
+    // nested-scroll παρακάτω, που ζει σε `remember` και δεν κρατά delegate.
     val calendarOpen = remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
 
@@ -157,9 +167,14 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 IconButton(onClick = { anchor = if (weekView) anchor.plusWeeks(1) else anchor.plusMonths(1) }) {
                     Text("›", style = MaterialTheme.typography.titleLarge)
                 }
-                IconButton(onClick = { calendarOpen.value = !calendarOpen.value }) {
+                // Σύμπτυξη/ανάπτυξη. Δεν κρύβει το ημερολόγιο — αλλάζει μεταξύ
+                // έξι σειρών και μίας.
+                IconButton(
+                    enabled = !weekView,
+                    onClick = { calendarOpen.value = !calendarOpen.value },
+                ) {
                     Text(
-                        if (calendarOpen.value) "⌃" else "⌄",
+                        if (calendarOpen.value && !weekView) "⌃" else "⌄",
                         style = MaterialTheme.typography.titleLarge,
                     )
                 }
@@ -236,41 +251,59 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
 
-        if (calendarOpen.value) {
-            Spacer(Modifier.height(12.dp))
-            WeekdayHeader()
-            CalendarGrid(
-                days = calendarDays(anchor, weekView),
-                currentMonth = YearMonth.from(anchor),
-                byDay = byDay,
-                selected = selected,
-                onSelect = {
-                    selected = it
-                    // Διάλεξες ημέρα: η δουλειά είναι πια η λίστα από κάτω.
-                    calendarOpen.value = false
-                },
-            )
-        }
+        Spacer(Modifier.height(12.dp))
+        WeekdayHeader()
+        CalendarGrid(
+            // Συμπιεσμένο = η εβδομάδα γύρω από την επιλεγμένη (ή τη σημερινή)
+            // ημέρα. Οι ημέρες εκτός μήνα ξεθωριάζουν ήδη από το `currentMonth`.
+            days = if (weekView || !calendarOpen.value) {
+                calendarDays(selected ?: LocalDate.now(ZONE), true)
+            } else {
+                calendarDays(anchor, false)
+            },
+            currentMonth = YearMonth.from(anchor),
+            byDay = byDay,
+            selected = selected,
+            onSelect = {
+                // Δεύτερο πάτημα στην ίδια ημέρα την ξεδιαλέγει. Χωρίς αυτό, ο
+                // μόνος τρόπος να γυρίσεις σε ολόκληρη την περίοδο ήταν ένα
+                // κουμπί κειμένου παρακάτω, που δεν το έβρισκε κανείς.
+                selected = if (selected == it) null else it
+                // Η δουλειά είναι πια η λίστα από κάτω — αλλά το ημερολόγιο
+                // μένει, συμπιεσμένο.
+                calendarOpen.value = false
+            },
+        )
 
         Spacer(Modifier.height(12.dp))
-        val listed = selected?.let { byDay[it].orEmpty() } ?: sends
+        // Μια επιλεγμένη ημέρα **χωρίς** αποστολές δεν αδειάζει την οθόνη: το
+        // λέει, και δείχνει πάλι ολόκληρη την περίοδο. Μια λίστα που γίνεται
+        // κενή μοιάζει με απώλεια δεδομένων, όχι με φίλτρο που δεν βρήκε τίποτα.
+        val ofDay = selected?.let { byDay[it].orEmpty() }.orEmpty()
+        val dayEmpty = selected != null && ofDay.isEmpty()
+        val listed = if (selected == null || dayEmpty) sends else ofDay
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (selected != null) selected!!.format(dayFormatter) else "Όλη η περίοδος",
+                    when {
+                        selected == null -> "Όλη η περίοδος"
+                        dayEmpty -> selected!!.format(dayFormatter) + " — καμία αποστολή"
+                        else -> selected!!.format(dayFormatter)
+                    },
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    if (listed.isEmpty()) "καμία αποστολή" else "${listed.size} αποστολές",
+                    when {
+                        dayEmpty -> "εμφανίζονται και οι ${sends.size} της περιόδου"
+                        listed.isEmpty() -> "καμία αποστολή σε αυτή την περίοδο"
+                        else -> "${listed.size} αποστολές"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 )
             }
             if (selected != null) {
                 TextButton(onClick = { selected = null }) { Text("Όλη η περίοδος") }
-            }
-            if (!calendarOpen.value) {
-                TextButton(onClick = { calendarOpen.value = true }) { Text("Ημερολόγιο") }
             }
             TextButton(
                 enabled = sends.isNotEmpty(),

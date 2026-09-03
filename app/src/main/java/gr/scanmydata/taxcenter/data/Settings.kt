@@ -165,7 +165,22 @@ class Settings(context: Context) {
         get() = prefs.getInt(KEY_RETENTION_MONTHS, 24)
         set(v) = prefs.edit().putInt(KEY_RETENTION_MONTHS, v).apply()
 
+    /**
+     * Η οθόνη προόδου δείχνει μία κάρτα ανά **πελάτη** αντί για μία ανά έντυπο.
+     *
+     * Σε παρτίδα «5 έντυπα × 40 πελάτες» οι 200 κάρτες δεν διαβάζονται σε
+     * τηλέφωνο. Ομαδοποιημένη, η ίδια παρτίδα είναι 40 γραμμές που λένε «3
+     * έτοιμα, 1 χωρίς έντυπο, 1 απέτυχε».
+     *
+     * Ρύθμιση και όχι σταθερή συμπεριφορά: με έναν-δυο πελάτες η αναλυτική
+     * λίστα είναι πιο χρήσιμη, γιατί δείχνει κατευθείαν ποιο έντυπο έσκασε.
+     */
+    var groupFetchByClient: Boolean
+        get() = prefs.getBoolean(KEY_GROUP_FETCH, false)
+        set(v) = prefs.edit().putBoolean(KEY_GROUP_FETCH, v).apply()
+
     private companion object {
+        const val KEY_GROUP_FETCH = "group_fetch_by_client"
         const val KEY_DRIVE_MODE = "drive_mode"
         const val KEY_FIRST_RUN_DONE = "first_run_completed"
         const val KEY_TOUR_SEEN = "tour_seen"

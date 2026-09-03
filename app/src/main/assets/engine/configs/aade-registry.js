@@ -45,7 +45,7 @@ module.exports = {
   inputs: [
     { key: 'user', label: 'TAXISnet username', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
-    { key: 'type', label: 'Είδος: ΦΥΣΙΚΟ / ΝΟΜΙΚΟ (κενό = αυτόματα ό,τι υπάρχει)', env: 'AADE_REG_TYPE', optional: true },
+    { key: 'type', label: 'Είδος: ΦΥΣΙΚΟ / ΕΠΙΧΕΙΡΗΣΗ / ΝΟΜΙΚΟ (κενό = ό,τι υπάρχει)', env: 'AADE_REG_TYPE', optional: true },
     { key: 'vat', label: 'ΑΦΜ-στόχος (κενό = ο ΑΦΜ του λογαριασμού)', env: 'AADE_VAT', optional: true },
   ],
 
@@ -70,9 +70,13 @@ module.exports = {
     const typeRaw = (inp.type || '').trim().toUpperCase();
     const forcePhysical = /ΦΥΣΙΚ|FYS|PHYS/.test(typeRaw);
     const forceLegal = /ΝΟΜΙΚ|NOMIK|LEGAL/.test(typeRaw);
-    http.log('[registry] είδος: ' + (forcePhysical ? 'ΦΥΣΙΚΟ' : forceLegal ? 'ΝΟΜΙΚΟ' : 'ΑΥΤΟΜΑΤΑ'));
+    // «ΕΠΙΧΕΙΡΗΣΗ» = μόνο το μητρώο της οντότητας, με τη σωστή σημαία να
+    // βγαίνει μόνη της. Διαφέρει από το ΝΟΜΙΚΟ, που **επιβάλλει** τη σημαία
+    // νομικού προσώπου — λάθος τμήμα εκτύπωσης για ατομική επιχείρηση.
+    const forceBusiness = /ΕΠΙΧΕΙΡ|ΟΝΤΟΤ|BUSINESS|ENTITY/.test(typeRaw);
+    http.log('[registry] είδος: ' + (forcePhysical ? 'ΦΥΣΙΚΟ' : forceLegal ? 'ΝΟΜΙΚΟ' : forceBusiness ? 'ΕΠΙΧΕΙΡΗΣΗ' : 'ΑΥΤΟΜΑΤΑ'));
 
-    const result = { portal: this.portal, afm, requestedType: forcePhysical ? 'ΦΥΣΙΚΟ' : forceLegal ? 'ΝΟΜΙΚΟ' : 'ΑΥΤΟΜΑΤΑ', retrievedAt: new Date().toISOString() };
+    const result = { portal: this.portal, afm, requestedType: forcePhysical ? 'ΦΥΣΙΚΟ' : forceLegal ? 'ΝΟΜΙΚΟ' : forceBusiness ? 'ΕΠΙΧΕΙΡΗΣΗ' : 'ΑΥΤΟΜΑΤΑ', retrievedAt: new Date().toISOString() };
     const files = [];
 
     // ── ΣΤΟΙΧΕΙΑ ΦΥΣΙΚΟΥ ΠΡΟΣΩΠΟΥ (PersonalInfo) — αν ζητηθεί ΦΥΣΙΚΟ ή ΑΥΤΟΜΑΤΑ ──
@@ -81,7 +85,12 @@ module.exports = {
       const fusiko = await G(W + '/getMhtrwoFusikou/' + afm);
       http.dump('registry_fusiko.xml', fusiko);
       isPhysical = fusiko.includes('<afm>' + afm + '</afm>');
-      if (isPhysical) {
+      // Στο ΕΠΙΧΕΙΡΗΣΗ ρωτάμε το μητρώο φυσικού αλλά **δεν** κατεβάζουμε το
+      // PDF του: η απάντηση χρειάζεται μόνο για να ξεχωρίσει ατομική από
+      // νομικό πρόσωπο παρακάτω.
+      if (isPhysical && forceBusiness) {
+        http.log('[registry] ΕΠΙΧΕΙΡΗΣΗ: το μητρώο φυσικού διαβάστηκε μόνο για τον χαρακτηρισμό');
+      } else if (isPhysical) {
         result.fysiko = xmlToObj(fusiko);
         const url = W + '/getPrintPDFepixSection/' + afm + '/0/0/0/1/0/1/1/0/0/0/0/1/0/0/0/3';
         const doc = await http.getDoc(url);

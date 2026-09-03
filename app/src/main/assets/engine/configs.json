@@ -116,6 +116,13 @@
           "optional": true
         },
         {
+          "key": "years",
+          "label": "Έτη χωρισμένα με κόμμα (υπερισχύει του «Έτος»)",
+          "env": "AADE_YEARS",
+          "hidden": false,
+          "optional": true
+        },
+        {
           "key": "e9",
           "label": "Και δεδομένα Ε9/Περιουσιακής; (ναι/όχι)",
           "env": "AADE_E9",
@@ -368,7 +375,7 @@
         },
         {
           "key": "type",
-          "label": "Είδος: ΦΥΣΙΚΟ / ΝΟΜΙΚΟ (κενό = αυτόματα ό,τι υπάρχει)",
+          "label": "Είδος: ΦΥΣΙΚΟ / ΕΠΙΧΕΙΡΗΣΗ / ΝΟΜΙΚΟ (κενό = ό,τι υπάρχει)",
           "env": "AADE_REG_TYPE",
           "hidden": false,
           "optional": true

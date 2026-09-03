@@ -49,6 +49,16 @@ object DocumentCatalog {
         /** Σταθερά inputs που ξεχωρίζουν αυτό το έντυπο μέσα στη διαδικασία. */
         val inputs: Map<String, String> = emptyMap(),
         val needsYear: Boolean = false,
+        /**
+         * Δέχεται **όλα** τα έτη σε μία εκτέλεση, μέσω input `years`.
+         *
+         * Ισχύει σήμερα μόνο για το ETAK (ΕΝΦΙΑ/Ε9), και για σοβαρό λόγο: εκεί
+         * η σύνδεση είναι πραγματικός browser με GSIS OAuth, και μία σύνδεση
+         * ανά έτος σημαίνει τρεις συνεδρίες GSIS για τρία έτη — δηλαδή
+         * ακριβώς η συνθήκη που φέρνει το κλείδωμα OAM-6. Μέσα στην ίδια
+         * συνεδρία η αλλαγή έτους είναι ένα `select`.
+         */
+        val batchYears: Boolean = false,
         /** Δέχεται μήνα 1-12 (σήμερα μόνο ο Φορολογικός Λογαριασμός). */
         val needsMonth: Boolean = false,
         val applies: Applies = Applies.ALL,
@@ -87,11 +97,21 @@ object DocumentCatalog {
     const val GROUP_REGISTRY = "Μητρώο"
     const val GROUP_CARD = "Ενημέρωση καρτέλας"
 
-    /** Η σειρά των ομάδων στην οθόνη. */
+    /**
+     * Η σειρά των ομάδων **στον κατάλογο επιλογής**.
+     *
+     * Το [GROUP_CARD] λείπει επίτηδες. Η ενημέρωση καρτέλας δεν είναι έντυπο
+     * και δεν είναι πια χειροκίνητη επιλογή: γίνεται μόνη της από την «Άντληση
+     * στοιχείων» της καρτέλας, που φέρνει ονοματεπώνυμο, ΔΟΥ, είδος, email
+     * και — σε ιδιώτη ή ατομική — τον ΑΜΚΑ. Το να προσφέρεται και εδώ έδινε
+     * δύο δρόμους για το ίδιο πράγμα, με διαφορετικό αποτέλεσμα ο καθένας.
+     *
+     * Τα ίδια τα [Item] μένουν στο [ALL]: τα χρησιμοποιεί ο κώδικας άντλησης.
+     */
     val GROUPS = listOf(
         GROUP_INCOME, GROUP_VAT, GROUP_WITHHOLDING, GROUP_OTHER_FORMS,
         GROUP_PROPERTY, GROUP_DEBTS, GROUP_INSURANCE, GROUP_EMPLOYER,
-        GROUP_REGISTRY, GROUP_CARD,
+        GROUP_REGISTRY,
     )
 
     val ALL: List<Item> = listOf(
@@ -155,12 +175,17 @@ object DocumentCatalog {
             applies = Applies.BUSINESS_ONLY),
 
         // ---------------------------------------------------------- ακίνητα
+        // Το ETAK δίνει **πάντα** την τελευταία εκκαθάριση, ό,τι έτος κι αν
+        // επιλεγεί (επαληθεύτηκε ζωντανά: επιλογή 2025 -> PDF 2022). Το έτος
+        // κρίνει μόνο αν προσφέρεται καθόλου ο σύνδεσμος.
         Item("enfia", "ΕΝΦΙΑ — Εκκαθαριστικό", GROUP_PROPERTY,
-            "aade-enfia", mapOf("e9" to "όχι"), needsYear = true,
-            note = "Χρειάζεται ορατό browser· ίσως ζητηθεί κωδικός μιας χρήσης."),
+            "aade-enfia", mapOf("e9" to "όχι"), needsYear = true, batchYears = true,
+            note = "Δίνει πάντα την τελευταία εκκαθάριση — το έτος του PDF είναι " +
+                "στο όνομα του αρχείου. Ορατός browser· ίσως ζητηθεί κωδικός μιας χρήσης."),
         Item("e9", "Ε9 / Περιουσιακή κατάσταση (ETAK)", GROUP_PROPERTY,
-            "aade-enfia", mapOf("e9" to "ναι"), needsYear = true,
-            note = "Χρειάζεται ορατό browser· ίσως ζητηθεί κωδικός μιας χρήσης."),
+            "aade-enfia", mapOf("e9" to "ναι"), needsYear = true, batchYears = true,
+            note = "Πολλά έτη κατεβαίνουν με μία σύνδεση. Ορατός browser· ίσως " +
+                "ζητηθεί κωδικός μιας χρήσης."),
         Item("property", "Περιουσιακή κατάσταση (myPROPERTY)", GROUP_PROPERTY,
             "aade-property", needsYear = true),
         Item("lease", "Μισθωτήρια — πληροφοριακά στοιχεία μισθώσεων", GROUP_PROPERTY,
@@ -195,7 +220,15 @@ object DocumentCatalog {
             note = "Θέλει κωδικούς ΙΚΑ εργοδότη, όχι TAXISnet."),
 
         // ----------------------------------------------------------- μητρώο
-        Item("registry", "Στοιχεία μητρώου (PDF)", GROUP_REGISTRY, "aade-registry"),
+        // Δύο διαφορετικά έντυπα, όχι δύο όψεις του ίδιου: το ένα είναι τα
+        // στοιχεία του **ανθρώπου** (PersonalInfo), το άλλο της
+        // **δραστηριότητας** (BusinessInfo/LegalInfo). Μια ατομική επιχείρηση
+        // έχει και τα δύο, και ο λογιστής σχεδόν ποτέ δεν θέλει και τα δύο.
+        Item("registry-natural", "Στοιχεία μητρώου — φυσικού προσώπου", GROUP_REGISTRY,
+            "aade-registry", mapOf("type" to "ΦΥΣΙΚΟ"), applies = Applies.NATURAL_ONLY),
+        Item("registry-business", "Στοιχεία μητρώου — επιχείρησης / οντότητας", GROUP_REGISTRY,
+            "aade-registry", mapOf("type" to "ΕΠΙΧΕΙΡΗΣΗ"), applies = Applies.BUSINESS_ONLY,
+            note = "Η μορφή (ατομική ή νομικό πρόσωπο) αναγνωρίζεται μόνη της."),
 
         // ------------------------------------------------- ενημέρωση καρτέλας
         Item("profile", "Άντληση ονοματεπωνύμου, ΔΟΥ και είδους", GROUP_CARD,
@@ -225,5 +258,5 @@ object DocumentCatalog {
      * τίποτα — ένα μήνυμα που δεν αντιστοιχεί σε αλλαγή είναι θόρυβος.
      */
     fun narrows(kind: String): Boolean =
-        kind.isNotBlank() && ALL.any { !it.matches(kind) }
+        kind.isNotBlank() && ALL.any { it.group in GROUPS && !it.matches(kind) }
 }

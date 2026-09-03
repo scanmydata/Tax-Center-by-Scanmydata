@@ -97,7 +97,7 @@ class DocumentCatalogTest {
         val stays = listOf(
             "e1", "e2", "ekkatharistiko", "enfia", "e9", "property", "lease",
             "debts", "tax-account", "traffic-fees", "efka-notices",
-            "efka-certificate", "keao", "atlas", "registry", "profile", "amka",
+            "efka-certificate", "keao", "atlas", "registry-natural", "profile", "amka",
         )
         for (id in stays) {
             assertTrue(
@@ -123,6 +123,58 @@ class DocumentCatalogTest {
         )
         assertTrue("ο ιδιώτης όντως στενεύει τον κατάλογο", DocumentCatalog.narrows(ClientKind.PRIVATE))
         assertFalse("χωρίς είδος δεν στενεύει τίποτα", DocumentCatalog.narrows(""))
+    }
+
+    @Test
+    fun `το μητρώο είναι δύο έντυπα, όχι δύο όψεις του ίδιου`() {
+        // Το ένα είναι τα στοιχεία του ανθρώπου, το άλλο της δραστηριότητας.
+        // Η ατομική επιχείρηση έχει και τα δύο· ο ιδιώτης μόνο το πρώτο, το
+        // νομικό πρόσωπο μόνο το δεύτερο.
+        val natural = DocumentCatalog.byId("registry-natural")!!
+        val business = DocumentCatalog.byId("registry-business")!!
+        assertEquals("ΦΥΣΙΚΟ", natural.inputs["type"])
+        // ΕΠΙΧΕΙΡΗΣΗ και όχι ΝΟΜΙΚΟ: το δεύτερο **επιβάλλει** τη σημαία νομικού
+        // προσώπου στην εκτύπωση, που για ατομική είναι λάθος τμήμα μητρώου.
+        assertEquals("ΕΠΙΧΕΙΡΗΣΗ", business.inputs["type"])
+        assertTrue(natural.matches(ClientKind.PRIVATE))
+        assertFalse(natural.matches(ClientKind.LEGAL))
+        assertFalse(business.matches(ClientKind.PRIVATE))
+        assertTrue(business.matches(ClientKind.SOLE))
+        assertTrue(business.matches(ClientKind.LEGAL))
+    }
+
+    @Test
+    fun `η ενημέρωση καρτέλας δεν προσφέρεται ως έντυπο`() {
+        // Γίνεται μόνη της από την «Άντληση στοιχείων» της καρτέλας. Δύο δρόμοι
+        // για το ίδιο πράγμα σήμαιναν δύο διαφορετικά αποτελέσματα.
+        assertFalse(
+            "η ομάδα «ενημέρωση καρτέλας» δεν πρέπει να εμφανίζεται",
+            DocumentCatalog.GROUP_CARD in DocumentCatalog.GROUPS,
+        )
+        // Τα ίδια τα έντυπα μένουν: τα χρησιμοποιεί ο κώδικας άντλησης.
+        for (id in listOf("profile", "email", "amka")) {
+            assertNotNull("το $id χάθηκε από τον κατάλογο", DocumentCatalog.byId(id))
+        }
+        assertTrue(
+            "κανένα κρυφό έντυπο δεν πρέπει να μένει εκτός ομάδων εμφάνισης",
+            DocumentCatalog.ALL.filter { it.group !in DocumentCatalog.GROUPS }
+                .all { it.group == DocumentCatalog.GROUP_CARD },
+        )
+    }
+
+    @Test
+    fun `μόνο το ETAK μαζεύει πολλά έτη σε μία εκτέλεση`() {
+        // Η ομαδοποίηση ετών δεν είναι βελτιστοποίηση αλλά ανάγκη: το ETAK
+        // μπαίνει με πραγματικό browser και GSIS OAuth, και μία σύνδεση ανά
+        // έτος είναι ο συντομότερος δρόμος για κλείδωμα OAM-6. Οι υπόλοιπες
+        // διαδικασίες δέχονται ένα έτος τη φορά — αν σημανθούν κατά λάθος, θα
+        // τους σταλεί input που δεν καταλαβαίνουν.
+        val batched = DocumentCatalog.ALL.filter { it.batchYears }.map { it.id }.sorted()
+        assertEquals(listOf("e9", "enfia"), batched)
+        for (item in DocumentCatalog.ALL.filter { it.batchYears }) {
+            assertEquals("aade-enfia", item.configId)
+            assertTrue("το ${item.id} πρέπει να ζητά έτος", item.needsYear)
+        }
     }
 
     @Test

@@ -60,6 +60,16 @@ class FetchController(
         val status: Status = Status.PENDING,
         val detail: String = "",
         val fileCount: Int = 0,
+        /** Ποιου πελάτη είναι — για ομαδοποίηση και για άνοιγμα των εντύπων. */
+        val clientId: Long = 0L,
+        /**
+         * Τα ονόματα των PDF που παρήγαγε αυτή η γραμμή.
+         *
+         * Κρατιούνται ώστε το πάτημα πάνω στη γραμμή να ανοίγει **αυτό** το
+         * έντυπο. Χωρίς αυτά, η οθόνη προόδου έλεγε «✓ 2 έντυπα» και ο μόνος
+         * τρόπος να τα δεις ήταν να φύγεις και να τα ψάξεις στα Έγγραφα.
+         */
+        val files: List<String> = emptyList(),
         /** Η λήψη πέτυχε αλλά η αυτόματη αποστολή όχι — άλλο πράγμα από αποτυχία. */
         val sendFailed: Boolean = false,
     ) {
@@ -176,6 +186,7 @@ class FetchController(
                     clientName = it.job.client.displayName,
                     configId = it.job.configId,
                     configTitle = it.label,
+                    clientId = it.job.client.id,
                 )
             },
         )
@@ -223,6 +234,7 @@ class FetchController(
                             else -> ""
                         },
                         fileCount = pdfs,
+                        files = outcome.files.filter { it.endsWith(".pdf", ignoreCase = true) },
                     )
                 }
                 if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt)
@@ -479,10 +491,21 @@ class FetchController(
 
     // ------------------------------------------------------------ βοηθητικά
 
-    private fun mark(index: Int, status: Status, detail: String, fileCount: Int = 0) {
+    private fun mark(
+        index: Int,
+        status: Status,
+        detail: String,
+        fileCount: Int = 0,
+        files: List<String> = emptyList(),
+    ) {
         val items = _state.value.items.toMutableList()
         if (index !in items.indices) return
-        items[index] = items[index].copy(status = status, detail = detail, fileCount = fileCount)
+        items[index] = items[index].copy(
+            status = status,
+            detail = detail,
+            fileCount = fileCount,
+            files = files,
+        )
         _state.value = _state.value.copy(items = items)
     }
 

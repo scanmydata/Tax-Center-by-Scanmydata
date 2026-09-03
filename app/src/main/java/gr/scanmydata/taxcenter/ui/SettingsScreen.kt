@@ -90,6 +90,7 @@ fun SettingsScreen(
     var syncStatus by remember { mutableStateOf("") }
     var syncBusy by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
+    var groupFetch by remember { mutableStateOf(settings.groupFetchByClient) }
 
     // Οι ρυθμίσεις έγιναν αρκετές ώστε η μία στήλη να μη διαβάζεται: ο χρήστης
     // κυλούσε τριάντα οθόνες ψάχνοντας το ένα πεδίο που ήθελε. Τώρα κάθε ομάδα
@@ -259,6 +260,27 @@ fun SettingsScreen(
                     Text("Στοιχεία & κωδικοί")
                 }
             }
+        }
+
+        SettingsSection(
+            title = "Εμφάνιση",
+            summary = if (groupFetch) "λήψη: ανά πελάτη" else "λήψη: μία γραμμή ανά έντυπο",
+            open = openSection,
+            onOpen = { openSection = it },
+        ) {
+            SettingSwitch(
+                title = "Ομαδοποίηση της λήψης ανά πελάτη",
+                description = "Μία κάρτα ανά πελάτη αντί για μία ανά έντυπο. Σε " +
+                    "παρτίδα «5 έντυπα × 40 πελάτες» η αναλυτική λίστα είναι 200 " +
+                    "κάρτες — που σε τηλέφωνο σημαίνει ότι δεν διαβάζεται. " +
+                    "Ομαδοποιημένη, κάθε γραμμή λέει πόσα κατέβηκαν και πόσα " +
+                    "απέτυχαν για τον συγκεκριμένο πελάτη.\n\n" +
+                    "Με έναν-δυο πελάτες η αναλυτική είναι πιο χρήσιμη: δείχνει " +
+                    "κατευθείαν ποιο έντυπο έσκασε. Αλλάζει και από την ίδια την " +
+                    "οθόνη λήψης.",
+                checked = groupFetch,
+                onChange = { groupFetch = it; settings.groupFetchByClient = it },
+            )
         }
 
         SettingsSection(
