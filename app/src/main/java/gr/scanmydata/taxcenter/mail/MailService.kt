@@ -7,6 +7,7 @@ import gr.scanmydata.taxcenter.data.Settings
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
+import gr.scanmydata.taxcenter.engine.DocumentNaming
 import gr.scanmydata.taxcenter.data.db.SendEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import kotlinx.coroutines.delay
@@ -141,7 +142,11 @@ class MailService(
         val attachments = bundleIfLarge(client, files)
         val body = MailTemplates.documents(
             client = client,
-            fileNames = documents.map { it.fileName },
+            // Ονόματα εντύπων, όχι ονόματα αρχείων: «Εκκαθαριστικό δήλωσης
+            // 2024 (Εκκαθαριστικό_999999999_2024.pdf)». Το αρχείο μένει στην
+            // παρένθεση γιατί ο πελάτης το χρειάζεται για να ταιριάξει τη
+            // γραμμή με το συνημμένο που κατέβασε.
+            fileNames = documents.map { DocumentNaming.line(it) },
             note = note,
             officeName = settings.officeName,
             signature = settings.signatureFor(SendEntity.KIND_DOCUMENTS),

@@ -956,9 +956,15 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
     val context = LocalContext.current
     var reviewing by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
-    // Τα έντυπα της γραμμής που ξεδιπλώθηκε — εμφανίζονται **μέσα** στη
-    // γραμμή. Ένα popup για δύο ονόματα αρχείων είναι δυσανάλογο, και κρύβει
-    // ακριβώς τη λίστα από την οποία ήρθε.
+    // Δύο ξεχωριστές καταστάσεις, γιατί είναι δύο ξεχωριστές κινήσεις:
+    //
+    //  * [openClient] — ποιανού πελάτη η κάρτα είναι ανοιχτή. Την ανοιγοκλείνει
+    //    το πάτημα στο **όνομα**.
+    //  * [expanded] — ποια γραμμή δείχνει τα αρχεία της. Το πάτημα σε **έντυπο**.
+    //
+    // Ήταν μία. Έτσι το πάτημα σε έντυπο μάζευε ολόκληρη την κάρτα του πελάτη,
+    // δηλαδή έκρυβε αυτό που μόλις είχες διαλέξει.
+    var openClient by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf("") }
     var choice by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
     // Το SharedPreferences δεν ειδοποιεί το Compose· κρατάμε αντίγραφο και
@@ -1181,10 +1187,15 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                 // πρέπει να συγχωνεύεται με άλλη.
                 val groups = state.items.groupBy { it.clientId to it.clientName }
                 groups.forEach { (key, rows) ->
-                    item(key = "c-${key.first}-${key.second}") {
+                    val groupKey = "${key.first}/${key.second}"
+                    item(key = "c-$groupKey") {
                         ClientProgressCard(
                             name = key.second,
                             rows = rows,
+                            open = openClient == groupKey,
+                            onToggle = {
+                                openClient = if (openClient == groupKey) "" else groupKey
+                            },
                             onOpen = openRow,
                             expandedKey = expanded,
                             choices = choice,
@@ -1354,6 +1365,8 @@ private fun BrowserPanel(container: AppContainer) {
 private fun ClientProgressCard(
     name: String,
     rows: List<FetchController.Item>,
+    open: Boolean,
+    onToggle: () -> Unit,
     onOpen: (FetchController.Item) -> Unit,
     expandedKey: String,
     choices: List<DocumentEntity>,
@@ -1366,32 +1379,51 @@ private fun ClientProgressCard(
 
     Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(10.dp)) {
-            Text(name.ifBlank { "(χωρίς όνομα)" }, style = MaterialTheme.typography.titleSmall)
-            Text(
-                buildString {
-                    append(files).append(" έντυπα από ").append(rows.size).append(" εκτελέσεις")
-                    if (empty > 0) append("  ·  ").append(empty).append(" χωρίς")
-                    if (failed > 0) append("  ·  ").append(failed).append(" απέτυχαν")
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = when {
-                    failed > 0 -> MaterialTheme.colorScheme.error
-                    empty > 0 -> MaterialTheme.colorScheme.tertiary
-                    ok > 0 -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                },
-            )
-            Spacer(Modifier.height(4.dp))
-            rows.forEach { row ->
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpen(row) }
-                        .padding(vertical = 4.dp),
-                ) {
-                    Text(row.configTitle, style = MaterialTheme.typography.bodySmall)
-                    ProgressLine(row)
-                    if (expandedKey == row.key) FileChoices(choices, onOpenFile)
+            // Η κεφαλίδα είναι το κουμπί ανοίγματος. Τα έντυπα από κάτω έχουν
+            // δική τους ενέργεια και δεν την επηρεάζουν.
+            Row(
+                Modifier.fillMaxWidth().clickable { onToggle() },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        name.ifBlank { "(χωρίς όνομα)" },
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        buildString {
+                            append(files).append(" έντυπα από ").append(rows.size).append(" εκτελέσεις")
+                            if (empty > 0) append("  ·  ").append(empty).append(" χωρίς")
+                            if (failed > 0) append("  ·  ").append(failed).append(" απέτυχαν")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            failed > 0 -> MaterialTheme.colorScheme.error
+                            empty > 0 -> MaterialTheme.colorScheme.tertiary
+                            ok > 0 -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        },
+                    )
+                }
+                Text(
+                    if (open) "⌃" else "⌄",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+            }
+            if (open) {
+                Spacer(Modifier.height(4.dp))
+                rows.forEach { row ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(row) }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Text(row.configTitle, style = MaterialTheme.typography.bodySmall)
+                        ProgressLine(row)
+                        if (expandedKey == row.key) FileChoices(choices, onOpenFile)
+                    }
                 }
             }
         }

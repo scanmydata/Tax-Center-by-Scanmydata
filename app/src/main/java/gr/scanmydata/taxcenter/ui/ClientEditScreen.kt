@@ -47,7 +47,6 @@ import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
 import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
-import gr.scanmydata.taxcenter.data.db.ConsentEntity
 import gr.scanmydata.taxcenter.gdpr.Exports
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -108,7 +107,6 @@ fun ClientEditScreen(
     val credentials = remember { mutableStateMapOf<Field, String>() }
     var revealSecrets by remember { mutableStateOf(false) }
 
-    var consentAt by remember { mutableStateOf(0L) }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -148,9 +146,6 @@ fun ClientEditScreen(
             client.emailPreferred == client.emailManual
         withContext(Dispatchers.IO) { container.repository.credentials(client.id) }
             .forEach { (field, value) -> credentials[field] = value }
-        consentAt = withContext(Dispatchers.IO) {
-            container.db.consents().forClient(client.id)?.grantedAt ?: 0L
-        }
         loaded = true
     }
 
@@ -525,38 +520,14 @@ fun ClientEditScreen(
             SecretField("Συνθηματικό ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_PASS, revealSecrets)
         }
 
-        Spacer(Modifier.height(16.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(16.dp))
-
-        // ------------------------------------------------------- εντολή
-
-        Text("Εντολή πελάτη", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (consentAt == 0L) {
-                "Δεν έχει καταγραφεί εξουσιοδότηση. Ο λογιστής ενεργεί κατ' εντολή " +
-                    "του πελάτη· η καταγραφή είναι αυτό που το αποδεικνύει."
-            } else {
-                "Καταγράφηκε ${AthensDates.day(consentAt)}."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (consentAt == 0L) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
-        if (consentAt == 0L && !isNew) {
-            Spacer(Modifier.height(6.dp))
-            OutlinedButton(onClick = {
-                val client = existing ?: return@OutlinedButton
-                scope.launch {
-                    val now = System.currentTimeMillis()
-                    withContext(Dispatchers.IO) {
-                        container.db.consents().put(ConsentEntity(client.id, now))
-                    }
-                    consentAt = now
-                }
-            }) { Text("Καταγραφή εντολής σήμερα") }
-        }
+        // Η «Εντολή πελάτη» έφυγε από την καρτέλα.
+        //
+        // Ήταν μια ημερομηνία που κανείς δεν συμπλήρωνε και κανείς δεν διάβαζε:
+        // η εξουσιοδότηση του λογιστή δεν αποδεικνύεται με ένα κουμπί μέσα στην
+        // ίδια την εφαρμογή, και μια κόκκινη γραμμή σε κάθε καρτέλα έγινε
+        // θόρυβος αντί για υπενθύμιση. Ο πίνακας `consents` μένει: η εγγραφή
+        // εξακολουθεί να υπάρχει για όποιον τη γράψει, και η εξαγωγή δεδομένων
+        // πελάτη τη συμπεριλαμβάνει.
 
         Spacer(Modifier.height(20.dp))
         if (status.isNotBlank()) {

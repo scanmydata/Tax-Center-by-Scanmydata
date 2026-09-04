@@ -2,6 +2,7 @@ package gr.scanmydata.taxcenter.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +18,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import gr.scanmydata.taxcenter.engine.DocumentNaming
+import gr.scanmydata.taxcenter.ui.theme.OkGreen
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
@@ -144,13 +154,18 @@ private fun ClientDocumentsTab(
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = {
-                if (picked.size == documents.size) picked.clear()
-                else {
-                    picked.clear()
-                    picked.addAll(documents.map { it.id })
-                }
-            }) { Text(if (picked.size == documents.size) "Κανένα" else "Όλα") }
+            // Το «Όλα» έχει νόημα μόνο αφού ξεκινήσει επιλογή. Πριν από αυτό
+            // είναι ένα κουμπί που επιλέγει τα πάντα με ένα πάτημα, δίπλα σε ένα
+            // εικονίδιο διαγραφής.
+            if (picked.isNotEmpty()) {
+                TextButton(onClick = {
+                    if (picked.size == documents.size) picked.clear()
+                    else {
+                        picked.clear()
+                        picked.addAll(documents.map { it.id })
+                    }
+                }) { Text(if (picked.size == documents.size) "Κανένα" else "Όλα") }
+            }
             if (picked.isEmpty()) {
                 TextButton(onClick = onFetch) { Text("Λήψη") }
             } else {
@@ -314,6 +329,21 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
         container.db.sends().observeForClient(clientId)
     }.collectAsState(initial = emptyList())
 
+    // Φίλτρο περιόδου. Σε πελάτη με δύο χρόνια ιστορικό η λίστα είναι δεκάδες
+    // κάρτες, και η ερώτηση είναι σχεδόν πάντα «τι του έστειλα *τότε*».
+    var year by remember(clientId) { mutableStateOf("") }
+    var month by remember(clientId) { mutableStateOf("") }
+
+    val years = remember(sends) {
+        sends.map { AthensDates.year(it.sentAt) }.distinct().sortedDescending()
+    }
+    val shown = remember(sends, year, month) {
+        sends.filter { send ->
+            (year.isBlank() || AthensDates.year(send.sentAt) == year) &&
+                (month.isBlank() || AthensDates.month(send.sentAt) == month)
+        }
+    }
+
     Column(Modifier.padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(10.dp))
         if (sends.isEmpty()) {
@@ -323,13 +353,70 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
             )
             return@Column
         }
-        Text("${sends.size} αποστολές", style = MaterialTheme.typography.labelMedium)
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PeriodPicker(
+                label = "Έτος",
+                value = year,
+                options = years,
+                modifier = Modifier.weight(1f),
+                onPick = { year = it },
+            )
+            PeriodPicker(
+                label = "Μήνας",
+                value = month,
+                options = MONTH_VALUES,
+                display = { MONTH_NAMES[it] ?: it },
+                modifier = Modifier.weight(1f),
+                onPick = { month = it },
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (shown.size == sends.size) {
+                    "${sends.size} αποστολές"
+                } else {
+                    "${shown.size} από ${sends.size} αποστολές"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (year.isNotBlank() || month.isNotBlank()) {
+                TextButton(onClick = { year = ""; month = "" }) { Text("Όλες") }
+            }
+        }
         Spacer(Modifier.height(8.dp))
+        if (shown.isEmpty()) {
+            Text(
+                "Καμία αποστολή σε αυτή την περίοδο.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
+        }
         LazyColumn {
-            items(sends, key = { it.id }) { send ->
+            items(shown, key = { it.id }) { send ->
                 Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Πράσινο τικ ή κόκκινο θαυμαστικό, πριν από τον
+                            // τίτλο: η μόνη ερώτηση που έχει κανείς κοιτώντας
+                            // αυτή τη λίστα είναι «έφτασε;».
+                            Icon(
+                                if (send.failed) Icons.Filled.Error else Icons.Filled.CheckCircle,
+                                contentDescription = if (send.failed) "Απέτυχε" else "Στάλθηκε",
+                                tint = if (send.failed) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    OkGreen
+                                },
+                                modifier = Modifier.size(20.dp).padding(end = 2.dp),
+                            )
+                            Spacer(Modifier.size(8.dp))
                             Text(
                                 when (send.kind) {
                                     SendEntity.KIND_CREDENTIALS -> "Στοιχεία & κωδικοί"
@@ -348,8 +435,10 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                         if (send.items.isNotBlank()) {
                             Spacer(Modifier.height(4.dp))
                             Text(
+                                // Ίδια ονόματα με αυτά που είδε ο πελάτης στο
+                                // μήνυμα — αλλιώς οι δύο λίστες δεν συγκρίνονται.
                                 send.items.lines().filter { it.isNotBlank() }
-                                    .joinToString("\n") { "• $it" },
+                                    .joinToString("\n") { "• " + DocumentNaming.line(it) },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                             )
@@ -364,6 +453,62 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Οι μήνες, με τη σειρά του ημερολογίου. */
+private val MONTH_VALUES = (1..12).map { it.toString().padStart(2, '0') }
+
+private val MONTH_NAMES = mapOf(
+    "01" to "Ιανουάριος", "02" to "Φεβρουάριος", "03" to "Μάρτιος",
+    "04" to "Απρίλιος", "05" to "Μάιος", "06" to "Ιούνιος",
+    "07" to "Ιούλιος", "08" to "Αύγουστος", "09" to "Σεπτέμβριος",
+    "10" to "Οκτώβριος", "11" to "Νοέμβριος", "12" to "Δεκέμβριος",
+)
+
+/**
+ * Πτυσσόμενη επιλογή περιόδου, με «όλα» πάντα πρώτο.
+ *
+ * Κενή τιμή σημαίνει «χωρίς φίλτρο» και είναι η προεπιλογή: ένα φίλτρο που
+ * ξεκινά ενεργό κρύβει δεδομένα πριν καν το ζητήσει κανείς.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PeriodPicker(
+    label: String,
+    value: String,
+    options: List<String>,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    display: (String) -> String = { it },
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier,
+    ) {
+        OutlinedTextField(
+            value = if (value.isBlank()) "όλα" else display(value),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            singleLine = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("όλα") },
+                onClick = { onPick(""); expanded = false },
+            )
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(display(option)) },
+                    onClick = { onPick(option); expanded = false },
+                )
             }
         }
     }

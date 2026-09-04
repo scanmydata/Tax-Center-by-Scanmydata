@@ -27,6 +27,14 @@ object AthensDates {
     fun stamp(millis: Long): String =
         stampFormat.format(Instant.ofEpochMilli(millis).atZone(ZONE))
 
+    /** Το έτος, για φίλτρα περιόδου. */
+    fun year(millis: Long): String =
+        Instant.ofEpochMilli(millis).atZone(ZONE).year.toString()
+
+    /** Ο μήνας ως δύο ψηφία, ώστε να ταξινομείται ως κείμενο. */
+    fun month(millis: Long): String =
+        Instant.ofEpochMilli(millis).atZone(ZONE).monthValue.toString().padStart(2, '0')
+
     /** Ταξινομήσιμη μορφή για εξαγωγές CSV — ό,τι ανοίγει σε λογιστικό φύλλο. */
     fun iso(millis: Long): String =
         isoFormat.format(Instant.ofEpochMilli(millis).atZone(ZONE))
