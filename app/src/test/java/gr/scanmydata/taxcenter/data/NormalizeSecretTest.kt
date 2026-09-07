@@ -23,13 +23,24 @@ class NormalizeSecretTest {
     }
 
     @Test
-    fun `κόβεται και το NBSP που δεν πιάνει το trim`() {
-        // Ακριβώς αυτό φέρνει η επικόλληση από κελί του Excel.
+    fun `κόβονται και οι αόρατοι χαρακτήρες`() {
+        // Το NBSP φέρνει η επικόλληση από κελί του Excel· τους χαρακτήρες
+        // μηδενικού πλάτους και το BOM τα φέρνει η επικόλληση από ιστοσελίδα
+        // ή από αρχείο.
         assertEquals("pw0001", Normalize.secret("\u00A0pw0001\u00A0"))
         assertEquals("pw0001", Normalize.secret("\uFEFFpw0001"))
         assertEquals("pw0001", Normalize.secret("pw0001\u200B"))
-        // Και η απόδειξη ότι το σκέτο trim δεν αρκούσε.
-        assertEquals("\u00A0pw0001\u00A0", "\u00A0pw0001\u00A0".trim())
+    }
+
+    @Test
+    fun `το trim του Kotlin δεν αρκεί μόνο του`() {
+        // Το NBSP το πιάνει: το `Char.isWhitespace()` του Kotlin περιλαμβάνει
+        // το `isSpaceChar`, σε αντίθεση με το `String.trim()` της Java.
+        assertEquals("pw0001", "\u00A0pw0001\u00A0".trim())
+        // Το BOM όχι — είναι κατηγορίας format, όχι κενό. Αυτό ακριβώς είναι το
+        // κενό που καλύπτει το `secret()`.
+        assertEquals("\uFEFFpw0001", "\uFEFFpw0001".trim())
+        assertEquals("pw0001", Normalize.secret("\uFEFFpw0001"))
     }
 
     @Test
