@@ -83,7 +83,8 @@ class ClientRepository(
             }
 
             for (field in CREDENTIAL_FIELDS) {
-                val value = row.values[field].orEmpty()
+                // Το κελί του Excel φέρνει συχνά κενό ή NBSP στις άκρες.
+                val value = Normalize.secret(row.values[field])
                 if (value.isBlank()) continue
                 db.credentials().putIfNotBlank(clientId, field.name, crypto.enc(value), now)
                 credentials++
@@ -121,7 +122,12 @@ class ClientRepository(
      */
     suspend fun saveClient(client: ClientEntity, credentials: Map<Field, String>): Long {
         val now = System.currentTimeMillis()
+        // Τα κενά στις άκρες κόβονται **πριν** την κρυπτογράφηση, όχι στη
+        // φόρμα: το πληκτρολόγιο του Android βάζει κενό μετά από κάθε πρόταση
+        // autocomplete και η επικόλληση από Excel φέρνει NBSP. Ο κωδικός
+        // φαίνεται σωστός, η σύνδεση αποτυγχάνει, και δεν φαίνεται γιατί.
         val encrypted = credentials
+            .mapValues { (_, value) -> Normalize.secret(value) }
             .filterValues { it.isNotBlank() }
             .map { (field, value) -> field.name to crypto.enc(value) }
 
@@ -129,9 +135,9 @@ class ClientRepository(
             val id = db.clients().upsertPreservingBlanks(client, now)
             db.clients().setEmails(
                 id = id,
-                aade = client.emailAade.trim(),
-                manual = client.emailManual.trim(),
-                preferred = client.emailPreferred.trim(),
+                aade = Normalize.email(client.emailAade),
+                manual = Normalize.email(client.emailManual),
+                preferred = Normalize.email(client.emailPreferred),
                 now = now,
             )
             for ((field, valueEnc) in encrypted) {

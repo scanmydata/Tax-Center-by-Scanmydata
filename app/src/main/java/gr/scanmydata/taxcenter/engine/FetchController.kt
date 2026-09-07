@@ -218,11 +218,15 @@ class FetchController(
      * @param autoSendToken όταν δοθεί, μόλις τελειώσει η παρτίδα στέλνεται σε
      *   κάθε πελάτη **ένα** email με τα έντυπα που κατέβηκαν *σε αυτή* την
      *   εκτέλεση. Ένα email ανά πελάτη, ποτέ κοινοποίηση σε τρίτο.
+     * @param autoSendTo διεύθυνση που ισχύει **μόνο γι' αυτή την εκτέλεση**,
+     *   από τη μεμονωμένη λήψη. Αγνοείται αν η παρτίδα έχει πάνω από έναν
+     *   πελάτη — βλ. [autoSend].
      */
     fun start(
         plans: List<Plan>,
         autoSendToken: String? = null,
         syncToken: String? = null,
+        autoSendTo: String = "",
     ) {
         if (_state.value.running || plans.isEmpty()) return
 
@@ -294,7 +298,7 @@ class FetchController(
                         files = outcome.files.filter { it.endsWith(".pdf", ignoreCase = true) },
                     )
                 }
-                if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt)
+                if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt, autoSendTo)
 
                 // Ο συγχρονισμός στο Drive γίνεται **στο τέλος** και όχι ανά
                 // αρχείο: μια παρτίδα 40 πελατών θα άνοιγε 40 συνδέσεις προς
@@ -332,12 +336,26 @@ class FetchController(
      *
      * Οι αποτυχίες αποστολής δεν ρίχνουν την παρτίδα — καταγράφονται στο
      * ημερολόγιο και εμφανίζονται στη λίστα.
+     *
+     * @param overrideTo εφήμερη διεύθυνση από τη μεμονωμένη λήψη. **Ισχύει μόνο
+     *   όταν η παρτίδα έχει ακριβώς έναν πελάτη.** Ο έλεγχος γίνεται εδώ και όχι
+     *   μόνο στην οθόνη: μια κοινή διεύθυνση σε παρτίδα πολλών πελατών θα
+     *   έστελνε τα φορολογικά έντυπα του καθενός σε ξένο γραμματοκιβώτιο — δηλαδή
+     *   περιστατικό παραβίασης, όχι απλό bug. Ένα λάθος στην κλήση δεν
+     *   επιτρέπεται να το προκαλέσει.
      */
-    private suspend fun autoSend(accessToken: String, plans: List<Plan>, startedAt: Long) {
+    private suspend fun autoSend(
+        accessToken: String,
+        plans: List<Plan>,
+        startedAt: Long,
+        overrideTo: String = "",
+    ) {
         val clients = plans.filter { it.producesDocuments }
             .map { it.job.client }
             .distinctBy { it.id }
             .filter { it.id != 0L }
+
+        val to = if (clients.size == 1) overrideTo else ""
 
         var index = 0
         for (client in clients) {
@@ -358,7 +376,7 @@ class FetchController(
             // Παντού αλλού η αποστολή καλείται μέσα από `withContext(IO)`· εδώ
             // έλειπε, και έσκαγε ακριβώς στη «λήψη και αποστολή».
             val detail = withContext(Dispatchers.IO) {
-                runCatching { mail.sendDocuments(accessToken, fresh, documents) }
+                runCatching { mail.sendDocuments(accessToken, fresh, documents, overrideTo = to) }
             }
             val message = when {
                 detail.isFailure -> detail.exceptionOrNull()?.message.orEmpty()

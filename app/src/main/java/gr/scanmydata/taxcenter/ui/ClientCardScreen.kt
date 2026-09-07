@@ -5,6 +5,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -129,6 +130,7 @@ private fun ClientDocumentsTab(
     val picked = remember { mutableStateListOf<Long>() }
     var status by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmSend by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
 
     val selected = remember(documents, picked.toList()) {
@@ -167,7 +169,13 @@ private fun ClientDocumentsTab(
                 }) { Text(if (picked.size == documents.size) "Κανένα" else "Όλα") }
             }
             if (picked.isEmpty()) {
-                TextButton(onClick = onFetch) { Text("Λήψη") }
+                // Κουμπί, όχι κείμενο σε χρώμα τονισμού. Είναι η **βασική
+                // ενέργεια** αυτής της καρτέλας — «κατέβασε κάτι καινούργιο» —
+                // και ένα TextButton δίπλα σε επικεφαλίδα δεν διαβάζεται ως
+                // κουμπί· διαβάζεται ως ετικέτα.
+                Button(onClick = onFetch, contentPadding = FetchButtonPadding) {
+                    Text("Λήψη")
+                }
             } else {
                 // Ίδια θέση και ίδιο εικονίδιο με τη λίστα πελατών και τα
                 // Έγγραφα: η διαγραφή πρέπει να είναι στο ίδιο σημείο σε κάθε
@@ -220,20 +228,60 @@ private fun ClientDocumentsTab(
                 Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // Δεν στέλνει κατευθείαν: πρώτα φαίνεται **σε ποιον**. Ο
+                // πελάτης μπορεί να έχει δύο διευθύνσεις, και συχνά η σωστή
+                // για αυτή τη μία φορά δεν είναι καμία από τις δύο.
                 Button(
-                    enabled = !sending && client?.effectiveEmail?.isNotBlank() == true,
+                    enabled = !sending && client != null,
+                    onClick = { confirmSend = true },
+                ) { Text("Αποστολή ${picked.size}") }
+                OutlinedButton(onClick = { picked.clear() }) { Text("Άκυρο") }
+            }
+        }
+    }
+
+    // Ο παραλήπτης επιλέγεται εδώ, όχι στην καρτέλα: η επιλογή ισχύει **μόνο
+    // γι' αυτή την αποστολή** και δεν αποθηκεύεται πουθενά.
+    val sendTarget = client
+    if (confirmSend && sendTarget != null) {
+        val recipient = rememberRecipient(sendTarget)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmSend = false },
+            title = { Text("Αποστολή ${picked.size} εντύπων") },
+            text = {
+                Column {
+                    RecipientPicker(recipient)
+                    Spacer(Modifier.height(10.dp))
+                    selected.forEach { document ->
+                        Text(
+                            "· " + DocumentNaming.line(document),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = recipient.valid,
                     onClick = {
-                        val target = client ?: return@Button
+                        confirmSend = false
+                        val to = recipient.address
+                        val batch = selected.toList()
                         scope.launch {
                             sending = true
-                            status = "Αποστολή ${selected.size} εντύπων…"
+                            status = "Αποστολή ${batch.size} εντύπων σε $to…"
                             status = try {
                                 val token = authorizer.accessToken()
                                 val send = withContext(Dispatchers.IO) {
-                                    container.mail.sendDocuments(token, target, selected)
+                                    container.mail.sendDocuments(
+                                        accessToken = token,
+                                        client = sendTarget,
+                                        documents = batch,
+                                        overrideTo = to,
+                                    )
                                 }
                                 if (send.failed) "Απέτυχε: ${send.error}"
-                                else "Στάλθηκαν ${selected.size} έντυπα."
+                                else "Στάλθηκαν ${batch.size} έντυπα στο ${send.toEmail}."
                             } catch (e: GoogleAuthorizer.ConsentRequired) {
                                 "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
                             } catch (e: Exception) {
@@ -243,10 +291,10 @@ private fun ClientDocumentsTab(
                             picked.clear()
                         }
                     },
-                ) { Text("Αποστολή ${picked.size}") }
-                OutlinedButton(onClick = { picked.clear() }) { Text("Άκυρο") }
-            }
-        }
+                ) { Text("Αποστολή") }
+            },
+            dismissButton = { TextButton(onClick = { confirmSend = false }) { Text("Άκυρο") } },
+        )
     }
 
     if (confirmDelete) {
@@ -513,3 +561,11 @@ private fun PeriodPicker(
         }
     }
 }
+
+/**
+ * Συμπαγές padding για το κουμπί «Λήψη» δίπλα στην επικεφαλίδα.
+ *
+ * Το προεπιλεγμένο του Material κάνει το κουμπί ψηλότερο από τη γραμμή στην
+ * οποία κάθεται, και η επικεφαλίδα μοιάζει να κρέμεται από αυτό.
+ */
+private val FetchButtonPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)

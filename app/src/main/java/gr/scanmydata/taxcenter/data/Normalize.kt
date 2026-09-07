@@ -77,6 +77,61 @@ object Normalize {
         return day in 1..31 && month in 1..12
     }
 
+    /**
+     * Καθαρίζει ένα **μυστικό** (κωδικό, όνομα χρήστη, κλειδάριθμο) από κενά
+     * στις άκρες.
+     *
+     * Στο Android αυτό δεν είναι θεωρητικό. Το πληκτρολόγιο βάζει κενό μετά από
+     * κάθε πρόταση autocomplete, η επικόλληση από email ή από το Excel φέρνει
+     * μαζί το κενό της στήλης, και το `Ctrl+C` πάνω σε κελί φέρνει κάποτε
+     * `U+00A0` (NBSP) που **δεν** το πιάνει το σκέτο `trim()`. Το αποτέλεσμα
+     * είναι μια καρτέλα που φαίνεται σωστή, κωδικός που φαίνεται σωστός, και
+     * σύνδεση που αποτυγχάνει με «λάθος κωδικός» χωρίς να φαίνεται γιατί.
+     *
+     * Κόβονται **μόνο οι άκρες**: ένα κενό στη μέση μπορεί κάλλιστα να ανήκει
+     * στον κωδικό, και δεν είναι δική μας δουλειά να το κρίνουμε.
+     */
+    fun secret(raw: String?): String {
+        if (raw.isNullOrEmpty()) return ""
+        return raw.trim { ch ->
+            ch.isWhitespace() || ch in INVISIBLE
+        }
+    }
+
+    /** Κενά που το `Char.isWhitespace()` δεν αναγνωρίζει. */
+    private val INVISIBLE = charArrayOf(
+        '\u00A0', // NBSP — από Excel και από ιστοσελίδες
+        '\u200B', '\u200C', '\u200D', // zero-width
+        '\uFEFF', // BOM, όταν η επικόλληση ξεκινά από αρχείο
+    )
+
+    /**
+     * Καθαρίζει διεύθυνση email: κενά, εισαγωγικά και πεζά.
+     *
+     * Το τοπικό μέρος είναι θεωρητικά case-sensitive, στην πράξη όμως κανένας
+     * πάροχος δεν το εκμεταλλεύεται και τα πεζά αποτρέπουν διπλοεγγραφές.
+     */
+    fun email(raw: String?): String =
+        secret(raw).trim('<', '>', '"', '\'', ',', ';').trim().lowercase()
+
+    /**
+     * Στοιχειώδης έλεγχος διεύθυνσης — **όχι** RFC 5322.
+     *
+     * Σκοπός είναι να πιάσει το δακτυλογραφικό λάθος πριν φύγει φορολογικό
+     * έντυπο σε λάθος παραλήπτη· δεν κρίνει αν το γραμματοκιβώτιο υπάρχει.
+     */
+    fun validEmail(raw: String?): Boolean {
+        val value = email(raw)
+        if (value.length !in 6..254) return false
+        if (value.any { it.isWhitespace() }) return false
+        val at = value.indexOf('@')
+        if (at <= 0 || at != value.lastIndexOf('@')) return false
+        val domain = value.substring(at + 1)
+        if (domain.length < 4 || !domain.contains('.')) return false
+        if (domain.startsWith('.') || domain.endsWith('.') || domain.contains("..")) return false
+        return domain.substringAfterLast('.').length >= 2
+    }
+
     private val DOTS = Regex("[.·]")
     private val NON_ALNUM = Regex("[^\\p{L}\\p{N}]+")
     private val SPACES = Regex("\\s{2,}")

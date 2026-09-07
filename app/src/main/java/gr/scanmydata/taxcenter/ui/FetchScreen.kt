@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +61,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.engine.DocumentCatalog
+import gr.scanmydata.taxcenter.engine.DocumentNaming
 import gr.scanmydata.taxcenter.engine.FetchController
 import gr.scanmydata.taxcenter.engine.ProcessRunner
 import gr.scanmydata.taxcenter.google.GoogleAuthorizer
@@ -87,6 +89,25 @@ fun FetchScreen(
     modifier: Modifier = Modifier,
 ) {
     val controller = container.fetch
+
+    // Το «Λήψη» από την καρτέλα πελάτη σημαίνει **νέα** λήψη.
+    //
+    // Ο controller κρατά τη σύνοψη της τελευταίας παρτίδας ώσπου να καθαριστεί,
+    // οπότε το κουμπί προσγείωνε τον χρήστη στα αποτελέσματα της προηγούμενης
+    // φοράς — με τον πελάτη που ζήτησε πουθενά. Καθαρίζουμε **πριν** διαβαστεί
+    // η κατάσταση, ώστε να μη φανεί καν για ένα καρέ.
+    //
+    // Ποτέ όσο τρέχει κάτι — το `clear()` αρνείται από μόνο του σε εκτέλεση.
+    //
+    // `rememberSaveable` και όχι `remember`: η περιστροφή της οθόνης ξαναχτίζει
+    // τη σύνθεση, και ένα σκέτο `remember` θα έσβηνε τα αποτελέσματα που ο
+    // χρήστης μόλις διάβαζε επειδή γύρισε το τηλέφωνο. Η αποθηκευμένη τιμή
+    // επιστρέφει χωρίς να ξανατρέξει ο υπολογισμός.
+    rememberSaveable(preselectedClient) {
+        if (preselectedClient != 0L) controller.clear()
+        true
+    }
+
     val state by controller.state.collectAsState()
 
     if (state.idle) {
@@ -174,8 +195,19 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
     }
     val recipients = selected.filter { it.effectiveEmail.isNotBlank() }
 
+    // Ο παραλήπτης της **μεμονωμένης** λήψης κρατιέται εδώ και όχι μέσα στο
+    // `LazyColumn`: το item βγαίνει από την οθόνη με το scroll, και μια επιλογή
+    // παραλήπτη που χάνεται σιωπηλά είναι χειρότερη από καθόλου επιλογή.
+    val singleClient = selected.singleOrNull()
+    val recipient = rememberRecipient(singleClient)
+
     val ready = when (action) {
-        Action.FETCH -> picks.isNotEmpty() && selected.isNotEmpty()
+        Action.FETCH ->
+            picks.isNotEmpty() && selected.isNotEmpty() &&
+                // Με ενεργή αυτόματη αποστολή σε έναν πελάτη, η διεύθυνση
+                // πρέπει να στέκει πριν ξεκινήσει η λήψη — όχι αφού κατέβουν
+                // τα έντυπα και αποτύχει η αποστολή στο τέλος.
+                (!autoSend || singleClient == null || recipient.valid)
         Action.CREDENTIALS -> recipients.isNotEmpty()
     }
 
@@ -277,6 +309,16 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         )
+                        // Επιλογή παραλήπτη **μόνο** στη μεμονωμένη λήψη.
+                        //
+                        // Με δύο ή περισσότερους πελάτες δεν υπάρχει «ο
+                        // παραλήπτης»: μια κοινή διεύθυνση θα έστελνε τα έντυπα
+                        // του ενός στο γραμματοκιβώτιο του άλλου. Εκεί ισχύει
+                        // ό,τι λέει κάθε καρτέλα, χωρίς εξαίρεση.
+                        if (singleClient != null) {
+                            Spacer(Modifier.height(10.dp))
+                            RecipientPicker(recipient)
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -408,6 +450,13 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                                         plans = built.plans,
                                         autoSendToken = if (autoSend) token else null,
                                         syncToken = if (wantsDrive) token else null,
+                                        // Ισχύει μόνο για έναν πελάτη· ο
+                                        // controller το επιβάλλει ξανά.
+                                        autoSendTo = if (autoSend && singleClient != null) {
+                                            recipient.address
+                                        } else {
+                                            ""
+                                        },
                                     )
                                 }
                             }
@@ -1199,8 +1248,11 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                             onOpen = openRow,
                             expandedKey = expanded,
                             choices = choice,
+                            // Η λίστα **μένει ανοιχτή**. Το άνοιγμα ενός PDF
+                            // βγάζει τον χρήστη από την εφαρμογή· όταν γυρίσει,
+                            // θέλει να δει τα υπόλοιπα αρχεία της ίδιας γραμμής,
+                            // όχι μια κάρτα που μαζεύτηκε στο μεταξύ.
                             onOpenFile = { document ->
-                                expanded = ""
                                 message = DocumentActions.open(context, document)
                             },
                         )
@@ -1221,8 +1273,9 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                             )
                             ProgressLine(row)
                             if (expanded == row.key) {
+                                // Όπως και στην ομαδοποιημένη όψη: το άνοιγμα
+                                // αρχείου δεν κλείνει τη λίστα.
                                 FileChoices(choice) { document ->
-                                    expanded = ""
                                     message = DocumentActions.open(context, document)
                                 }
                             }
@@ -1466,7 +1519,9 @@ private fun FileChoices(documents: List<DocumentEntity>, onOpen: (DocumentEntity
     Spacer(Modifier.height(4.dp))
     documents.forEach { document ->
         Text(
-            "· " + document.fileName,
+            // Ό,τι βλέπει και ο πελάτης στο email: «Εκκαθαριστικό δήλωσης
+            // 2024», όχι «Εκκαθαριστικό_999999999_2024.pdf».
+            "· " + DocumentNaming.line(document),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier

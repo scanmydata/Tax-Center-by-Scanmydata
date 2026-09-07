@@ -3,6 +3,7 @@ package gr.scanmydata.taxcenter.mail
 import android.content.Context
 import gr.scanmydata.taxcenter.data.ClientRepository
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
+import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.Settings
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.ClientEntity
@@ -126,14 +127,24 @@ class MailService(
     suspend fun documentsSince(clientId: Long, since: Long): List<DocumentEntity> =
         db.documents().forClient(clientId).filter { it.createdAt >= since }
 
-    /** Στέλνει φορολογικά έντυπα ως συνημμένα. */
+    /**
+     * Στέλνει φορολογικά έντυπα ως συνημμένα.
+     *
+     * @param overrideTo διεύθυνση **μόνο γι' αυτή την αποστολή**. Δίνεται από τη
+     *   μεμονωμένη αποστολή, όπου ο λογιστής μπορεί να διαλέξει ανάμεσα στις δύο
+     *   καταχωρημένες διευθύνσεις ή να γράψει μια τρίτη επιτόπου. Δεν γράφεται
+     *   ποτέ στην καρτέλα: μια εφήμερη διεύθυνση που έμεινε αποθηκευμένη είναι ο
+     *   τρόπος με τον οποίο έντυπα καταλήγουν αργότερα σε λάθος άνθρωπο. Μένει
+     *   μόνο στην εγγραφή αποστολής, που πρέπει να λέει πού στάλθηκε τελικά.
+     */
     suspend fun sendDocuments(
         accessToken: String,
         client: ClientEntity,
         documents: List<DocumentEntity>,
         note: String = "",
+        overrideTo: String = "",
     ): SendEntity {
-        val to = client.effectiveEmail
+        val to = Normalize.email(overrideTo).ifBlank { client.effectiveEmail }
         if (to.isBlank()) throw NoRecipient(client.afm)
 
         val files = documents.mapNotNull { doc ->

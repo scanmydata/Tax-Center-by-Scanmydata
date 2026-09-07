@@ -232,12 +232,12 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             client = client,
             documents = docs,
             onDismiss = { sendTarget = null },
-            onConfirm = { chosen, note ->
+            onConfirm = { chosen, note, to ->
                 sendTarget = null
                 scope.launch {
                     sending = true
-                    status = "Αποστολή σε ${client.effectiveEmail}…"
-                    status = sendOne(container, authorizer, client, chosen, note)
+                    status = "Αποστολή σε $to…"
+                    status = sendOne(container, authorizer, client, chosen, note, to)
                     sending = false
                 }
             },
@@ -288,12 +288,15 @@ private suspend fun sendOne(
     client: ClientEntity,
     documents: List<DocumentEntity>,
     note: String,
+    /** Κενό = η διεύθυνση της καρτέλας. Η μαζική αποστολή δεν παρακάμπτει ποτέ. */
+    overrideTo: String = "",
 ): String = try {
     val token = authorizer.accessToken()
     val send = withContext(Dispatchers.IO) {
-        container.mail.sendDocuments(token, client, documents, note)
+        container.mail.sendDocuments(token, client, documents, note, overrideTo)
     }
-    if (send.failed) "Απέτυχε: ${send.error}" else "Στάλθηκαν ${documents.size} έντυπα στον ${client.displayName}."
+    if (send.failed) "Απέτυχε: ${send.error}"
+    else "Στάλθηκαν ${documents.size} έντυπα στον ${client.displayName} (${send.toEmail})."
 } catch (e: GoogleAuthorizer.ConsentRequired) {
     "Απέτυχε: χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
 } catch (e: Exception) {
@@ -359,10 +362,11 @@ internal fun SelectDocumentsDialog(
     client: ClientEntity,
     documents: List<DocumentEntity>,
     onDismiss: () -> Unit,
-    onConfirm: (List<DocumentEntity>, String) -> Unit,
+    onConfirm: (List<DocumentEntity>, String, String) -> Unit,
 ) {
     val picked = remember(documents) { mutableStateListOf<Long>().apply { addAll(documents.map { it.id }) } }
     var note by remember { mutableStateOf("") }
+    val recipient = rememberRecipient(client)
     val formatter = remember {
         SimpleDateFormat("dd/MM/yyyy", Locale("el", "GR")).apply {
             timeZone = TimeZone.getTimeZone("Europe/Athens")
@@ -374,7 +378,7 @@ internal fun SelectDocumentsDialog(
         title = { Text("Αποστολή εντύπων") },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                Text("Προς: ${client.effectiveEmail}", style = MaterialTheme.typography.bodyMedium)
+                RecipientPicker(recipient)
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 documents.forEach { doc ->
@@ -413,9 +417,13 @@ internal fun SelectDocumentsDialog(
             }
         },
         confirmButton = {
+            // Χωρίς έγκυρη διεύθυνση δεν στέλνεται τίποτα: το Gmail θα δεχόταν
+            // το αίτημα και θα επέστρεφε το σφάλμα ώρες αργότερα, ως bounce.
             TextButton(
-                enabled = picked.isNotEmpty(),
-                onClick = { onConfirm(documents.filter { it.id in picked }, note) },
+                enabled = picked.isNotEmpty() && recipient.valid,
+                onClick = {
+                    onConfirm(documents.filter { it.id in picked }, note, recipient.address)
+                },
             ) { Text("Αποστολή ${picked.size}") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Άκυρο") } },
