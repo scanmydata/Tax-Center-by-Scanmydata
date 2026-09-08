@@ -62,9 +62,39 @@ class MailTemplateStore(context: Context) {
         get() = read(KEY_DOCUMENTS, DEFAULT_DOCUMENTS)
         set(value) = write(KEY_DOCUMENTS, value)
 
+    /**
+     * Χωριστό κείμενο για το Viber — **εκτός εξ ορισμού**.
+     *
+     * Όσο είναι κλειστό ([viberOwnText] = `false`), το Viber στέλνει ακριβώς το
+     * κείμενο του email. Αυτό είναι η σωστή προεπιλογή: δύο πρότυπα που λένε το
+     * ίδιο πράγμα αποκλίνουν με τον καιρό, και ο λογιστής που διορθώνει το ένα
+     * δεν έχει λόγο να θυμάται το άλλο.
+     *
+     * Ο διακόπτης υπάρχει γιατί τα δύο κανάλια δεν διαβάζονται ίδια: το email
+     * έχει θέμα και υπογραφή, το Viber είναι ένα μήνυμα σε οθόνη τηλεφώνου.
+     */
+    var viberOwnText: Boolean
+        get() = prefs.getBoolean(KEY_VIBER_OWN, false)
+        set(value) = prefs.edit().putBoolean(KEY_VIBER_OWN, value).apply()
+
+    var viber: Template
+        get() = read(KEY_VIBER, DEFAULT_VIBER)
+        set(value) = write(KEY_VIBER, value)
+
+    /**
+     * Το πρότυπο που ισχύει **τώρα** για το Viber.
+     *
+     * Ένα σημείο απόφασης, ώστε κανένα σημείο αποστολής να μη χρειάζεται να
+     * θυμηθεί τον κανόνα «εκτός αν ο χρήστης όρισε δικό του».
+     */
+    val viberEffective: Template
+        get() = if (viberOwnText) viber else documents
+
     fun resetCredentials() = prefs.edit().remove(KEY_CREDENTIALS).apply()
 
     fun resetDocuments() = prefs.edit().remove(KEY_DOCUMENTS).apply()
+
+    fun resetViber() = prefs.edit().remove(KEY_VIBER).apply()
 
     // ------------------------------------------------------------ αποθήκευση
 
@@ -98,6 +128,8 @@ class MailTemplateStore(context: Context) {
     companion object {
         private const val KEY_CREDENTIALS = "template_credentials"
         private const val KEY_DOCUMENTS = "template_documents"
+        private const val KEY_VIBER = "template_viber"
+        private const val KEY_VIBER_OWN = "template_viber_own"
 
         /** Διαθέσιμα placeholders, για την οθόνη επεξεργασίας. */
         const val PLACEHOLDER_NAME = "{{επωνυμία}}"
@@ -125,6 +157,25 @@ class MailTemplateStore(context: Context) {
                 DocumentField.FILE_LIST.key,
                 DocumentField.COUNT.key,
                 DocumentField.AFM_IN_SUBJECT.key,
+                DocumentField.NOTE.key,
+            ),
+        )
+
+        /**
+         * Η αφετηρία όταν ο χρήστης ζητήσει χωριστό κείμενο για το Viber.
+         *
+         * Πιο σύντομο από το email επίτηδες: διαβάζεται σε οθόνη τηλεφώνου, δεν
+         * έχει θέμα, και το «Αγαπητέ/ή» σε chat ακούγεται σαν επιστολή. Το
+         * `subject` μένει γιατί το χρησιμοποιεί η καταγραφή στο ημερολόγιο —
+         * στο ίδιο το μήνυμα δεν εμφανίζεται.
+         */
+        val DEFAULT_VIBER = Template(
+            subject = "Φορολογικά έντυπα ($PLACEHOLDER_COUNT) — ΑΦΜ $PLACEHOLDER_AFM",
+            intro = "$PLACEHOLDER_NAME, σας στέλνουμε τα παρακάτω έντυπα:",
+            closing = "Στη διάθεσή σας για οποιαδήποτε διευκρίνιση.",
+            fields = setOf(
+                DocumentField.FILE_LIST.key,
+                DocumentField.COUNT.key,
                 DocumentField.NOTE.key,
             ),
         )

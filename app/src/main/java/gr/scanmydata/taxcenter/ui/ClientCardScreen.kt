@@ -48,7 +48,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import gr.scanmydata.taxcenter.engine.DocumentNaming
 import gr.scanmydata.taxcenter.ui.theme.OkGreen
+import gr.scanmydata.taxcenter.ui.theme.WarnAmber
 import androidx.compose.ui.unit.dp
+import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.SendEntity
@@ -245,12 +247,38 @@ private fun ClientDocumentsTab(
     val sendTarget = client
     if (confirmSend && sendTarget != null) {
         val recipient = rememberRecipient(sendTarget)
+        val mobile = Normalize.mobile(sendTarget.mobile)
+        val viberReady = remember { container.viber.installed() }
+        var channel by remember { mutableStateOf(SendChannel.EMAIL) }
+
+        // Το κανάλι μπορεί να μη στέκει: ο πελάτης χωρίς κινητό, ή συσκευή
+        // χωρίς Viber. Τότε η επιλογή φαίνεται αλλά λέει **γιατί** δεν γίνεται,
+        // αντί να λείπει και να απορεί ο χρήστης πού πήγε.
+        val viberBlocked = when {
+            !viberReady -> "Το Viber δεν είναι εγκατεστημένο σε αυτή τη συσκευή."
+            mobile.isBlank() -> "Ο πελάτης δεν έχει κινητό — έρχεται με την άντληση στοιχείων."
+            else -> ""
+        }
+        val ready = when (channel) {
+            SendChannel.EMAIL -> recipient.valid
+            SendChannel.VIBER -> viberBlocked.isBlank()
+        }
+
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmSend = false },
             title = { Text("Αποστολή ${picked.size} εντύπων") },
             text = {
                 Column {
-                    RecipientPicker(recipient)
+                    ChannelPicker(channel) { channel = it }
+                    Spacer(Modifier.height(10.dp))
+                    when (channel) {
+                        SendChannel.EMAIL -> RecipientPicker(recipient)
+                        SendChannel.VIBER -> ViberRecipient(
+                            mobile = mobile,
+                            blocked = viberBlocked,
+                            onOpenChat = { status = container.viber.openChat(mobile) },
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                     selected.forEach { document ->
                         Text(
@@ -262,36 +290,29 @@ private fun ClientDocumentsTab(
             },
             confirmButton = {
                 TextButton(
-                    enabled = recipient.valid,
+                    enabled = ready,
                     onClick = {
                         confirmSend = false
                         val to = recipient.address
                         val batch = selected.toList()
+                        val chosen = channel
                         scope.launch {
                             sending = true
-                            status = "Αποστολή ${batch.size} εντύπων σε $to…"
-                            status = try {
-                                val token = authorizer.accessToken()
-                                val send = withContext(Dispatchers.IO) {
-                                    container.mail.sendDocuments(
-                                        accessToken = token,
-                                        client = sendTarget,
-                                        documents = batch,
-                                        overrideTo = to,
-                                    )
-                                }
-                                if (send.failed) "Απέτυχε: ${send.error}"
-                                else "Στάλθηκαν ${batch.size} έντυπα στο ${send.toEmail}."
-                            } catch (e: GoogleAuthorizer.ConsentRequired) {
-                                "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
-                            } catch (e: Exception) {
-                                "Απέτυχε: ${e.message}"
+                            status = when (chosen) {
+                                SendChannel.EMAIL -> "Αποστολή ${batch.size} εντύπων σε $to…"
+                                SendChannel.VIBER -> "Άνοιγμα Viber…"
+                            }
+                            status = when (chosen) {
+                                SendChannel.EMAIL ->
+                                    sendByEmail(container, authorizer, sendTarget, batch, to)
+                                SendChannel.VIBER ->
+                                    handToViber(container, sendTarget, batch)
                             }
                             sending = false
                             picked.clear()
                         }
                     },
-                ) { Text("Αποστολή") }
+                ) { Text(if (channel == SendChannel.VIBER) "Άνοιγμα στο Viber" else "Αποστολή") }
             },
             dismissButton = { TextButton(onClick = { confirmSend = false }) { Text("Άκυρο") } },
         )
@@ -454,13 +475,23 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                             // Πράσινο τικ ή κόκκινο θαυμαστικό, πριν από τον
                             // τίτλο: η μόνη ερώτηση που έχει κανείς κοιτώντας
                             // αυτή τη λίστα είναι «έφτασε;».
+                            // Τρεις καταστάσεις, όχι δύο. Το «παραδόθηκε στο
+                            // Viber» δεν είναι ούτε επιτυχία ούτε αποτυχία: το
+                            // μήνυμα δόθηκε σε άλλη εφαρμογή και από εκεί και
+                            // πέρα αποφασίζει άνθρωπος. Πράσινο τικ εκεί θα
+                            // έλεγε ψέματα σε μια λίστα που υπάρχει ακριβώς για
+                            // να απαντά στο «το έστειλα;».
                             Icon(
                                 if (send.failed) Icons.Filled.Error else Icons.Filled.CheckCircle,
-                                contentDescription = if (send.failed) "Απέτυχε" else "Στάλθηκε",
-                                tint = if (send.failed) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    OkGreen
+                                contentDescription = when {
+                                    send.failed -> "Απέτυχε"
+                                    send.handed -> "Παραδόθηκε στο Viber"
+                                    else -> "Στάλθηκε"
+                                },
+                                tint = when {
+                                    send.failed -> MaterialTheme.colorScheme.error
+                                    send.handed -> WarnAmber
+                                    else -> OkGreen
                                 },
                                 modifier = Modifier.size(20.dp).padding(end = 2.dp),
                             )
@@ -468,6 +499,7 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                             Text(
                                 when (send.kind) {
                                     SendEntity.KIND_CREDENTIALS -> "Στοιχεία & κωδικοί"
+                                    SendEntity.KIND_VIBER_DOCUMENTS -> "Φορολογικά έντυπα · Viber"
                                     else -> "Φορολογικά έντυπα"
                                 },
                                 style = MaterialTheme.typography.titleSmall,
@@ -479,7 +511,18 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             )
                         }
-                        Text(send.toEmail, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (send.viaViber) "Κινητό " + send.toEmail else send.toEmail,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (send.handed) {
+                            Text(
+                                "Παραδόθηκε στο Viber — η ίδια η αποστολή γίνεται " +
+                                    "από εκεί και δεν επιβεβαιώνεται εδώ.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = WarnAmber,
+                            )
+                        }
                         if (send.items.isNotBlank()) {
                             Spacer(Modifier.height(4.dp))
                             Text(
@@ -569,3 +612,126 @@ private fun PeriodPicker(
  * οποία κάθεται, και η επικεφαλίδα μοιάζει να κρέμεται από αυτό.
  */
 private val FetchButtonPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+
+
+// ---------------------------------------------------------------- κανάλια
+
+/**
+ * Πώς φεύγουν τα έντυπα.
+ *
+ * Δύο κανάλια που **δεν** είναι ισοδύναμα: το email φεύγει μόνο του και
+ * επιβεβαιώνεται, το Viber περνά υποχρεωτικά από άνθρωπο και δεν
+ * επιβεβαιώνεται. Η διαφορά φαίνεται στην οθόνη, γιατί αλλάζει το τι μπορεί να
+ * υποσχεθεί ο λογιστής στον πελάτη.
+ */
+enum class SendChannel(val label: String) {
+    EMAIL("Email"),
+    VIBER("Viber"),
+}
+
+@Composable
+private fun ChannelPicker(value: SendChannel, onPick: (SendChannel) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SendChannel.entries.forEach { option ->
+            if (option == value) {
+                Button(onClick = { onPick(option) }, contentPadding = FetchButtonPadding) {
+                    Text(option.label)
+                }
+            } else {
+                OutlinedButton(onClick = { onPick(option) }, contentPadding = FetchButtonPadding) {
+                    Text(option.label)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Ο παραλήπτης Viber: ο αριθμός, και τι θα συμβεί μετά.
+ *
+ * Το «θα ανοίξει το Viber» δεν είναι λεπτομέρεια που κρύβεται. Ο λογιστής
+ * πρέπει να ξέρει πριν πατήσει ότι η αποστολή **δεν** ολοκληρώνεται εδώ, γιατί
+ * αλλιώς θα κλείσει την εφαρμογή νομίζοντας ότι έφυγε.
+ */
+@Composable
+private fun ViberRecipient(mobile: String, blocked: String, onOpenChat: () -> Unit) {
+    Column {
+        Text("Παραλήπτης", style = MaterialTheme.typography.labelMedium)
+        if (blocked.isNotBlank()) {
+            Text(
+                blocked,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            return@Column
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                Normalize.mobileE164(mobile),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onOpenChat) { Text("Έλεγχος") }
+        }
+        Text(
+            "Θα ανοίξει το Viber με το κείμενο και τα αρχεία. **Την επαφή και " +
+                "την αποστολή τις κάνεις εκεί** — το Viber δεν επιτρέπει σε άλλη " +
+                "εφαρμογή να στείλει αρχεία μόνη της. Το «Έλεγχος» ανοίγει τη " +
+                "συνομιλία με αυτόν τον αριθμό, για να δεις ποιανού είναι.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+    }
+}
+
+/** Μία αποστολή email, με το σφάλμα ως κείμενο. */
+private suspend fun sendByEmail(
+    container: AppContainer,
+    authorizer: GoogleAuthorizer,
+    client: ClientEntity,
+    documents: List<DocumentEntity>,
+    to: String,
+): String = try {
+    val token = authorizer.accessToken()
+    val send = withContext(Dispatchers.IO) {
+        container.mail.sendDocuments(
+            accessToken = token,
+            client = client,
+            documents = documents,
+            overrideTo = to,
+        )
+    }
+    if (send.failed) "Απέτυχε: ${send.error}"
+    else "Στάλθηκαν ${documents.size} έντυπα στο ${send.toEmail}."
+} catch (e: GoogleAuthorizer.ConsentRequired) {
+    "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
+} catch (e: Exception) {
+    "Απέτυχε: ${e.message}"
+}
+
+/**
+ * Παράδοση στο Viber.
+ *
+ * Το μήνυμα επιστροφής λέει «παραδόθηκαν», όχι «στάλθηκαν» — η διαφορά είναι
+ * πραγματική και ο χρήστης πρέπει να την ξέρει.
+ */
+private suspend fun handToViber(
+    container: AppContainer,
+    client: ClientEntity,
+    documents: List<DocumentEntity>,
+): String = try {
+    val draft = container.viber.draft(client, documents)
+    // **Χωρίς** withContext(IO): εδώ δεν υπάρχει κλήση δικτύου, υπάρχει
+    // `startActivity`. Οι εγγραφές Room είναι suspend και αλλάζουν νήμα μόνες
+    // τους· το να ανοίγει η άλλη εφαρμογή από το κύριο νήμα είναι το σωστό.
+    val send = container.viber.send(client, draft)
+    when {
+        send.failed -> "Απέτυχε: ${send.error}"
+        draft.missing.isNotEmpty() ->
+            "Παραδόθηκαν ${draft.documents.size} έντυπα στο Viber · " +
+                "${draft.missing.size} λείπουν από τη συσκευή."
+        else -> "Παραδόθηκαν ${draft.documents.size} έντυπα στο Viber — στείλ' τα από εκεί."
+    }
+} catch (e: Exception) {
+    "Απέτυχε: ${e.message}"
+}

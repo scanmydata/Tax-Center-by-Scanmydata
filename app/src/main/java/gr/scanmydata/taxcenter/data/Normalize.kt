@@ -142,6 +142,38 @@ object Normalize {
         return domain.substringAfterLast('.').length >= 2
     }
 
+    /**
+     * Ελληνικό **κινητό**, σε δέκα ψηφία (`69XXXXXXXX`).
+     *
+     * Δέχεται ό,τι μορφή κι αν έρθει — `+30 690 000 0000`, `0030690…`,
+     * `690-000-0000` — και επιστρέφει κενό για ο,τιδήποτε δεν είναι ελληνικό
+     * κινητό. **Το σταθερό απορρίπτεται επίτηδες**: το Viber αναγνωρίζει τον
+     * παραλήπτη από τον αριθμό, και ένα `21…` δεν αντιστοιχεί σε λογαριασμό.
+     *
+     * Η αυστηρότητα εδώ δεν είναι υπερβολή. Ένας λάθος αριθμός δεν δίνει
+     * σφάλμα — ανοίγει συνομιλία με **άγνωστο τρίτο**, και το πρώτο πράγμα που
+     * του φτάνει είναι τα φορολογικά έντυπα ξένου ανθρώπου.
+     */
+    fun mobile(raw: String?): String {
+        val digits = secret(raw).filter { it.isDigit() }
+        val local = when {
+            digits.startsWith("0030") -> digits.removePrefix("0030")
+            digits.startsWith("30") && digits.length == 12 -> digits.removePrefix("30")
+            else -> digits
+        }
+        return if (Regex("^69\\d{8}$").matches(local)) local else ""
+    }
+
+    fun validMobile(raw: String?): Boolean = mobile(raw).isNotBlank()
+
+    /**
+     * Ο ίδιος αριθμός σε διεθνή μορφή, όπως τον θέλει το Viber (`+3069…`).
+     *
+     * Κενό όταν ο αριθμός δεν είναι έγκυρο κινητό — ώστε να μη χτιστεί ποτέ
+     * σύνδεσμος προς μισό ή λάθος νούμερο.
+     */
+    fun mobileE164(raw: String?): String = mobile(raw).let { if (it.isBlank()) "" else "+30$it" }
+
     private val DOTS = Regex("[.·]")
     private val NON_ALNUM = Regex("[^\\p{L}\\p{N}]+")
     private val SPACES = Regex("\\s{2,}")

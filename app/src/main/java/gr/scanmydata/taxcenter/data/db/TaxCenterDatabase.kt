@@ -31,7 +31,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         RunLogEntity::class,
         DriveFileEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class TaxCenterDatabase : RoomDatabase() {
@@ -124,6 +124,19 @@ abstract class TaxCenterDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Το κινητό του Μητρώου Επικοινωνίας, για την αποστολή με Viber.
+         *
+         * Ίδιο μοτίβο με τη 3→4: προσθήκη στήλης με προεπιλογή, χωρίς
+         * ξαναγράψιμο. Καμία υπάρχουσα καρτέλα δεν πειράζεται, και το πεδίο
+         * γεμίζει μόνο του στην επόμενη άντληση στοιχείων.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `clients` ADD COLUMN `mobile` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var instance: TaxCenterDatabase? = null
 
@@ -136,7 +149,7 @@ abstract class TaxCenterDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(KeyStoreKeys.databasePassphrase(app))
             return Room.databaseBuilder(app, TaxCenterDatabase::class.java, NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
         }
 

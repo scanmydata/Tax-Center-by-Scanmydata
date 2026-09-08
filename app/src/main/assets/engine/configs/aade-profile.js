@@ -69,6 +69,25 @@ function pickEmail(xml) {
   return { email: '', source: '' };
 }
 
+/**
+ * Το **κινητό** από το ίδιο `getLdapInfo` που δίνει και το email.
+ *
+ * Επαληθεύτηκε ζωντανά: το XML περιέχει `mobilenumber`, `mobilenumberemep` και
+ * `phonenumber`. Το κινητό είναι ο μόνος αριθμός που έχει νόημα για Viber — το
+ * `phonenumber` είναι σταθερό (`21…`) και δεν αντιστοιχεί σε λογαριασμό Viber.
+ *
+ * Κρατάμε μόνο ελληνικά κινητά (`69` + 8 ψηφία). Ένα λάθος εδώ δεν είναι
+ * αθώο: θα άνοιγε συνομιλία με **άγνωστο τρίτο** και το πρώτο πράγμα που θα
+ * του έφτανε θα ήταν φορολογικά έντυπα ξένου ανθρώπου.
+ */
+function pickMobile(xml) {
+  for (const name of ['mobilenumber', 'mobilenumberemep']) {
+    const digits = tag(xml, name).replace(/\D/g, '').replace(/^0030|^30(?=69)/, '');
+    if (/^69\d{8}$/.test(digits)) return { mobile: digits, source: name };
+  }
+  return { mobile: '', source: '' };
+}
+
 module.exports = {
   id: 'aade-profile',
   title: 'Άντληση στοιχείων πελάτη από το TAXIS (ονοματεπώνυμο, ΑΦΜ, ΔΟΥ)',
@@ -137,6 +156,7 @@ module.exports = {
     const ldap = await G(W + '/getLdapInfo/' + encodeURIComponent(afm) + '?' + Date.now());
     http.dump('profile_ldap.xml', ldap);
     const mail = pickEmail(ldap);
+    const cell = pickMobile(ldap);
 
     // ── Σχέσεις φυσικού προσώπου ──────────────────────────────────────────
     //
@@ -173,6 +193,10 @@ module.exports = {
       doy,
       email: mail.email,
       emailSource: mail.source,
+      // Το κινητό του Μητρώου Επικοινωνίας. Χρησιμεύει στην αποστολή με Viber,
+      // που αναγνωρίζει τον παραλήπτη **από τον αριθμό** και όχι από διεύθυνση.
+      mobile: cell.mobile,
+      mobileSource: cell.source,
       // Ο ΑΜΚΑ αντλείται χωριστά (MyAMKA, άλλη πύλη). Εδώ λέμε μόνο αν υπάρχει.
       hasAmka: kind !== 'ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ',
       active: hasEpix

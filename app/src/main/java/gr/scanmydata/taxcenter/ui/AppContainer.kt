@@ -12,6 +12,7 @@ import gr.scanmydata.taxcenter.engine.ProcessRunner
 import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.google.DriveSync
 import gr.scanmydata.taxcenter.mail.MailService
+import gr.scanmydata.taxcenter.mail.ViberSender
 
 /**
  * Χειροκίνητο DI, χωρίς framework — όπως και στο Prosfora-APK.
@@ -31,6 +32,12 @@ class AppContainer(context: Context) {
 
     val repository: ClientRepository by lazy { ClientRepository(app, db, crypto) }
     val mail: MailService by lazy { MailService(app, db, repository, settings) }
+
+    /**
+     * Το δεύτερο κανάλι. Χωριστό από το [mail] γιατί δεν είναι το ίδιο πράγμα:
+     * το email φεύγει μόνο του, το Viber περνά υποχρεωτικά από άνθρωπο.
+     */
+    val viber: ViberSender by lazy { ViberSender(app, db, settings) }
     val processRunner: ProcessRunner by lazy { ProcessRunner(app, db, crypto, assets, settings) }
 
     /**

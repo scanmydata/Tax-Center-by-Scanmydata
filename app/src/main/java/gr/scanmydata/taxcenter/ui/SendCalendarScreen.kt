@@ -222,6 +222,11 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     label = { Text("Στοιχεία") },
                 )
                 FilterChip(
+                    selected = kindFilter == SendEntity.KIND_VIBER_DOCUMENTS,
+                    onClick = { kindFilter = SendEntity.KIND_VIBER_DOCUMENTS },
+                    label = { Text("Viber") },
+                )
+                FilterChip(
                     selected = failedOnly,
                     onClick = { failedOnly = !failedOnly },
                     label = { Text("Μόνο αποτυχίες") },
@@ -377,6 +382,17 @@ private suspend fun retrySend(
             }
             if (result.failed) "Απέτυχε ξανά: ${result.error}" else "Στάλθηκε."
         }
+        // Μια αποτυχημένη αποστολή Viber **δεν** ξαναστέλνεται με email.
+        //
+        // Η σιωπηλή αλλαγή καναλιού είναι το χειρότερο που θα μπορούσε να κάνει
+        // αυτό το κουμπί: ο λογιστής διάλεξε Viber για κάποιον λόγο — συχνά
+        // επειδή ο πελάτης δεν διαβάζει email — και θα έβλεπε «στάλθηκε» για
+        // μήνυμα που πήγε αλλού. Η επανάληψη γίνεται από την καρτέλα, όπου
+        // φαίνεται ρητά το κανάλι.
+        send.viaViber ->
+            "Η αποστολή με Viber επαναλαμβάνεται από την καρτέλα του πελάτη, " +
+                "στα Έγγραφα — χρειάζεται την ίδια τη συσκευή."
+
         else -> {
             val names = send.items.lines().filter { it.isNotBlank() }
             val documents = container.db.documents().byClientAndNames(client.id, names)

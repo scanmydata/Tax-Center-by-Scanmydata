@@ -102,6 +102,7 @@ fun ClientEditScreen(
 
     var emailAade by remember { mutableStateOf("") }
     var emailManual by remember { mutableStateOf("") }
+    var mobile by remember { mutableStateOf("") }
     var preferManual by remember { mutableStateOf(false) }
 
     val credentials = remember { mutableStateMapOf<Field, String>() }
@@ -142,6 +143,7 @@ fun ClientEditScreen(
         active = client.active
         emailAade = client.emailAade
         emailManual = client.emailManual
+        mobile = client.mobile
         preferManual = client.emailPreferred.isNotBlank() &&
             client.emailPreferred == client.emailManual
         withContext(Dispatchers.IO) { container.repository.credentials(client.id) }
@@ -224,6 +226,10 @@ fun ClientEditScreen(
                                     if (profile.kind.isNotBlank()) kind = profile.kind
                                     if (profile.doy.isNotBlank()) doy = profile.doy
                                     if (profile.email.isNotBlank()) emailAade = profile.email
+                                    // Το κινητό έρχεται από την **ίδια** κλήση
+                                    // με το email (getLdapInfo) — καμία
+                                    // επιπλέον σύνδεση, κανένα επιπλέον κόστος.
+                                    if (profile.mobile.isNotBlank()) mobile = profile.mobile
                                     // Ιδιώτης ή ατομική: ο ΑΜΚΑ έρχεται μαζί με
                                     // τα υπόλοιπα. Ερχόταν και πριν — απλώς δεν
                                     // τον έγραφε κανείς στο πεδίο, οπότε η
@@ -468,6 +474,30 @@ fun ClientEditScreen(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(14.dp))
+        OutlinedTextField(
+            value = mobile,
+            onValueChange = { mobile = it },
+            label = { Text("Κινητό (για αποστολή με Viber)") },
+            singleLine = true,
+            isError = mobile.isNotBlank() && !Normalize.validMobile(mobile),
+            supportingText = {
+                Text(
+                    when {
+                        mobile.isBlank() ->
+                            "Έρχεται μόνο του με την «Άντληση στοιχείων», από το ίδιο " +
+                                "Μητρώο Επικοινωνίας που δίνει και το email."
+                        !Normalize.validMobile(mobile) ->
+                            "Χρειάζεται ελληνικό κινητό (69… , δέκα ψηφία). Το σταθερό " +
+                                "δεν αντιστοιχεί σε λογαριασμό Viber."
+                        else -> "Θα χρησιμοποιηθεί ως " + Normalize.mobileE164(mobile) + "."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         Spacer(Modifier.height(8.dp))
         Text("Ποια χρησιμοποιείται στην αποστολή:", style = MaterialTheme.typography.bodySmall)
         Row {
@@ -561,6 +591,7 @@ fun ClientEditScreen(
                                 active = active,
                                 emailAade = emailAade.trim(),
                                 emailManual = emailManual.trim(),
+                                mobile = Normalize.mobile(mobile),
                                 emailPreferred = if (preferManual) emailManual.trim() else "",
                                 maritalStatus = maritalStatus.trim(),
                                 // Η αμοιβαία σύνδεση γίνεται μετά την

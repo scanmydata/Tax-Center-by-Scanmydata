@@ -24,7 +24,7 @@ class RedactorTest {
 
     @Test
     fun `κωδικός σε query string δεν διαρρέει`() {
-        assertHidden("s3cr3tpass", "GET https://login.gsis.gr/x?username=pw0001&password=s3cr3tpass -> 302")
+        assertHidden("s3cr3tpass", "GET https://login.gsis.gr/x?username=user0000000000&password=s3cr3tpass -> 302")
     }
 
     @Test

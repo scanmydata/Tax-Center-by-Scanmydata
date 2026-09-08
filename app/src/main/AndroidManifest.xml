@@ -10,6 +10,19 @@
     <!-- Η διανομή γίνεται με sideload από GitHub Releases, όχι από το Play Store. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!--
+        Από το Android 11 οι εφαρμογές δεν βλέπουν τι άλλο είναι εγκατεστημένο,
+        εκτός αν το δηλώσουν. Χωρίς αυτή τη δήλωση το «είναι εγκατεστημένο το
+        Viber;» επιστρέφει πάντα όχι, και η επιλογή αποστολής θα ήταν κρυμμένη
+        σε συσκευές που το έχουν.
+
+        Δηλώνεται **μόνο** το Viber, ονομαστικά — όχι ερώτημα με intent filter
+        που θα επέτρεπε απογραφή όλων των εφαρμογών μηνυμάτων της συσκευής.
+    -->
+    <queries>
+        <package android:name="com.viber.voip" />
+    </queries>
+
     <application
         android:name=".TaxCenterApp"
         android:allowBackup="false"

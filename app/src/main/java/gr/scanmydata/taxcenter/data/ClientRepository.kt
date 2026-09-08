@@ -176,6 +176,7 @@ class ClientRepository(
         amka: String? = null,
         emailAade: String? = null,
         maritalStatus: String? = null,
+        mobile: String? = null,
     ) {
         val existing = db.clients().byId(clientId) ?: return
         db.clients().update(
@@ -187,6 +188,7 @@ class ClientRepository(
                 amkaEnc = amka?.let { crypto.enc(it) } ?: existing.amkaEnc,
                 emailAade = emailAade ?: existing.emailAade,
                 maritalStatus = maritalStatus ?: existing.maritalStatus,
+                mobile = mobile?.let { Normalize.mobile(it) } ?: existing.mobile,
                 updatedAt = System.currentTimeMillis(),
             ),
         )
@@ -202,6 +204,7 @@ class ClientRepository(
                     doy?.let { "ΔΟΥ" },
                     amka?.let { "ΑΜΚΑ" },
                     emailAade?.let { "email" },
+                    mobile?.let { "κινητό" },
                 ).joinToString(", "),
             ),
         )

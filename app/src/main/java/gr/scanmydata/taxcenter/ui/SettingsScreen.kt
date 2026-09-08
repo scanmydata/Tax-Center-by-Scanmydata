@@ -269,6 +269,17 @@ fun SettingsScreen(
                     Text("Στοιχεία & κωδικοί")
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { editingTemplate = TemplateKind.VIBER }) {
+                Text("Viber")
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Το Viber στέλνει εξ ορισμού **το ίδιο κείμενο με το email**. " +
+                    "Άνοιξέ το μόνο αν θέλεις να διαφέρει.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
         }
 
         SettingsSection(

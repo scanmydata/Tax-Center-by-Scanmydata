@@ -54,6 +54,17 @@ data class ClientEntity(
      */
     val spouseAfm: String = "",
 
+    /**
+     * Κινητό, δέκα ψηφία, από το Μητρώο Επικοινωνίας ΑΑΔΕ (`mobilenumber` του
+     * ίδιου `getLdapInfo` που δίνει και το email — καμία επιπλέον κλήση).
+     *
+     * Υπάρχει για την αποστολή με Viber, που αναγνωρίζει τον παραλήπτη από τον
+     * **αριθμό** και όχι από διεύθυνση. Δεν κρυπτογραφείται χωριστά, όπως και
+     * το email: ολόκληρη η βάση είναι SQLCipher, και ένα κινητό δεν είναι
+     * διαπιστευτήριο — δεν ξεκλειδώνει τίποτα.
+     */
+    val mobile: String = "",
+
     /** Από το Μητρώο Επικοινωνίας ΑΑΔΕ (`getLdapInfo`). */
     val emailAade: String = "",
     /** Δεύτερη διεύθυνση που καταχωρεί ο λογιστής. */
@@ -194,24 +205,47 @@ data class SendEntity(
     /** Αντιγράφονται τη στιγμή της αποστολής: ο πελάτης μπορεί να διαγραφεί αργότερα. */
     val afm: String,
     val clientName: String,
+    /**
+     * Πού πήγε: διεύθυνση email, ή κινητό όταν το κανάλι είναι το Viber.
+     *
+     * Το όνομα έμεινε `toEmail` για να μη χρειαστεί migration σε πίνακα που
+     * είναι ήδη ιστορικό αρχείο· το [viaViber] λέει πώς να διαβαστεί.
+     */
     val toEmail: String,
     val subject: String,
-    /** DOCUMENTS = φορολογικά έντυπα · CREDENTIALS = οι κωδικοί του ίδιου του πελάτη. */
+    /**
+     * DOCUMENTS = φορολογικά έντυπα με email · CREDENTIALS = οι κωδικοί του
+     * ίδιου του πελάτη · VIBER_DOCUMENTS = έντυπα που παραδόθηκαν στο Viber.
+     */
     val kind: String,
     /** Ονόματα συνημμένων ή περιγραφή περιεχομένου, ένα ανά γραμμή. */
     val items: String = "",
     val itemCount: Int = 0,
     val sentAt: Long,
-    /** SENT ή FAILED. */
+    /** SENT, FAILED ή HANDED (παραδόθηκε στο Viber — βλ. [handed]). */
     val status: String = STATUS_SENT,
     val error: String = "",
 ) {
     val failed: Boolean get() = status == STATUS_FAILED
 
+    /**
+     * Παραδόθηκε σε άλλη εφαρμογή, **χωρίς επιβεβαίωση παράδοσης**.
+     *
+     * Το Viber δεν μας λέει αν το μήνυμα στάλθηκε: παραδίδουμε κείμενο και
+     * αρχεία στην εφαρμογή, και από εκεί και πέρα αποφασίζει ο άνθρωπος. Το να
+     * καταγραφεί αυτό ως «στάλθηκε» θα ήταν ψέμα στο ημερολόγιο — και το
+     * ημερολόγιο υπάρχει ακριβώς για να απαντά στο «το έστειλα;».
+     */
+    val handed: Boolean get() = status == STATUS_HANDED
+
+    val viaViber: Boolean get() = kind == KIND_VIBER_DOCUMENTS
+
     companion object {
         const val STATUS_SENT = "SENT"
         const val STATUS_FAILED = "FAILED"
+        const val STATUS_HANDED = "HANDED"
         const val KIND_DOCUMENTS = "DOCUMENTS"
+        const val KIND_VIBER_DOCUMENTS = "VIBER_DOCUMENTS"
         const val KIND_CREDENTIALS = "CREDENTIALS"
     }
 }

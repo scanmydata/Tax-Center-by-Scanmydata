@@ -72,6 +72,7 @@ interface ClientDao {
             // χάνεται χωρίς σφάλμα — ο χειρότερος τρόπος να σπάσει κάτι.
             maritalStatus = incoming.maritalStatus.ifBlank { existing.maritalStatus },
             spouseAfm = incoming.spouseAfm.ifBlank { existing.spouseAfm },
+            mobile = incoming.mobile.ifBlank { existing.mobile },
             // Το «ανενεργός» είναι πληροφορία, όχι κενό — περνά όπως έρχεται.
             active = incoming.active,
             sourceFile = incoming.sourceFile.ifBlank { existing.sourceFile },

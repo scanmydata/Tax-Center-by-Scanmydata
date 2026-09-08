@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.ViewGroup
 import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ClientRepository
+import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.mail.MailService
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +86,7 @@ class FetchController(
         DOY("ΔΟΥ"),
         AMKA("ΑΜΚΑ"),
         MARITAL("Οικογενειακή κατάσταση"),
+        MOBILE("Κινητό ΑΑΔΕ"),
     }
 
     data class Change(val field: UpdateField, val before: String, val after: String)
@@ -490,6 +492,7 @@ class FetchController(
                 kind = json.optString("kind").trim(),
                 doy = json.optString("doy").trim(),
                 email = json.optString("email").trim(),
+                mobile = Normalize.mobile(json.optString("mobile")),
                 maritalStatus = json.optString("maritalStatus").trim(),
                 spouseAfm = json.optString("spouseAfm").trim(),
                 spouseName = json.optString("spouseName").trim(),
@@ -554,6 +557,8 @@ class FetchController(
         val kind: String = "",
         val doy: String = "",
         val email: String = "",
+        /** Κινητό Μητρώου Επικοινωνίας, δέκα ψηφία. Κενό όταν δεν υπάρχει. */
+        val mobile: String = "",
         val amka: String = "",
         /** «ΕΓΓΑΜΟΣ-Η», «ΑΓΑΜΟΣ-Η»… όπως το γράφει το Μητρώο. */
         val maritalStatus: String = "",
@@ -700,6 +705,14 @@ class FetchController(
                 propose(UpdateField.KIND, client.kind, json.optString("kind"))
                 propose(UpdateField.DOY, client.doy, json.optString("doy"))
                 propose(UpdateField.MARITAL, client.maritalStatus, json.optString("maritalStatus"))
+                // Το config φιλτράρει ήδη σε ελληνικό κινητό· εδώ περνά από το
+                // ίδιο `Normalize` με τη φόρμα, ώστε η σύγκριση «άλλαξε;» να
+                // γίνεται πάντα σε ίδια μορφή.
+                propose(
+                    UpdateField.MOBILE,
+                    client.mobile,
+                    Normalize.mobile(json.optString("mobile")),
+                )
                 noteSpouseFromRegistry(job, json)
             }
 
@@ -808,6 +821,7 @@ class FetchController(
                 amka = value[UpdateField.AMKA],
                 emailAade = value[UpdateField.EMAIL_AADE],
                 maritalStatus = value[UpdateField.MARITAL],
+                mobile = value[UpdateField.MOBILE],
             )
         }
         _state.value = _state.value.copy(pending = emptyList())

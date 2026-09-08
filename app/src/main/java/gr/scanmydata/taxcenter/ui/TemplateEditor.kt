@@ -29,10 +29,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.mail.MailTemplateStore
 
-/** Ποιο από τα δύο πρότυπα επεξεργάζεται. */
+/** Ποιο πρότυπο επεξεργάζεται. */
 enum class TemplateKind(val title: String) {
     CREDENTIALS("Πρότυπο — στοιχεία & κωδικοί πελάτη"),
     DOCUMENTS("Πρότυπο — αποστολή εντύπων"),
+
+    /**
+     * Το κείμενο του Viber, όταν ο χρήστης θέλει να διαφέρει από του email.
+     *
+     * Όσο ο διακόπτης είναι κλειστός, το Viber στέλνει **ακριβώς** το κείμενο
+     * του email και αυτό εδώ δεν χρησιμοποιείται καθόλου.
+     */
+    VIBER("Πρότυπο — αποστολή με Viber"),
 }
 
 /**
@@ -55,6 +63,7 @@ fun TemplateEditorDialog(
         when (kind) {
             TemplateKind.CREDENTIALS -> store.credentials
             TemplateKind.DOCUMENTS -> store.documents
+            TemplateKind.VIBER -> store.viber
         }
     }
 
@@ -62,6 +71,7 @@ fun TemplateEditorDialog(
     var intro by remember(initial) { mutableStateOf(initial.intro) }
     var closing by remember(initial) { mutableStateOf(initial.closing) }
     val fields = remember(initial) { mutableStateListOf<String>().apply { addAll(initial.fields) } }
+    var ownText by remember(kind) { mutableStateOf(store.viberOwnText) }
 
     fun toggle(key: String) {
         if (key in fields) fields.remove(key) else fields.add(key)
@@ -72,6 +82,36 @@ fun TemplateEditorDialog(
         title = { Text(kind.title) },
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+
+                if (kind == TemplateKind.VIBER) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = ownText, onCheckedChange = { ownText = it })
+                        Text(
+                            "  Χωριστό κείμενο για το Viber",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Text(
+                        if (ownText) {
+                            "Το Viber θα στέλνει το παρακάτω κείμενο. Το θέμα δεν " +
+                                "εμφανίζεται σε συνομιλία — κρατιέται μόνο για το " +
+                                "ημερολόγιο αποστολών."
+                        } else {
+                            "Το Viber στέλνει ό,τι και το email. Άνοιξέ το μόνο αν " +
+                                "θέλεις να διαφέρουν — δύο κείμενα που λένε το ίδιο " +
+                                "πράγμα αποκλίνουν με τον καιρό, και διορθώνεις το ένα " +
+                                "χωρίς να θυμηθείς το άλλο."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    if (!ownText) {
+                        // Χωρίς τα πεδία από κάτω: θα έδιναν την εντύπωση ότι
+                        // ρυθμίζουν κάτι που δεν χρησιμοποιείται.
+                        return@Column
+                    }
+                }
 
                 OutlinedTextField(
                     value = subject,
@@ -110,7 +150,7 @@ fun TemplateEditorDialog(
                         Text(
                             "${MailTemplateStore.PLACEHOLDER_NAME} — η επωνυμία του πελάτη\n" +
                                 "${MailTemplateStore.PLACEHOLDER_AFM} — το ΑΦΜ του" +
-                                if (kind == TemplateKind.DOCUMENTS) {
+                                if (kind != TemplateKind.CREDENTIALS) {
                                     "\n${MailTemplateStore.PLACEHOLDER_COUNT} — πλήθος συνημμένων"
                                 } else {
                                     ""
@@ -150,12 +190,19 @@ fun TemplateEditorDialog(
                         )
                     }
 
-                    TemplateKind.DOCUMENTS -> {
+                    TemplateKind.DOCUMENTS, TemplateKind.VIBER -> {
                         MailTemplateStore.DocumentField.entries.forEach { field ->
                             FieldSwitch(
                                 label = field.label,
                                 checked = field.key in fields,
-                                warning = "",
+                                warning = if (
+                                    kind == TemplateKind.VIBER &&
+                                    field == MailTemplateStore.DocumentField.AFM_IN_SUBJECT
+                                ) {
+                                    "Το Viber δεν έχει θέμα — αυτό φαίνεται μόνο στο ημερολόγιο."
+                                } else {
+                                    ""
+                                },
                                 onToggle = { toggle(field.key) },
                             )
                         }
@@ -174,6 +221,10 @@ fun TemplateEditorDialog(
                 when (kind) {
                     TemplateKind.CREDENTIALS -> store.credentials = updated
                     TemplateKind.DOCUMENTS -> store.documents = updated
+                    TemplateKind.VIBER -> {
+                        store.viberOwnText = ownText
+                        if (ownText) store.viber = updated
+                    }
                 }
                 onDismiss()
             }) { Text("Αποθήκευση") }
@@ -185,6 +236,10 @@ fun TemplateEditorDialog(
                     when (kind) {
                         TemplateKind.CREDENTIALS -> store.resetCredentials()
                         TemplateKind.DOCUMENTS -> store.resetDocuments()
+                        TemplateKind.VIBER -> {
+                            store.resetViber()
+                            store.viberOwnText = false
+                        }
                     }
                     onDismiss()
                 }) { Text("Επαναφορά") }
