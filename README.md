@@ -103,7 +103,7 @@ npm test                # τρέχει τον engine σε sandbox χωρίς Nod
 
 Δεν χρειάζεται Android Studio — το build γίνεται στο GitHub Actions. Κάθε push
 στο `main` παράγει APK + AAB και δημοσιεύει
-[release](https://github.com/scanmydata/ScanMyData-Tax-Center/releases).
+[release](https://github.com/scanmydata/Tax-Center-by-Scanmydata/releases).
 
 Τοπικά:
 

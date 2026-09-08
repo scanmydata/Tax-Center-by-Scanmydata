@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 object UpdateChecker {
 
     private const val LATEST =
-        "https://api.github.com/repos/scanmydata/ScanMyData-Tax-Center/releases/latest"
+        "https://api.github.com/repos/scanmydata/Tax-Center-by-Scanmydata/releases/latest"
 
     data class Release(val tag: String, val apkUrl: String, val notes: String) {
         /** Η έκδοση χωρίς το `v` του tag, για σύγκριση. */

@@ -671,13 +671,17 @@ private fun ViberRecipient(mobile: String, blocked: String, onOpenChat: () -> Un
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onOpenChat) { Text("Έλεγχος") }
+            TextButton(onClick = onOpenChat) { Text("Άνοιγμα συνομιλίας") }
         }
         Text(
-            "Θα ανοίξει το Viber με το κείμενο και τα αρχεία. **Την επαφή και " +
-                "την αποστολή τις κάνεις εκεί** — το Viber δεν επιτρέπει σε άλλη " +
-                "εφαρμογή να στείλει αρχεία μόνη της. Το «Έλεγχος» ανοίγει τη " +
-                "συνομιλία με αυτόν τον αριθμό, για να δεις ποιανού είναι.",
+            "Θα ανοίξει το Viber με το κείμενο και τα αρχεία, στην οθόνη «κοινή " +
+                "χρήση με…». **Ο αριθμός αντιγράφεται στο πρόχειρο**: στην " +
+                "αναζήτηση επαφής κάνε επικόλληση αντί να τον πληκτρολογήσεις.\n\n" +
+                "Το Viber δεν δίνει σε καμία εφαρμογή τρόπο να προεπιλέξει " +
+                "παραλήπτη όταν στέλνει αρχεία — γι' αυτό το τελευταίο βήμα " +
+                "μένει στο χέρι σου. Το «Άνοιγμα συνομιλίας» ανοίγει τη " +
+                "συνομιλία με αυτόν τον αριθμό: χρήσιμο για να δεις ποιανού " +
+                "είναι, και επειδή μετά ανεβαίνει στην κορυφή των πρόσφατων.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
@@ -730,7 +734,9 @@ private suspend fun handToViber(
         draft.missing.isNotEmpty() ->
             "Παραδόθηκαν ${draft.documents.size} έντυπα στο Viber · " +
                 "${draft.missing.size} λείπουν από τη συσκευή."
-        else -> "Παραδόθηκαν ${draft.documents.size} έντυπα στο Viber — στείλ' τα από εκεί."
+        else ->
+            "Παραδόθηκαν ${draft.documents.size} έντυπα στο Viber. Ο αριθμός είναι " +
+                "στο πρόχειρο — επικόλλησέ τον στην αναζήτηση επαφής."
     }
 } catch (e: Exception) {
     "Απέτυχε: ${e.message}"

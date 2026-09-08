@@ -1,10 +1,15 @@
 package gr.scanmydata.taxcenter.mail
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.PersistableBundle
 import androidx.core.content.FileProvider
 import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.Settings
@@ -39,6 +44,16 @@ import java.io.File
  * **Δεν υπάρχει μαζική αποστολή με Viber.** Κάθε πελάτης θέλει δύο πατήματα
  * ανθρώπου. Αυτό δεν είναι παράλειψη υλοποίησης· είναι το όριο του καναλιού,
  * και γι' αυτό η μαζική αποστολή μένει αποκλειστικά στο email.
+ *
+ * **Ο παραλήπτης δεν προεπιλέγεται.** Το `ACTION_SEND` προς το Viber ανοίγει
+ * πάντα τη δική του οθόνη «κοινή χρήση με…», και δεν υπάρχει τεκμηριωμένος
+ * τρόπος να δηλωθεί επαφή ή αριθμός μαζί με τα αρχεία — ούτε extra, ούτε
+ * activity, ούτε deep link. Το `viber://chat?number=` ανοίγει τη σωστή
+ * συνομιλία αλλά **δεν** μεταφέρει συνημμένα, οπότε δεν αντικαθιστά τη ροή.
+ *
+ * Ό,τι μπορεί να γίνει γίνεται: ο αριθμός μπαίνει στο **πρόχειρο** πριν
+ * ανοίξει το Viber, ώστε η αναζήτηση επαφής να είναι μια επικόλληση αντί για
+ * δέκα ψηφία στο χέρι.
  *
  * **Δεν ξέρουμε αν έφτασε.** Παραδίδουμε στο Viber και χάνουμε το νήμα. Η
  * εγγραφή στο ημερολόγιο γράφεται ως [SendEntity.STATUS_HANDED] και όχι ως
@@ -133,6 +148,14 @@ class ViberSender(
 
         try {
             if (!installed()) throw NotInstalled()
+            // Ο αριθμός στο πρόχειρο **πριν** ανοίξει το Viber.
+            //
+            // Το Viber δεν δέχεται παραλήπτη μαζί με τα αρχεία: η οθόνη
+            // κοινοποίησης ζητά επαφή, και μέχρι τώρα ο λογιστής πληκτρολογούσε
+            // δέκα ψηφία με το χέρι — για κάθε πελάτη, κάθε φορά. Δεν υπάρχει
+            // τρόπος να προεπιλεγεί (βλ. σχόλιο της κλάσης), οπότε το επόμενο
+            // καλύτερο είναι η αναζήτηση να γίνεται με επικόλληση.
+            copyToClipboard(Normalize.mobileE164(draft.to))
             context.startActivity(shareIntent(draft))
         } catch (e: ActivityNotFoundException) {
             status = SendEntity.STATUS_FAILED
@@ -197,6 +220,30 @@ class ViberSender(
     // ------------------------------------------------------------ εσωτερικά
 
     private fun fileOf(document: DocumentEntity) = File(context.filesDir, document.relativePath)
+
+    /**
+     * Βάζει τον αριθμό στο πρόχειρο, ώστε στην αναζήτηση του Viber να αρκεί μια
+     * επικόλληση.
+     *
+     * Σημειώνεται ως **ευαίσθητο** (`EXTRA_IS_SENSITIVE`): από το Android 13 το
+     * σύστημα δείχνει προεπισκόπηση του προχείρου, και ένα τηλέφωνο πελάτη δεν
+     * χρειάζεται να εμφανίζεται σε κάθε επικόλληση.
+     *
+     * Η αποτυχία δεν σταματά την αποστολή — το πρόχειρο είναι διευκόλυνση.
+     */
+    private fun copyToClipboard(text: String) {
+        if (text.isBlank()) return
+        runCatching {
+            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("Αριθμός παραλήπτη", text)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                clip.description.extras = PersistableBundle().apply {
+                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                }
+            }
+            manager.setPrimaryClip(clip)
+        }
+    }
 
     /**
      * Ένα ή πολλά αρχεία, μαζί με το κείμενο, προς το Viber και **μόνο**.

@@ -94,10 +94,10 @@ openssl x509 -in cert.pem -noout -fingerprint -sha1
 
 ```bash
 base64 -w0 release.p12 > release.p12.b64
-gh secret set KEYSTORE_BASE64   --repo scanmydata/ScanMyData-Tax-Center < release.p12.b64
-gh secret set KEYSTORE_PASSWORD --repo scanmydata/ScanMyData-Tax-Center < keystore-password.txt
-gh secret set KEY_PASSWORD      --repo scanmydata/ScanMyData-Tax-Center < keystore-password.txt
-printf 'taxcenter' | gh secret set KEY_ALIAS --repo scanmydata/ScanMyData-Tax-Center
+gh secret set KEYSTORE_BASE64   --repo scanmydata/Tax-Center-by-Scanmydata < release.p12.b64
+gh secret set KEYSTORE_PASSWORD --repo scanmydata/Tax-Center-by-Scanmydata < keystore-password.txt
+gh secret set KEY_PASSWORD      --repo scanmydata/Tax-Center-by-Scanmydata < keystore-password.txt
+printf 'taxcenter' | gh secret set KEY_ALIAS --repo scanmydata/Tax-Center-by-Scanmydata
 rm -f release.p12.b64
 ```
 
@@ -119,9 +119,9 @@ Project `scanmydata-tax-center`. Ενεργοποιημένα API:
 | App name | `ScanMyData Tax Center` |
 | User type | **External** |
 | User support email | `adonis.douramanis@gmail.com` |
-| Application home page | `https://scanmydata.github.io/ScanMyData-Tax-Center/` |
-| Privacy policy link | `https://scanmydata.github.io/ScanMyData-Tax-Center/privacy-policy.html` |
-| Terms of Service link | `https://scanmydata.github.io/ScanMyData-Tax-Center/terms.html` |
+| Application home page | `https://scanmydata.github.io/Tax-Center-by-Scanmydata/` |
+| Privacy policy link | `https://scanmydata.github.io/Tax-Center-by-Scanmydata/privacy-policy.html` |
+| Terms of Service link | `https://scanmydata.github.io/Tax-Center-by-Scanmydata/terms.html` |
 | Authorised domain | `scanmydata.github.io` |
 | Developer contact | `adonis.douramanis@gmail.com` |
 | App logo | **δεν ανέβηκε** — βλ. παρακάτω |
@@ -194,7 +194,7 @@ Publishing status: **In production**, χωρίς πιστοποίηση. Συν�
 
 ## 7. Έλεγχος
 
-1. Εγκατάστησε το APK από το τελευταίο [release](https://github.com/scanmydata/ScanMyData-Tax-Center/releases)
+1. Εγκατάστησε το APK από το τελευταίο [release](https://github.com/scanmydata/Tax-Center-by-Scanmydata/releases)
    — πρέπει να είναι **release-signed**, όχι debug.
 2. Ρυθμίσεις → **Σύνδεση με Google**.
 3. Θα ζητηθεί άδεια για αποστολή email και για αρχεία της εφαρμογής στο Drive.

@@ -206,7 +206,7 @@
 - [x] `docs/google-cloud.md` — στήσιμο OAuth client, με τα πραγματικά στοιχεία
 - [x] README με αρχιτεκτονική και GDPR
 - [x] `docs/privacy-policy.html` και `docs/terms.html`
-- [x] GitHub Pages: https://scanmydata.github.io/ScanMyData-Tax-Center/
+- [x] GitHub Pages: https://scanmydata.github.io/Tax-Center-by-Scanmydata/
 - [x] `UpdateChecker` από GitHub Releases μέσω `FileProvider`
 - [x] Drive backup opt-in, AES-256-GCM με passphrase χρήστη (E2E), με επαναφορά
 - [!] Δοκιμή κύκλου αντιγράφου-επαναφοράς σε δεύτερη συσκευή
