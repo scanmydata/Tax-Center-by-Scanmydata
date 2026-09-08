@@ -41,12 +41,22 @@ jobs:
             NAME="${GITHUB_REF#refs/tags/v}"
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            NAME="0.1.${GITHUB_RUN_NUMBER}"
-            TAG="v0.1.${GITHUB_RUN_NUMBER}"
+            # Σειρά 0.2 και όχι 0.1, επειδή το αποθετήριο άλλαξε.
+            #
+            # Το GITHUB_RUN_NUMBER ξαναρχίζει από το 1 σε κάθε νέο repo. Στη
+            # σειρά 0.1 το πρώτο build εδώ θα ήταν 0.1.1 — δηλαδή **μικρότερο**
+            # από το 0.1.46 που έχουν ήδη οι συσκευές, και ο έλεγχος
+            # ενημερώσεων (σωστά) δεν θα πρότεινε ποτέ τίποτα. Κανείς δεν θα
+            # έπαιρνε ξανά ενημέρωση, και τίποτα δεν θα φαινόταν χαλασμένο.
+            NAME="0.2.${GITHUB_RUN_NUMBER}"
+            TAG="v0.2.${GITHUB_RUN_NUMBER}"
           fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          # Το versionCode πρέπει να αυξάνεται μονότονα και σε όλη τη ζωή της
+          # εφαρμογής: το Android αρνείται εγκατάσταση με μικρότερο. Το
+          # μετράμε από εκεί που σταμάτησε το παλιό αποθετήριο (46).
+          echo "code=$((GITHUB_RUN_NUMBER + 46))" >> "$GITHUB_OUTPUT"
 
       - name: Decode signing keystore
         if: ${{ env.KEYSTORE_BASE64 != '' }}
