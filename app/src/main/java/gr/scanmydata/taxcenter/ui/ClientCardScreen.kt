@@ -92,8 +92,17 @@ fun ClientCardScreen(
     Column(modifier) {
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Στοιχεία") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Έγγραφα") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Αποστολές") })
+            Tab(
+                selected = tab == 1,
+                // Η καρτέλα «Στοιχεία» μπορεί να έχει αναποθήκευτη άντληση.
+                onClick = { UnsavedGuard.guard { tab = 1 } },
+                text = { Text("Έγγραφα") },
+            )
+            Tab(
+                selected = tab == 2,
+                onClick = { UnsavedGuard.guard { tab = 2 } },
+                text = { Text("Αποστολές") },
+            )
         }
         when (tab) {
             0 -> ClientEditScreen(

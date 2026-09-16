@@ -16,5 +16,6 @@
 | [Κωδικοί με email: δικλείδες](.claude/memory/credentials-email-safeguards.md) | Επιτρέπεται, αλλά κλειστό εξ ορισμού, με προειδοποίηση ανά αποστολή και καταγραφή. |
 | [Παγίδες με ελληνικά σε Windows](.claude/memory/greek-tooling-pitfalls-windows.md) | BOM σε `.ps1`, εμφωλευμένα σχόλια Kotlin, ASCII `\b` στη Java. |
 | [Το keystore υπογραφής](.claude/memory/release-keystore.md) | Ζει εκτός repo. Αν χαθεί, η εφαρμογή δεν ενημερώνεται ποτέ ξανά. |
+| [Διακομμένη επιχείρηση στο Μητρώο](.claude/memory/aade-discontinued-business.md) | Η «κατάσταση» λέει ΕΝΕΡΓΗ και μετά την παύση· μόνο το `hmdiakophs` λέει την αλήθεια. |
 
 Η τρέχουσα κατάσταση ανά φάση είναι στο [TODO.md](TODO.md).

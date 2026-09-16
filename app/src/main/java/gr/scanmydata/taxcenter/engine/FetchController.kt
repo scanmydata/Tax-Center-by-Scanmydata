@@ -212,6 +212,9 @@ class FetchController(
     /** Κρατιέται για την «επανάληψη αποτυχιών»: τα items είναι index-aligned. */
     private var lastPlans: List<Plan> = emptyList()
 
+    /** Ισχύει για την τρέχουσα παρτίδα και μόνο — βλ. [start]. */
+    private var autoApply: Boolean = false
+
     /** Η διαδρομή εξόδου του βήματος που τρέχει αυτή τη στιγμή. */
     @Volatile
     private var currentOutDir: File = context.filesDir
@@ -223,16 +226,22 @@ class FetchController(
      * @param autoSendTo διεύθυνση που ισχύει **μόνο γι' αυτή την εκτέλεση**,
      *   από τη μεμονωμένη λήψη. Αγνοείται αν η παρτίδα έχει πάνω από έναν
      *   πελάτη — βλ. [autoSend].
+     * @param autoApply γράφει χωρίς έγκριση ό,τι γεμίζει **κενό** πεδίο. Το
+     *   ζητά ρητά ο χρήστης μετά από εισαγωγή από Excel, όπου οι καρτέλες είναι
+     *   ολόκαινούργιες και η ουρά έγκρισης θα ήταν εκατοντάδες «(κενό) → τιμή».
+     *   Ό,τι θα **άλλαζε** υπάρχουσα τιμή περνά από έγκριση όπως πάντα.
      */
     fun start(
         plans: List<Plan>,
         autoSendToken: String? = null,
         syncToken: String? = null,
         autoSendTo: String = "",
+        autoApply: Boolean = false,
     ) {
         if (_state.value.running || plans.isEmpty()) return
 
         lastPlans = plans
+        this.autoApply = autoApply
         val startedAt = System.currentTimeMillis()
         _state.value = State(
             running = true,
@@ -497,6 +506,9 @@ class FetchController(
                 spouseAfm = json.optString("spouseAfm").trim(),
                 spouseName = json.optString("spouseName").trim(),
                 active = json.optBoolean("active", true),
+                formerBusiness = json.optBoolean("formerBusiness", false),
+                businessEnd = json.optString("businessEnd").trim(),
+                businessEndReason = json.optString("businessEndReason").trim(),
             )
         } catch (e: Exception) {
             return Profile(error = "Η απάντηση του Μητρώου δεν διαβάστηκε.")
@@ -568,6 +580,16 @@ class FetchController(
         /** Γιατί δεν ήρθε ο ΑΜΚΑ, όταν έπρεπε να υπάρχει. Δεν είναι σφάλμα. */
         val amkaNote: String = "",
         val active: Boolean = true,
+        /**
+         * Υπήρξε επιχείρηση και έχει **διακοπεί**.
+         *
+         * Το είδος τότε βγαίνει «ΙΔΙΩΤΗΣ», που ξαφνιάζει όποιον θυμάται τον
+         * πελάτη ως επιτηδευματία. Η καρτέλα το εξηγεί αντί να το αφήσει να
+         * μοιάζει με λάθος της άντλησης.
+         */
+        val formerBusiness: Boolean = false,
+        val businessEnd: String = "",
+        val businessEndReason: String = "",
         val error: String = "",
     ) {
         val ok: Boolean get() = error.isBlank()
@@ -721,9 +743,54 @@ class FetchController(
         }
 
         if (changes.isEmpty()) return
-        val update = PendingUpdate(client.id, client.afm, client.displayName, changes)
+
+        // Με ρητή άδεια του χρήστη (εισαγωγή από Excel): ό,τι γεμίζει **κενό**
+        // πεδίο γράφεται αμέσως. Δεν αντικαθιστά τίποτα, άρα δεν υπάρχει και τι
+        // να κρίνει κανείς — ενώ μια ουρά με 300 γραμμές «(κενό) → τιμή» θα
+        // εξασφάλιζε ότι δεν θα τη διάβαζε κανείς ποτέ.
+        val queued = if (!autoApply) {
+            changes
+        } else {
+            val fill = changes.filter { it.before.isBlank() }
+            if (fill.isNotEmpty()) writeChanges(client.id, fill)
+            changes.filter { it.before.isNotBlank() }
+        }
+        if (queued.isEmpty()) return
+
+        // Οι προτάσεις **συσσωρεύονται** ανά πελάτη.
+        //
+        // Η μαζική ενημέρωση τρέχει δύο διαδικασίες για τον ίδιο πελάτη —
+        // μητρώο και ΑΜΚΑ. Σκέτη αντικατάσταση σήμαινε ότι η πρόταση του ΑΜΚΑ
+        // κατάπινε σιωπηλά ονοματεπώνυμο, ΔΟΥ και είδος που μόλις είχαν βρεθεί:
+        // έφταναν στην οθόνη έγκρισης και εξαφανίζονταν πριν τα δει κανείς.
+        val earlier = _state.value.pending.firstOrNull { it.clientId == client.id }
+        val merged = earlier?.changes.orEmpty()
+            .filterNot { old -> queued.any { it.field == old.field } } + queued
+        val update = PendingUpdate(client.id, client.afm, client.displayName, merged)
         _state.value = _state.value.copy(
             pending = _state.value.pending.filterNot { it.clientId == client.id } + update,
+        )
+    }
+
+    /**
+     * Γράφει ένα σύνολο αλλαγών στην καρτέλα.
+     *
+     * Ένα σημείο εγγραφής για τους δύο δρόμους — έγκριση από τον χρήστη και
+     * αυτόματη συμπλήρωση κενών — ώστε να μην αποκλίνουν, και ώστε η καταγραφή
+     * στο αρχείο ενεργειών να γίνεται αναγκαστικά και στις δύο περιπτώσεις.
+     */
+    private suspend fun writeChanges(clientId: Long, changes: List<Change>) {
+        val value = changes.associate { it.field to it.after }
+        repository.applyLookup(
+            clientId = clientId,
+            name = value[UpdateField.NAME],
+            firstName = value[UpdateField.FIRST_NAME],
+            kind = value[UpdateField.KIND],
+            doy = value[UpdateField.DOY],
+            amka = value[UpdateField.AMKA],
+            emailAade = value[UpdateField.EMAIL_AADE],
+            maritalStatus = value[UpdateField.MARITAL],
+            mobile = value[UpdateField.MOBILE],
         )
     }
 
@@ -811,18 +878,7 @@ class FetchController(
         for (update in _state.value.pending) {
             val taken = update.changes.filter { "${update.clientId}/${it.field.name}" in approved }
             if (taken.isEmpty()) continue
-            val value = taken.associate { it.field to it.after }
-            repository.applyLookup(
-                clientId = update.clientId,
-                name = value[UpdateField.NAME],
-                firstName = value[UpdateField.FIRST_NAME],
-                kind = value[UpdateField.KIND],
-                doy = value[UpdateField.DOY],
-                amka = value[UpdateField.AMKA],
-                emailAade = value[UpdateField.EMAIL_AADE],
-                maritalStatus = value[UpdateField.MARITAL],
-                mobile = value[UpdateField.MOBILE],
-            )
+            writeChanges(update.clientId, taken)
         }
         _state.value = _state.value.copy(pending = emptyList())
     }

@@ -422,6 +422,14 @@ const FYSIKO = '<afm>123456783</afm><armodiadoy>ΔΟΥ ΚΗΦΙΣΙΑΣ</armodia
 const EPIX = '<hmenarxhs>01/01/2015</hmenarxhs><doydescription>ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ</doydescription>' +
   '<katastashepixeirhshs>ΕΝΕΡΓΗ</katastashepixeirhshs>';
 
+/*
+ * Διακομμένη επιχείρηση, **ακριβώς** όπως απαντά η ΑΑΔΕ: η κατάσταση λέει
+ * «ΕΝΕΡΓΗ» και δίπλα της υπάρχει ημερομηνία διακοπής. Είναι η πραγματική
+ * απάντηση για ΑΦΜ με παύση εργασιών από το 2018 — όχι κατασκευασμένο σενάριο.
+ */
+const EPIX_CLOSED = EPIX +
+  '<hmdiakophs>11/12/2018</hmdiakophs><aitiadiakophs>ΠΑΥΣΗ ΕΡΓΑΣΙΩΝ</aitiadiakophs>';
+
 async function profile(opts) {
   const { result } = await runConfig(
     { goodCredentials: true, ...opts },
@@ -450,6 +458,33 @@ await checkAsync('φυσικό + επιχείρηση -> ΑΤΟΜΙΚΗ ΕΠΙΧ
   });
   assert(r.out.kind === 'ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ', `kind=${r.out.kind}`);
   assert(r.out.hasAmka === true, 'η ατομική έχει ΑΜΚΑ — υπάρχει φυσικό πρόσωπο από πίσω');
+  assert(r.out.doy === 'ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ', `doy=${r.out.doy}`);
+});
+
+await checkAsync('διακομμένη ατομική -> ΙΔΙΩΤΗΣ, παρότι η κατάσταση λέει ΕΝΕΡΓΗ', async () => {
+  const r = await profile({
+    userdata: '<onomatepwnymo>ΠΑΠΑΔΟΠΟΥΛΟΣ  ΓΕΩΡΓΙΟΣ</onomatepwnymo>',
+    fysiko: FYSIKO,
+    epix: EPIX_CLOSED,
+  });
+  assert(r.out.kind === 'ΙΔΙΩΤΗΣ', `kind=${r.out.kind}`);
+  assert(r.out.formerBusiness === true, 'έπρεπε να σημειωθεί ως πρώην επιχείρηση');
+  assert(r.out.businessEnd === '11/12/2018', `businessEnd=${r.out.businessEnd}`);
+  assert(r.out.businessEndReason === 'ΠΑΥΣΗ ΕΡΓΑΣΙΩΝ', `αιτία=${r.out.businessEndReason}`);
+  // Ο άνθρωπος παραμένει ενεργός πελάτης: έχει Ε1 κάθε χρόνο.
+  assert(r.out.active === true, 'ο ιδιώτης μένει ενεργός μετά τη διακοπή');
+  // Αρμόδια πλέον η ΔΟΥ του φυσικού προσώπου, όχι της κλειστής επιχείρησης.
+  assert(r.out.doy === 'ΔΟΥ ΚΗΦΙΣΙΑΣ', `doy=${r.out.doy}`);
+});
+
+await checkAsync('διακομμένο νομικό πρόσωπο μένει νομικό πρόσωπο, αλλά ανενεργό', async () => {
+  const r = await profile({
+    userdata: '<longepwnymia>ΑΛΦΑ ΕΜΠΟΡΙΚΗ ΙΚΕ</longepwnymia>',
+    epix: EPIX_CLOSED,
+  });
+  assert(r.out.kind === 'ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ', `kind=${r.out.kind}`);
+  assert(r.out.active === false, 'η διακομμένη εταιρεία δεν είναι ενεργός πελάτης');
+  // Χωρίς φυσικό μητρώο, η μόνη ΔΟΥ που υπάρχει είναι της επιχείρησης.
   assert(r.out.doy === 'ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ', `doy=${r.out.doy}`);
 });
 

@@ -21,7 +21,8 @@
  *   μητρώο φυσικού  |  μητρώο επιχείρησης  |  είδος
  *   ────────────────┼──────────────────────┼──────────────────────
  *   ναι             |  όχι                 |  ΙΔΙΩΤΗΣ
- *   ναι             |  ναι                 |  ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ
+ *   ναι             |  ανοιχτή             |  ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ
+ *   ναι             |  διακομμένη          |  ΙΔΙΩΤΗΣ
  *   όχι             |  ναι                 |  ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ
  *
  * Έχει σημασία πέρα από την ετικέτα: **ΑΜΚΑ έχουν μόνο οι δύο πρώτες**
@@ -124,8 +125,29 @@ module.exports = {
     http.dump('profile_epix.xml', epix);
     const hasEpix = epix.includes('<hmenarxhs>');
 
+    /*
+     * Η διακοπή εργασιών ΔΕΝ φαίνεται στην «κατάσταση επιχείρησης».
+     *
+     * Επαληθεύτηκε ζωντανά σε ΑΦΜ με παύση εργασιών από το 2018: το μητρώο
+     * επιστρέφει `katastashepixeirhshs = ΕΝΕΡΓΗ` **και ταυτόχρονα**
+     * `hmdiakophs = 11/12/2018`. Δεν είναι αντίφαση — η ίδια η ΑΑΔΕ το γράφει
+     * δίπλα στο πεδίο: «εμφανίζεται η τελευταία κατάσταση πριν τη διακοπή
+     * εργασιών». Άρα η κατάσταση δεν λέει αν η επιχείρηση ζει· το λέει μόνο η
+     * ημερομηνία διακοπής.
+     */
+    const businessEnd = tag(epix, 'hmdiakophs');
+    const businessOpen = hasEpix && !businessEnd;
+
+    // **Κλειστή ατομική επιχείρηση σημαίνει ιδιώτης.** Ο άνθρωπος υπάρχει και
+    // εξακολουθεί να έχει Ε1· η επιχείρηση όχι. Αν έμενε «ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ»,
+    // η εφαρμογή θα ζητούσε κάθε χρόνο Ε3, ΦΠΑ και καρτέλα εργοδότη για κάποιον
+    // που έκλεισε πριν από χρόνια — μία βέβαιη αποτυχία ανά έντυπο, και ο
+    // λογιστής να ψάχνει τι χάλασε.
+    //
+    // Το νομικό πρόσωπο μένει νομικό πρόσωπο ακόμη και διακομμένο: δεν υπάρχει
+    // φυσικό πρόσωπο να ξαναγίνει.
     const kind = hasFysiko
-      ? (hasEpix ? 'ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ' : 'ΙΔΙΩΤΗΣ')
+      ? (businessOpen ? 'ΑΤΟΜΙΚΗ ΕΠΙΧΕΙΡΗΣΗ' : 'ΙΔΙΩΤΗΣ')
       : (hasEpix ? 'ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ' : '');
 
     if (!kind) {
@@ -151,7 +173,11 @@ module.exports = {
       name = tag(fysiko, 'epwnymoa');
     }
 
-    const doy = tag(epix, 'doydescription') || tag(fysiko, 'armodiadoy');
+    // Η ΔΟΥ της επιχείρησης ισχύει όσο η επιχείρηση ζει. Μετά τη διακοπή
+    // αρμόδια είναι η ΔΟΥ του φυσικού προσώπου — και οι δύο έρχονται στην ίδια
+    // απάντηση, οπότε δεν κοστίζει τίποτα να διαλέξουμε τη σωστή.
+    const doy = (businessOpen ? tag(epix, 'doydescription') : '') ||
+      tag(fysiko, 'armodiadoy') || tag(epix, 'doydescription');
 
     const ldap = await G(W + '/getLdapInfo/' + encodeURIComponent(afm) + '?' + Date.now());
     http.dump('profile_ldap.xml', ldap);
@@ -199,10 +225,19 @@ module.exports = {
       mobileSource: cell.source,
       // Ο ΑΜΚΑ αντλείται χωριστά (MyAMKA, άλλη πύλη). Εδώ λέμε μόνο αν υπάρχει.
       hasAmka: kind !== 'ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ',
-      active: hasEpix
-        ? !/ΔΙΑΚΟΠ|ΑΝΕΝΕΡΓ/i.test(tag(epix, 'katastashepixeirhshs'))
-        : /ΚΑΝΟΝΙΚΗ/i.test(tag(fysiko, 'katastashforologoumenoy')),
+      // Ενεργός **πελάτης**, όχι ενεργή επιχείρηση. Όποιος έκλεισε την ατομική
+      // του εξακολουθεί να υποβάλλει Ε1, άρα κρίνεται από το μητρώο φυσικού.
+      // Μόνο εκεί που δεν υπάρχει άνθρωπος από πίσω κρίνει η επιχείρηση.
+      active: hasFysiko
+        ? /ΚΑΝΟΝΙΚΗ/i.test(tag(fysiko, 'katastashforologoumenoy'))
+        : businessOpen && !/ΔΙΑΚΟΠ|ΑΝΕΝΕΡΓ/i.test(tag(epix, 'katastashepixeirhshs')),
       businessStart: tag(epix, 'hmenarxhs'),
+      // Πότε και γιατί έκλεισε. Δεν είναι διακοσμητικά: η καρτέλα τα δείχνει
+      // για να εξηγήσει γιατί το είδος βγήκε «ΙΔΙΩΤΗΣ» σε κάποιον που ο
+      // λογιστής θυμάται ως επιτηδευματία.
+      businessEnd,
+      businessEndReason: tag(epix, 'aitiadiakophs'),
+      formerBusiness: hasEpix && !businessOpen,
       // Η οικογενειακή κατάσταση έρχεται ήδη μέσα στο μητρώο φυσικού
       // (`oikogkatastash`, π.χ. «ΕΓΓΑΜΟΣ-Η») και μέχρι τώρα πεταγόταν.
       //
@@ -219,7 +254,8 @@ module.exports = {
 
     const file = 'AADE_profile_' + afm + '.json';
     fs.writeFileSync(path.join(http.dlDir, file), JSON.stringify(out, null, 2));
-    http.log('[profile] ✅ ' + afm + ' · ' + kind + ' · ΔΟΥ ' + (doy || '—'));
+    http.log('[profile] ✅ ' + afm + ' · ' + kind + ' · ΔΟΥ ' + (doy || '—') +
+      (out.formerBusiness ? ' · επιχείρηση σε διακοπή από ' + businessEnd : ''));
     return { ok: true, files: [file], out };
   },
 };

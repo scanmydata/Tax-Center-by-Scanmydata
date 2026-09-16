@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -21,10 +22,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +69,23 @@ fun ImportScreen(
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var applied by remember { mutableStateOf<gr.scanmydata.taxcenter.data.ClientRepository.ImportResult?>(null) }
+
+    /**
+     * Η αυτόματη άντληση μετά την εισαγωγή — **με άδεια, όχι από μόνη της**.
+     *
+     * Το αρχείο του λογιστικού προγράμματος δίνει κωδικούς· δεν δίνει
+     * ονοματεπώνυμο, ΔΟΥ, είδος υπόχρεου, email ή κινητό. Όλα αυτά τα ξέρει το
+     * Μητρώο ΑΑΔΕ, και η εναλλακτική είναι να τα ζητά ο χρήστης πελάτη-πελάτη.
+     *
+     * Δεν ξεκινά μόνη της, και όχι από ευγένεια: είναι **μία σύνδεση στο GSIS
+     * ανά πελάτη**, σειριακά, με τους κωδικούς του καθενός. Σε 200 πελάτες αυτό
+     * είναι ώρες δουλειάς και διακόσιες συνδέσεις που ο χρήστης πρέπει να ξέρει
+     * ότι γίνονται στο όνομά του.
+     */
+    var askFetch by remember { mutableStateOf(false) }
+    var fetchAfms by remember { mutableStateOf<List<String>>(emptyList()) }
+    var watchFetch by remember { mutableStateOf(false) }
+    val fetchState by container.fetch.state.collectAsState()
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -171,6 +192,11 @@ fun ImportScreen(
             }
         }
 
+        if (watchFetch) {
+            Spacer(Modifier.height(16.dp))
+            FetchProgress(fetchState)
+        }
+
         preview?.let { result ->
             Spacer(Modifier.height(16.dp))
             PreviewSummary(result)
@@ -184,6 +210,15 @@ fun ImportScreen(
                             applied = withContext(Dispatchers.IO) {
                                 container.repository.applyImport(result, fileName)
                             }
+                            // Όσοι πράγματι μπήκαν ή άλλαξαν. Οι αμετάβλητοι
+                            // έχουν ήδη περάσει από εδώ σε προηγούμενη εισαγωγή
+                            // — δεν υπάρχει λόγος να ξαναχτυπηθεί η πύλη γι'
+                            // αυτούς, και σε ένα πλήρες αρχείο θα ήταν η
+                            // συντριπτική πλειοψηφία.
+                            fetchAfms = result.rows
+                                .filter { it.action != ImportPreview.Action.UNCHANGED }
+                                .map { it.afm }
+                            askFetch = fetchAfms.isNotEmpty()
                             preview = null
                         } catch (e: Exception) {
                             error = e.message ?: e.toString()
@@ -198,6 +233,119 @@ fun ImportScreen(
             Spacer(Modifier.height(12.dp))
             LazyColumn {
                 items(result.rows, key = { it.afm }) { row -> PreviewRow(row) }
+            }
+        }
+    }
+
+    if (askFetch) {
+        AlertDialog(
+            onDismissRequest = { askFetch = false },
+            title = { Text("Να συμπληρωθούν τα στοιχεία από το TAXIS;") },
+            text = {
+                Column {
+                    Text(
+                        "Το αρχείο έδωσε κωδικούς. Το ονοματεπώνυμο, η ΔΟΥ, το είδος " +
+                            "υπόχρεου, η οικογενειακή κατάσταση, το email και το κινητό " +
+                            "υπάρχουν μόνο στο Μητρώο της ΑΑΔΕ.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Θα γίνει **μία σύνδεση στο TAXISnet για κάθε πελάτη** " +
+                            "(${fetchAfms.size} πελάτες), αυστηρά μία-μία. Θα πάρει ώρα " +
+                            "και μπορείς να φύγεις από την οθόνη — η άντληση συνεχίζει.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Τα κενά πεδία συμπληρώνονται και αποθηκεύονται μόνα τους. Όπου " +
+                            "η πύλη διαφωνεί με κάτι που έχεις ήδη γράψει, δεν το " +
+                            "αντικαθιστά: το βάζει για έγκριση στην οθόνη «Λήψη εντύπων».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Όσοι δεν έχουν κωδικούς TAXISnet παραλείπονται.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    askFetch = false
+                    scope.launch {
+                        busy = true
+                        val plans = withContext(Dispatchers.IO) {
+                            val clients = fetchAfms.mapNotNull { container.repository.byAfm(it) }
+                            container.fetch.refreshPlans(clients)
+                        }
+                        busy = false
+                        if (plans.isEmpty()) {
+                            error = "Κανένας από τους πελάτες που μπήκαν δεν έχει " +
+                                "κωδικούς TAXISnet — δεν υπάρχει τρόπος να γίνει άντληση."
+                        } else {
+                            watchFetch = true
+                            container.fetch.start(plans, autoApply = true)
+                        }
+                    }
+                }) { Text("Ναι, άντληση") }
+            },
+            dismissButton = {
+                TextButton(onClick = { askFetch = false }) { Text("Όχι τώρα") }
+            },
+        )
+    }
+}
+
+/**
+ * Πού βρίσκεται η άντληση που ξεκίνησε από την εισαγωγή.
+ *
+ * Η ίδια ουρά με την οθόνη «Λήψη εντύπων» — εδώ φαίνεται σε μία γραμμή, ώστε ο
+ * χρήστης να μη χρειάζεται να αλλάξει οθόνη για να δει αν προχωρά κάτι που
+ * κρατάει ώρες. Η ουρά ζει στην εφαρμογή, όχι στην οθόνη: αν φύγει, συνεχίζει.
+ */
+@Composable
+private fun FetchProgress(state: gr.scanmydata.taxcenter.engine.FetchController.State) {
+    val total = state.total
+    val done = state.done
+    val running = state.items.firstOrNull {
+        it.status == gr.scanmydata.taxcenter.engine.FetchController.Status.RUNNING
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                if (state.running) "Άντληση στοιχείων από το Μητρώο…" else "Η άντληση τελείωσε",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { if (total == 0) 0f else done.toFloat() / total },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "$done / $total" + running?.clientName?.let { " · $it" }.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (state.failed > 0) {
+                Text(
+                    "${state.failed} απέτυχαν — τις λεπτομέρειες τις δείχνει η οθόνη " +
+                        "«Λήψη εντύπων».",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (!state.running && state.pendingChanges > 0) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "${state.pendingChanges} αλλαγές δεν γράφτηκαν μόνες τους επειδή " +
+                        "διαφωνούν με ό,τι ήδη υπάρχει. Περιμένουν έγκριση στην οθόνη " +
+                        "«Λήψη εντύπων».",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

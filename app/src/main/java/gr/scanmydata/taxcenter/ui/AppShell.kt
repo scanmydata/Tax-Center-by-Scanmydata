@@ -198,21 +198,26 @@ fun AppShell(container: AppContainer) {
                         selected = destination == current,
                         onClick = {
                             scope.launch { drawerState.close() }
-                            navController.navigate(destination.route) {
-                                // **Χωρίς** `saveState`/`restoreState`.
-                                //
-                                // Το ζεύγος τους δεν θυμάται μια οθόνη· θυμάται
-                                // ολόκληρη τη στοίβα κάτω από τον προορισμό. Και
-                                // η καρτέλα ενός πελάτη είναι μέρος της στοίβας
-                                // των «Πελατών». Έτσι όποιος έφευγε από καρτέλα
-                                // και ξαναπατούσε «Πελάτες» προσγειωνόταν πάλι
-                                // στην καρτέλα — και η επιλογή του μενού έμοιαζε
-                                // να «μην πιάνει» μέχρι να πατήσει πίσω.
-                                //
-                                // Το μενού είναι πλοήγηση πρώτου επιπέδου:
-                                // καθαρίζει ό,τι είναι από πάνω, δεν το θυμάται.
-                                popUpTo(navController.graph.startDestinationId)
-                                launchSingleTop = true
+                            // Ό,τι φεύγει από την τρέχουσα οθόνη περνά από τον
+                            // φύλακα: εδώ ακριβώς χανόταν μια γεμάτη καρτέλα
+                            // πελάτη, με ένα πάτημα στο μενού και χωρίς λέξη.
+                            UnsavedGuard.guard {
+                                navController.navigate(destination.route) {
+                                    // **Χωρίς** `saveState`/`restoreState`.
+                                    //
+                                    // Το ζεύγος τους δεν θυμάται μια οθόνη· θυμάται
+                                    // ολόκληρη τη στοίβα κάτω από τον προορισμό. Και
+                                    // η καρτέλα ενός πελάτη είναι μέρος της στοίβας
+                                    // των «Πελατών». Έτσι όποιος έφευγε από καρτέλα
+                                    // και ξαναπατούσε «Πελάτες» προσγειωνόταν πάλι
+                                    // στην καρτέλα — και η επιλογή του μενού έμοιαζε
+                                    // να «μην πιάνει» μέχρι να πατήσει πίσω.
+                                    //
+                                    // Το μενού είναι πλοήγηση πρώτου επιπέδου:
+                                    // καθαρίζει ό,τι είναι από πάνω, δεν το θυμάται.
+                                    popUpTo(navController.graph.startDestinationId)
+                                    launchSingleTop = true
+                                }
                             }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
@@ -326,15 +331,21 @@ fun AppShell(container: AppContainer) {
                 // Ίδιοι κανόνες με το μενού: η ξενάγηση δεν πρέπει να αφήνει
                 // πίσω της στοίβα που ο χρήστης δεν έφτιαξε.
                 onNavigate = { destination ->
-                    navController.navigate(destination.route) {
-                        popUpTo(navController.graph.startDestinationId)
-                        launchSingleTop = true
+                    UnsavedGuard.guard {
+                        navController.navigate(destination.route) {
+                            popUpTo(navController.graph.startDestinationId)
+                            launchSingleTop = true
+                        }
                     }
                 },
             )
             }
         }
     }
+
+    // Ζει στο κέλυφος και όχι στη φόρμα: τη στιγμή που θα φανεί, η φόρμα είναι
+    // ακριβώς αυτό που ο χρήστης ζήτησε να εγκαταλείψει.
+    UnsavedChangesDialog()
 
     update?.let { release ->
         AlertDialog(

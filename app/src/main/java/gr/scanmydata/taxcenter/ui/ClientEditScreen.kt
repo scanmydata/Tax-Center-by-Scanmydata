@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -112,6 +113,94 @@ fun ClientEditScreen(
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
+    /**
+     * Το αποτύπωμα της φόρμας — ό,τι μπορεί να αλλάξει ο χρήστης, σε μία λίστα.
+     *
+     * Σύγκριση αποτυπωμάτων αντί για έλεγχο πεδίο-πεδίο: ένα καινούργιο πεδίο
+     * στη φόρμα μπαίνει εδώ μαζί με τα υπόλοιπα, ενώ ένας κατάλογος συνθηκών θα
+     * το ξεχνούσε και η οθόνη θα φαινόταν «καθαρή» ενώ δεν είναι.
+     *
+     * Λίστα και όχι ενωμένη συμβολοσειρά: όποιον διαχωριστή κι αν διάλεγα, μια
+     * τιμή θα μπορούσε να τον περιέχει και δύο διαφορετικές φόρμες να δώσουν
+     * ίδιο αποτύπωμα.
+     */
+    fun formSnapshot(): List<String> = listOf(
+        Normalize.afm(afm), name, firstName, kind, amka, doy, maritalStatus,
+        Normalize.afm(spouseAfm), active.toString(), emailAade, emailManual,
+        mobile, preferManual.toString(),
+    ) + credentials.entries
+        .sortedBy { entry -> entry.key.name }
+        .map { entry -> entry.key.name + "=" + entry.value }
+
+    /** Η φόρμα όπως ήταν την τελευταία φορά που γράφτηκε (ή φορτώθηκε). */
+    var baseline by remember { mutableStateOf(emptyList<String>()) }
+
+    /**
+     * Υπάρχουν αλλαγές που αξίζει — και μπορούν — να σωθούν;
+     *
+     * Το «μπορούν» δεν είναι λεπτομέρεια: χωρίς εννιαψήφιο ΑΦΜ η αποθήκευση
+     * είναι αδύνατη, οπότε ένας διάλογος με ανενεργό το «Αποθήκευση» θα ήταν
+     * καθαρή ενόχληση. Όποιος πληκτρολόγησε δύο γράμματα και άλλαξε γνώμη
+     * φεύγει χωρίς ερώτηση.
+     *
+     * Συνάρτηση και όχι τιμή: τη διαβάζει ο [UnsavedGuard] τη στιγμή που ο
+     * χρήστης πάει να φύγει, που είναι πολλές συνθέσεις αργότερα.
+     */
+    fun unsavedNow(): Boolean =
+        loaded && Normalize.afm(afm).length == 9 && formSnapshot() != baseline
+
+    /**
+     * Γράφει την καρτέλα. Κενό = πέτυχε, αλλιώς το μήνυμα του σφάλματος.
+     *
+     * Χωριστά από το κουμπί, επειδή έχει δύο καλούντες: το «Αποθήκευση» και ο
+     * [UnsavedGuard], όταν ο χρήστης πάει να φύγει με τη φόρμα γεμάτη. Η
+     * πλοήγηση **δεν** γίνεται εδώ: ο ένας καλών μένει στην οθόνη, ο άλλος
+     * φεύγει αλλού.
+     */
+    suspend fun saveForm(): String = try {
+        val base = existing
+        val normalisedKind = ClientKind.normalise(kind)
+        val entity = (base ?: ClientEntity(afm = Normalize.afm(afm))).copy(
+            afm = Normalize.afm(afm),
+            name = name.trim(),
+            firstName = firstName.trim(),
+            kind = normalisedKind,
+            // Νομικό πρόσωπο δεν έχει ΑΜΚΑ: ό,τι κι αν έμεινε στο πεδίο από
+            // προηγούμενη επιλογή, δεν αποθηκεύεται.
+            amkaEnc = if (ClientKind.hasAmka(normalisedKind)) {
+                container.crypto.enc(Normalize.amka(amka))
+            } else {
+                ""
+            },
+            doy = doy.trim(),
+            active = active,
+            emailAade = emailAade.trim(),
+            emailManual = emailManual.trim(),
+            mobile = Normalize.mobile(mobile),
+            emailPreferred = if (preferManual) emailManual.trim() else "",
+            maritalStatus = maritalStatus.trim(),
+            // Η αμοιβαία σύνδεση γίνεται μετά την αποθήκευση, από το
+            // repository: εδώ γράφεται μόνο η δική μας πλευρά.
+            spouseAfm = Normalize.afm(spouseAfm),
+        )
+        withContext(Dispatchers.IO) {
+            val savedId = container.repository.saveClient(entity, credentials.toMap())
+            // Η σχέση γράφεται και στην καρτέλα του συζύγου. Μονόπλευρη
+            // σύνδεση σημαίνει ότι από την άλλη πλευρά δεν φαίνεται τίποτα,
+            // και κάποια στιγμή δηλώνεται ξανά ανάποδα.
+            if (spouseAfm.isNotBlank()) {
+                container.repository.linkSpouse(
+                    clientId = if (savedId != 0L) savedId else clientId,
+                    spouseAfm = spouseAfm,
+                )
+            }
+        }
+        baseline = formSnapshot()
+        ""
+    } catch (e: Exception) {
+        "Απέτυχε: ${e.message}"
+    }
+
     // Ποιος είναι ο σύζυγος: ξαναρωτιέται σε κάθε αλλαγή του ΑΦΜ, ώστε η
     // γραμμή από κάτω να ενημερώνεται και όταν τον πληκτρολογεί ο χρήστης.
     LaunchedEffect(spouseAfm) {
@@ -124,7 +213,10 @@ fun ClientEditScreen(
     }
 
     LaunchedEffect(clientId) {
-        if (isNew) return@LaunchedEffect
+        if (isNew) {
+            baseline = formSnapshot()
+            return@LaunchedEffect
+        }
         val client = withContext(Dispatchers.IO) { container.db.clients().byId(clientId) }
         if (client == null) {
             status = "Ο πελάτης δεν βρέθηκε."
@@ -149,6 +241,7 @@ fun ClientEditScreen(
         withContext(Dispatchers.IO) { container.repository.credentials(client.id) }
             .forEach { (field, value) -> credentials[field] = value }
         loaded = true
+        baseline = formSnapshot()
     }
 
     if (!loaded) {
@@ -163,6 +256,13 @@ fun ClientEditScreen(
         !Normalize.validAfm(afmClean) -> "Ο έλεγχος mod-11 δεν περνά — έλεγξέ το, αλλά μπορεί να είναι σωστό."
         else -> ""
     }
+    // Ο φύλακας ρωτά όταν ο χρήστης φεύγει από το μενού ή από την ξενάγηση.
+    GuardUnsaved(dirty = { unsavedNow() }, save = { saveForm() })
+
+    // Και όταν φεύγει με το κουμπί «πίσω», που είναι ο άλλος τρόπος να χαθεί
+    // μια γεμάτη φόρμα — και ο πιο εύκολος να πατηθεί κατά λάθος.
+    BackHandler(enabled = unsavedNow()) { UnsavedGuard.guard { onDone() } }
+
     val hasAmka = kind.isBlank() || ClientKind.hasAmka(kind)
     val canBeEmployer = ClientKind.normalise(kind) != ClientKind.PRIVATE
     val taxisUser = credentials[Field.TAXIS_USER].orEmpty()
@@ -257,6 +357,18 @@ fun ClientEditScreen(
                                         // άντληση — αλλά πρέπει να λέγεται.
                                         "Συμπληρώθηκαν από το Μητρώο. Ο ΑΜΚΑ δεν ήρθε: " +
                                             profile.amkaNote
+                                    } else if (profile.formerBusiness) {
+                                        // Γιατί ένας επιτηδευματίας βγήκε
+                                        // «ΙΔΙΩΤΗΣ»: το μητρώο δείχνει την
+                                        // επιχείρηση διακομμένη. Χωρίς αυτή τη
+                                        // γραμμή η άντληση θα έμοιαζε χαλασμένη.
+                                        "Συμπληρώθηκαν από το Μητρώο. Η επιχείρηση έχει " +
+                                            "διακοπεί" +
+                                            profile.businessEnd.takeIf { it.isNotBlank() }
+                                                ?.let { " στις $it" }.orEmpty() +
+                                            profile.businessEndReason.takeIf { it.isNotBlank() }
+                                                ?.let { " ($it)" }.orEmpty() +
+                                            ", οπότε το είδος είναι «$kind»."
                                     } else if (profile.spouseName.isNotBlank()) {
                                         "Συμπληρώθηκαν από το Μητρώο. Βρέθηκε και " +
                                             "σύζυγος: " + profile.spouseName + "."
@@ -571,53 +683,9 @@ fun ClientEditScreen(
                 onClick = {
                     scope.launch {
                         status = "Αποθήκευση…"
-                        status = try {
-                            val base = existing
-                            val normalisedKind = ClientKind.normalise(kind)
-                            val entity = (base ?: ClientEntity(afm = afmClean)).copy(
-                                afm = afmClean,
-                                name = name.trim(),
-                                firstName = firstName.trim(),
-                                kind = normalisedKind,
-                                // Νομικό πρόσωπο δεν έχει ΑΜΚΑ: ό,τι κι αν
-                                // έμεινε στο πεδίο από προηγούμενη επιλογή, δεν
-                                // αποθηκεύεται.
-                                amkaEnc = if (ClientKind.hasAmka(normalisedKind)) {
-                                    container.crypto.enc(Normalize.amka(amka))
-                                } else {
-                                    ""
-                                },
-                                doy = doy.trim(),
-                                active = active,
-                                emailAade = emailAade.trim(),
-                                emailManual = emailManual.trim(),
-                                mobile = Normalize.mobile(mobile),
-                                emailPreferred = if (preferManual) emailManual.trim() else "",
-                                maritalStatus = maritalStatus.trim(),
-                                // Η αμοιβαία σύνδεση γίνεται μετά την
-                                // αποθήκευση, από το repository: εδώ γράφεται
-                                // μόνο η δική μας πλευρά.
-                                spouseAfm = Normalize.afm(spouseAfm),
-                            )
-                            withContext(Dispatchers.IO) {
-                                val savedId =
-                                    container.repository.saveClient(entity, credentials.toMap())
-                                // Η σχέση γράφεται και στην καρτέλα του
-                                // συζύγου. Μονόπλευρη σύνδεση σημαίνει ότι από
-                                // την άλλη πλευρά δεν φαίνεται τίποτα, και
-                                // κάποια στιγμή δηλώνεται ξανά ανάποδα.
-                                if (spouseAfm.isNotBlank()) {
-                                    container.repository.linkSpouse(
-                                        clientId = if (savedId != 0L) savedId else clientId,
-                                        spouseAfm = spouseAfm,
-                                    )
-                                }
-                            }
-                            onDone()
-                            ""
-                        } catch (e: Exception) {
-                            "Απέτυχε: ${e.message}"
-                        }
+                        val problem = saveForm()
+                        status = problem
+                        if (problem.isBlank()) onDone()
                     }
                 },
             ) { Text("Αποθήκευση") }
