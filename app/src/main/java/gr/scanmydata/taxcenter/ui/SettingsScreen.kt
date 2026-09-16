@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -29,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +41,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -93,6 +98,9 @@ fun SettingsScreen(
     var signatureCredentials by remember { mutableStateOf(settings.signatureCredentials) }
     val templateStore = remember { MailTemplateStore(context) }
     var driveMode by remember { mutableStateOf(settings.driveMode) }
+    var driveFolder by remember { mutableStateOf(settings.driveFolderPath) }
+    var folderStatus by remember { mutableStateOf("") }
+    var folderBusy by remember { mutableStateOf(false) }
     var syncStatus by remember { mutableStateOf("") }
     var syncBusy by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
@@ -100,6 +108,16 @@ fun SettingsScreen(
     var theme by remember { mutableStateOf(settings.themeVariant) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsStatus by remember { mutableStateOf("") }
+
+    // Ο σύνδεσμος που δείχνει ο κώδικας QR. Ξεκινά από τη σελίδα των εκδόσεων
+    // και γίνεται **απευθείας σύνδεσμος στο APK** μόλις απαντήσει το GitHub:
+    // έτσι η σάρωση κατεβάζει το αρχείο αντί να προσγειώνει τον άλλον σε μια
+    // σελίδα με assets που πρέπει να διαλέξει. Χωρίς δίκτυο μένει η σελίδα, που
+    // δουλεύει πάντα.
+    var shareUrl by remember { mutableStateOf(UpdateChecker.RELEASES_PAGE) }
+    var shareTag by remember { mutableStateOf("") }
+    var shareBusy by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
 
     // Οι ρυθμίσεις έγιναν αρκετές ώστε η μία στήλη να μη διαβάζεται: ο χρήστης
     // κυλούσε τριάντα οθόνες ψάχνοντας το ένα πεδίο που ήθελε. Τώρα κάθε ομάδα
@@ -517,10 +535,107 @@ fun SettingsScreen(
                 }
             }
 
-            if (driveMode == DriveSync.Mode.SYNC) {
+            if (driveMode != DriveSync.Mode.OFF) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                Text("Πού θα μπουν τα αρχεία", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+
+                // Η ερώτηση μπαίνει **πριν** ανέβει το πρώτο αρχείο. Μετά, μια
+                // αλλαγή διαδρομής αφήνει τα παλιά αρχεία πίσω και ο χρήστης
+                // έχει δύο φακέλους χωρίς να καταλάβει γιατί.
+                if (!settings.driveFolderChosen) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        ),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    ) {
+                        Text(
+                            "Πρώτο στήσιμο: διάλεξε τώρα τη διαδρομή. Αν δεν αλλάξεις " +
+                                "τίποτα, θα χρησιμοποιηθεί ο φάκελος «${DriveSync.ROOT}» " +
+                                "στη ρίζα του Drive σου.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+                Text(
+                    "Γράψε τη διαδρομή μέσα στον Drive σου. Με κάθετο `/` φτιάχνονται " +
+                        "υποφάκελοι — π.χ. «Γραφείο/TaxCenter». Ό,τι λείπει " +
+                        "δημιουργείται· δεν χρειάζεται να υπάρχει από πριν.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = driveFolder,
+                    onValueChange = { driveFolder = it },
+                    label = { Text("Φάκελος στο Drive") },
+                    singleLine = true,
+                    supportingText = {
+                        Text(
+                            "Θα γίνει: " + DriveSync.normalisePath(driveFolder),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        enabled = !folderBusy,
+                        onClick = {
+                            scope.launch {
+                                folderBusy = true
+                                folderStatus = "Δημιουργία στον Drive…"
+                                folderStatus = try {
+                                    settings.driveFolderPath = driveFolder
+                                    driveFolder = settings.driveFolderPath
+                                    val token = authorizer.accessToken()
+                                    val path = container.driveSync.ensureFolders(token)
+                                    settings.driveFolderChosen = true
+                                    "Έτοιμο: ο φάκελος «$path» υπάρχει στον Drive σου."
+                                } catch (e: Exception) {
+                                    "Απέτυχε: ${e.message}"
+                                }
+                                folderBusy = false
+                            }
+                        },
+                    ) { Text("Αποθήκευση και δημιουργία") }
+                }
+                if (folderStatus.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(folderStatus, style = MaterialTheme.typography.bodySmall)
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Δομή φακέλων: ScanMyData Tax Center → Πελάτες → «ΑΦΜ — Επωνυμία» → έτος. " +
+                    "Δεν υπάρχει επιλογή από τους φακέλους που ήδη έχεις, και είναι " +
+                        "σκόπιμο: η εφαρμογή ζητά το δικαίωμα «μόνο τα αρχεία που " +
+                        "δημιουργεί η ίδια», οπότε δεν μπορεί καν να δει τον υπόλοιπο " +
+                        "Drive σου. Ένας επιλογέας φακέλων θα απαιτούσε πρόσβαση σε " +
+                        "ολόκληρο τον λογαριασμό.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+                if (settings.driveFolderChosen) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Αν αλλάξεις τη διαδρομή, ό,τι έχει ήδη ανέβει μένει στον παλιό " +
+                            "φάκελο — η εφαρμογή δεν μετακινεί αρχεία.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            if (driveMode == DriveSync.Mode.SYNC) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Δομή φακέλων: " + DriveSync.normalisePath(driveFolder) +
+                        " → Πελάτες → «ΑΦΜ — Επωνυμία» → έτος. " +
                         "Τα έντυπα ανεβαίνουν αυτόματα στο τέλος κάθε παρτίδας λήψης, " +
                         "εφόσον υπάρχει δίκτυο.",
                     style = MaterialTheme.typography.bodySmall,
@@ -715,6 +830,81 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(updateStatus, style = MaterialTheme.typography.bodyMedium)
             }
+        }
+
+        SettingsSection(
+            title = "Εγκατάσταση σε άλλη συσκευή",
+            summary = "κώδικας QR για λήψη",
+            open = openSection,
+            onOpen = { openSection = it },
+        ) {
+            // Η αναζήτηση γίνεται μόλις ανοίξει η ομάδα, όχι σε κάθε άνοιγμα των
+            // Ρυθμίσεων: είναι κλήση δικτύου για κάτι που ζητιέται σπάνια.
+            LaunchedEffect(Unit) {
+                shareBusy = true
+                val release = withContext(Dispatchers.IO) {
+                    runCatching { UpdateChecker.latest() }.getOrNull()
+                }
+                if (release != null) {
+                    shareUrl = release.apkUrl
+                    shareTag = release.tag
+                }
+                shareBusy = false
+            }
+
+            Text(
+                "Σκανάρισε τον κώδικα από την άλλη συσκευή για να κατεβάσει την " +
+                    "εφαρμογή. Δεν χρειάζεται λογαριασμός και δεν στέλνεται τίποτα " +
+                    "δικό σου: ο κώδικας περιέχει μόνο τη δημόσια διεύθυνση λήψης.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+            )
+            Spacer(Modifier.height(12.dp))
+
+            // Λευκό πλαίσιο γύρω από τον κώδικα, ανεξάρτητα από το θέμα: σε
+            // σκοτεινό φόντο ο σαρωτής της άλλης συσκευής δυσκολεύεται.
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                QrImage(shareUrl, Modifier.padding(12.dp).size(240.dp))
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when {
+                    shareBusy -> "Αναζήτηση της τελευταίας έκδοσης…"
+                    shareTag.isNotBlank() -> "Απευθείας λήψη της έκδοσης $shareTag."
+                    else -> "Χωρίς δίκτυο: ο κώδικας οδηγεί στη σελίδα των εκδόσεων."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Row {
+                OutlinedButton(onClick = { clipboard.setText(AnnotatedString(shareUrl)) }) {
+                    Text("Αντιγραφή συνδέσμου")
+                }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "ScanMyData Tax Center")
+                        putExtra(Intent.EXTRA_TEXT, shareUrl)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Αποστολή συνδέσμου"))
+                }) { Text("Αποστολή") }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Η άλλη συσκευή θα ζητήσει άδεια για «εγκατάσταση από άγνωστη πηγή» " +
+                    "— η εφαρμογή δεν διανέμεται από το Play Store.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
         }
 
         Spacer(Modifier.height(32.dp))

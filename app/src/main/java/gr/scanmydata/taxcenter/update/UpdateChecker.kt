@@ -26,6 +26,16 @@ object UpdateChecker {
     private const val LATEST =
         "https://api.github.com/repos/scanmydata/Tax-Center-by-Scanmydata/releases/latest"
 
+    /**
+     * Η σελίδα της τελευταίας έκδοσης, για ανθρώπους και όχι για το API.
+     *
+     * Είναι ο σύνδεσμος που μπαίνει στον κώδικα QR όταν δεν υπάρχει δίκτυο για
+     * να βρεθεί το ίδιο το APK: δείχνει πάντα την τελευταία έκδοση χωρίς να
+     * χρειάζεται να ξέρει κανείς τον αριθμό της, οπότε δεν παλιώνει ποτέ.
+     */
+    const val RELEASES_PAGE =
+        "https://github.com/scanmydata/Tax-Center-by-Scanmydata/releases/latest"
+
     data class Release(val tag: String, val apkUrl: String, val notes: String) {
         /** Η έκδοση χωρίς το `v` του tag, για σύγκριση. */
         val version: String get() = tag.removePrefix("v")

@@ -18,8 +18,11 @@ import java.io.File
  * Συγχρονισμός των ληφθέντων εντύπων στο Google Drive, με δομή φακέλων ανά
  * πελάτη.
  *
+ * Ο ριζικός φάκελος είναι **επιλογή του χρήστη** (`Settings.driveFolderPath`,
+ * με `/` για υποφακέλους)· η δομή από κάτω του είναι σταθερή:
+ *
  * ```
- * ScanMyData Tax Center/
+ * <ο φάκελος που διάλεξε ο χρήστης>/
  *   ├─ Πελάτες/
  *   │    └─ 123456783 — ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ/
  *   │         ├─ 2025/  E1_….pdf, E2_….pdf
@@ -102,9 +105,9 @@ class DriveSync(
         entity: ClientEntity,
         year: String,
     ): String {
-        val root = cache.getOrPut(ROOT) { client.ensureFolder(ROOT) }
-        val clientsFolder = cache.getOrPut("$ROOT/$CLIENTS") {
-            client.ensureFolder(CLIENTS, root)
+        val base = folderPath
+        val clientsFolder = cache.getOrPut("$base/$CLIENTS") {
+            client.ensureFolder(CLIENTS, rootFolder(client, cache))
         }
         val label = FileBridge.sanitiseSegment(
             buildString {
@@ -112,18 +115,60 @@ class DriveSync(
                 if (entity.displayName != entity.afm) append(" — ").append(entity.displayName)
             },
         )
-        val clientFolder = cache.getOrPut("$ROOT/$CLIENTS/$label") {
+        val clientFolder = cache.getOrPut("$base/$CLIENTS/$label") {
             client.ensureFolder(label, clientsFolder)
         }
         val yearLabel = year.ifBlank { NO_YEAR }
-        return cache.getOrPut("$ROOT/$CLIENTS/$label/$yearLabel") {
+        return cache.getOrPut("$base/$CLIENTS/$label/$yearLabel") {
             client.ensureFolder(yearLabel, clientFolder)
         }
     }
 
-    fun backupFolder(client: DriveClient, cache: MutableMap<String, String>): String {
-        val root = cache.getOrPut(ROOT) { client.ensureFolder(ROOT) }
-        return cache.getOrPut("$ROOT/$BACKUPS") { client.ensureFolder(BACKUPS, root) }
+    fun backupFolder(client: DriveClient, cache: MutableMap<String, String>): String =
+        cache.getOrPut("$folderPath/$BACKUPS") {
+            client.ensureFolder(BACKUPS, rootFolder(client, cache))
+        }
+
+    /** Η διαδρομή που διάλεξε ο χρήστης, πάντα καθαρισμένη. */
+    val folderPath: String get() = normalisePath(settings.driveFolderPath)
+
+    /**
+     * Φτιάχνει **τώρα** τη διαδρομή στον Drive και επιστρέφει την τελική μορφή.
+     *
+     * Υπάρχει για το στήσιμο: ο χρήστης γράφει πού τα θέλει και βλέπει αμέσως
+     * τον φάκελο να εμφανίζεται στον Drive του, αντί να το ανακαλύψει την πρώτη
+     * φορά που θα κατέβει έντυπο — ή να μην το ανακαλύψει ποτέ, επειδή κάτι
+     * πήγε στραβά στην ταυτοποίηση.
+     */
+    suspend fun ensureFolders(accessToken: String): String = withContext(Dispatchers.IO) {
+        val client = DriveClient(accessToken)
+        val cache = HashMap<String, String>()
+        rootFolder(client, cache)
+        // Και οι δύο υποφάκελοι, ώστε η δομή να φαίνεται ολόκληρη από την αρχή.
+        client.ensureFolder(CLIENTS, rootFolder(client, cache))
+        client.ensureFolder(BACKUPS, rootFolder(client, cache))
+        folderPath
+    }
+
+    /**
+     * Ο φάκελος-ρίζα της εφαρμογής μέσα στον Drive, φτιάχνοντας **κάθε** τμήμα
+     * της διαδρομής που λείπει.
+     *
+     * Η δημιουργία είναι ο μόνος δρόμος: με scope `drive.file` η εφαρμογή δεν
+     * βλέπει φακέλους που έφτιαξε ο χρήστης μόνος του, οπότε δεν μπορεί να
+     * «μπει» σε υπάρχοντα φάκελο ούτε να τον προτείνει σε λίστα. Ό,τι φτιάχνει
+     * η ίδια το ξαναβρίσκει κανονικά — γι' αυτό η διαδρομή επιλέγεται μία φορά
+     * και μετά μένει σταθερή.
+     */
+    private fun rootFolder(client: DriveClient, cache: MutableMap<String, String>): String {
+        var parent: String? = null
+        var key = ""
+        for (segment in folderPath.split('/')) {
+            key = if (key.isEmpty()) segment else "$key/$segment"
+            val above = parent
+            parent = cache.getOrPut(key) { client.ensureFolder(segment, above) }
+        }
+        return parent ?: cache.getOrPut(ROOT) { client.ensureFolder(ROOT) }
     }
 
     // ---------------------------------------------------------- ανεβάσματα
@@ -235,9 +280,30 @@ class DriveSync(
         db.clients().all().flatMap { db.documents().forClient(it.id) }
 
     companion object {
+        /** Η προεπιλεγμένη διαδρομή, όταν ο χρήστης δεν διάλεξε άλλη. */
         const val ROOT = "ScanMyData Tax Center"
         const val CLIENTS = "Πελάτες"
         const val BACKUPS = "Αντίγραφα"
         const val NO_YEAR = "Χωρίς έτος"
+
+        /**
+         * Καθαρίζει μια διαδρομή που πληκτρολόγησε άνθρωπος.
+         *
+         * Πέφτουν τα κενά τμήματα («Γραφείο//Έντυπα/»), οι διπλές κάθετες και
+         * οι χαρακτήρες που δεν στέκουν σε όνομα φακέλου. Κενή διαδρομή γυρίζει
+         * στην προεπιλογή: το εναλλακτικό θα ήταν να σκορπιστούν φάκελοι
+         * πελατών **στη ρίζα** του Drive του χρήστη.
+         */
+        fun normalisePath(raw: String): String {
+            val parts = raw.split('/', '\\')
+                .map { segment -> segment.trim().filterNot { it in FORBIDDEN }.trim() }
+                .filter { it.isNotBlank() }
+                // Τρία επίπεδα φτάνουν και με το παραπάνω· βαθύτερη ιεραρχία
+                // σημαίνει μόνο περισσότερες κλήσεις στο Drive σε κάθε λήψη.
+                .take(3)
+            return if (parts.isEmpty()) ROOT else parts.joinToString("/")
+        }
+
+        private val FORBIDDEN = charArrayOf('\n', '\r', '\t')
     }
 }

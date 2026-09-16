@@ -107,6 +107,32 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putString(KEY_DRIVE_MODE, v.name).apply()
 
     /**
+     * Πού ζουν τα αρχεία μέσα στο Drive — διαδρομή με `/`, π.χ.
+     * `Γραφείο/Πελάτες/TaxCenter`.
+     *
+     * Ο χρήστης τη δηλώνει στο στήσιμο και η εφαρμογή **φτιάχνει** ό,τι λείπει.
+     * Δεν υπάρχει επιλογή από δέντρο φακέλων, και δεν είναι παράλειψη: το scope
+     * είναι `drive.file`, δηλαδή η εφαρμογή βλέπει **μόνο ό,τι έφτιαξε η ίδια**
+     * και δεν μπορεί καν να απαριθμήσει τον υπόλοιπο Drive. Αυτός ακριβώς είναι
+     * ο λόγος που δεν ζητήθηκε ευρύτερο δικαίωμα: ένας λογαριασμός με
+     * φορολογικά τρίτων δεν ανοίγει ολόκληρος σε μια εφαρμογή για να δείξει
+     * έναν επιλογέα φακέλων.
+     *
+     * Κενή τιμή σημαίνει την προεπιλογή — ποτέ τη ρίζα του Drive.
+     */
+    var driveFolderPath: String
+        get() = prefs.getString(KEY_DRIVE_FOLDER, null)?.takeIf { it.isNotBlank() }
+            ?: gr.scanmydata.taxcenter.google.DriveSync.ROOT
+        set(v) = prefs.edit()
+            .putString(KEY_DRIVE_FOLDER, gr.scanmydata.taxcenter.google.DriveSync.normalisePath(v))
+            .apply()
+
+    /** Έχει απαντήσει ο χρήστης πού θέλει τον φάκελο; Ρωτιέται μία φορά. */
+    var driveFolderChosen: Boolean
+        get() = prefs.getBoolean(KEY_DRIVE_FOLDER_CHOSEN, false)
+        set(v) = prefs.edit().putBoolean(KEY_DRIVE_FOLDER_CHOSEN, v).apply()
+
+    /**
      * Έχει ολοκληρωθεί η πρώτη εκκίνηση;
      *
      * Στο πρώτο άνοιγμα δεν υπάρχει τίποτα να προστατευτεί — ούτε πελάτης, ούτε
@@ -210,5 +236,7 @@ class Settings(context: Context) {
         const val KEY_SIGNATURE_CREDENTIALS = "signature_credentials"
         const val KEY_SIGNATURE_DOCUMENTS = "signature_documents"
         const val KEY_OFFICE_NAME = "office_name"
+        const val KEY_DRIVE_FOLDER = "drive_folder_path"
+        const val KEY_DRIVE_FOLDER_CHOSEN = "drive_folder_chosen"
     }
 }

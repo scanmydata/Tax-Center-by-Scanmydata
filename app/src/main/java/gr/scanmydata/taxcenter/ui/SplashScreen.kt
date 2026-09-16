@@ -41,7 +41,10 @@ import gr.scanmydata.taxcenter.ui.theme.BrandBlue
  *
  * Το κείμενο στο κάτω μέρος δεν είναι διακοσμητικό ούτε αυτό: η εφαρμογή
  * μοιάζει με κρατική επειδή δείχνει κρατικά έντυπα, και η δήλωση ότι **δεν**
- * σχετίζεται με την ΑΑΔΕ ή τον e-ΕΦΚΑ πρέπει να είναι το πρώτο που διαβάζεται.
+ * είναι πρέπει να είναι το πρώτο που διαβάζεται.
+ *
+ * Η δήλωση δεν κατονομάζει πια φορείς. Το όνομα μιας δημόσιας αρχής πάνω στην
+ * οθόνη υποδοχής — ακόμη και μέσα σε άρνηση — είναι χρήση του σήματός της.
  */
 @Composable
 fun SplashScreen(modifier: Modifier = Modifier) {
@@ -87,7 +90,7 @@ fun SplashScreen(modifier: Modifier = Modifier) {
 
             Spacer(Modifier.height(48.dp))
             Text(
-                "Ανεξάρτητη εφαρμογή.\nΔεν σχετίζεται με την ΑΑΔΕ ή τον e-ΕΦΚΑ.",
+                "Ανεξάρτητη εφαρμογή.\nΔεν σχετίζεται με δημόσιο φορέα ή υπηρεσία.",
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
