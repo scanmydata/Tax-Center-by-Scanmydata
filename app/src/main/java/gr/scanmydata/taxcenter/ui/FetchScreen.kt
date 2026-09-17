@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -138,6 +139,8 @@ private data class Pick(
     /** Πολλαπλά έτη: «Ε1 για 2023, 2024 και 2025» είναι μία επιλογή, τρεις λήψεις. */
     val years: List<String> = emptyList(),
     val months: List<String> = emptyList(),
+    /** Η απάντηση στο [DocumentCatalog.Choice] του εντύπου, αν έχει. */
+    val choice: String = "",
 )
 
 // --------------------------------------------------------------- επιλογή
@@ -260,6 +263,7 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                                 uid = nextUid++,
                                 itemId = item.id,
                                 years = if (item.needsYear) listOf(defaultYear) else emptyList(),
+                                choice = item.choice?.default.orEmpty(),
                             ),
                         )
                     }
@@ -584,6 +588,7 @@ private suspend fun buildPlans(
             if (item.batchYears && item.needsYear) {
                 val list = pick.years.filter { it.isNotBlank() }
                 val inputs = HashMap(item.inputs)
+                item.choice?.let { inputs[it.key] = pick.choice.ifBlank { it.default } }
                 if (list.isNotEmpty()) inputs["years"] = list.joinToString(",")
                 plans += FetchController.Plan(
                     job = ProcessRunner.Job(
@@ -605,6 +610,7 @@ private suspend fun buildPlans(
             for (year in years) {
                 for (month in months) {
                     val inputs = HashMap(item.inputs)
+                    item.choice?.let { inputs[it.key] = pick.choice.ifBlank { it.default } }
                     if (year.isNotBlank()) inputs["year"] = year
                     if (month.isNotBlank()) inputs["month"] = month
                     plans += FetchController.Plan(
@@ -807,6 +813,29 @@ private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit)
                         onChange(pick.copy(years = updated.sortedDescending()))
                     },
                 )
+            }
+            item.choice?.let { choice ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    choice.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                )
+                val selected = pick.choice.ifBlank { choice.default }
+                Column {
+                    for ((value, label) in choice.values) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onChange(pick.copy(choice = value)) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = value == selected,
+                                onClick = { onChange(pick.copy(choice = value)) },
+                            )
+                            Text(label, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
             if (item.needsMonth) {
                 Spacer(Modifier.height(6.dp))

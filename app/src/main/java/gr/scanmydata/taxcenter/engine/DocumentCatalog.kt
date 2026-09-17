@@ -1,6 +1,7 @@
 package gr.scanmydata.taxcenter.engine
 
 import gr.scanmydata.taxcenter.data.ClientKind
+import gr.scanmydata.taxcenter.keao.KeaoCard
 
 /**
  * Ο κατάλογος **εγγράφων**, ένα επίπεδο πάνω από τον κατάλογο διαδικασιών.
@@ -41,6 +42,26 @@ object DocumentCatalog {
      */
     enum class Applies { ALL, LEGAL_ONLY, NATURAL_ONLY, BUSINESS_ONLY }
 
+    /**
+     * Μια επιλογή που κάνει ο χρήστης **τη στιγμή της λήψης**, όχι μία φορά στις
+     * Ρυθμίσεις.
+     *
+     * Χρειάστηκε για την καρτέλα ΚΕΑΟ, όπου το ίδιο έντυπο άλλοτε στέλνεται με
+     * τις οφειλές εκτός ρύθμισης και άλλοτε χωρίς — και η σωστή απάντηση αλλάζει
+     * ανά πελάτη και ανά περίσταση. Μια καθολική ρύθμιση θα ανάγκαζε τον λογιστή
+     * να τη γυρίζει μπρος-πίσω και να ξεχνά πού την άφησε.
+     *
+     * Η τιμή καταλήγει στα `extraInputs` της εργασίας με κλειδί [key], οπότε τη
+     * βλέπουν και το config και η σύνθεση του εντύπου.
+     */
+    data class Choice(
+        val key: String,
+        val label: String,
+        /** τιμή σε ετικέτα, με τη σειρά που εμφανίζονται. */
+        val values: List<Pair<String, String>>,
+        val default: String,
+    )
+
     data class Item(
         val id: String,
         val label: String,
@@ -65,6 +86,8 @@ object DocumentCatalog {
         /** Παράγει PDF προς αποστολή· αλλιώς ενημερώνει την καρτέλα. */
         val producesDocuments: Boolean = true,
         val note: String = "",
+        /** Ερώτηση που απαντά ο χρήστης πριν τη λήψη — βλ. [Choice]. */
+        val choice: Choice? = null,
     ) {
         /**
          * Ισχύει για αυτό το είδος υπόχρεου;
@@ -85,6 +108,13 @@ object DocumentCatalog {
             }
         }
     }
+
+    /**
+     * Τι περιλαμβάνει η καρτέλα ΚΕΑΟ. Το κλειδί ταξιδεύει ως `extraInput` ως τη
+     * σύνθεση του εντύπου — γι' αυτό ζει εδώ, σε ένα σημείο, και όχι ως
+     * συμβολοσειρά σε τρία αρχεία.
+     */
+    const val KEAO_SCOPE = "scope"
 
     const val GROUP_INCOME = "Εισόδημα"
     const val GROUP_VAT = "ΦΠΑ"
@@ -223,7 +253,16 @@ object DocumentCatalog {
         Item("keao", "Καρτέλα οφειλέτη ΚΕΑΟ — ανά φορέα", GROUP_INSURANCE,
             "keao-debts", applies = Applies.NATURAL_ONLY,
             note = "Ένα έντυπο ανά φορέα, με το υπόλοιπο και την Ταυτότητα Οφειλέτη " +
-                "που χρειάζεται ο πελάτης για να πληρώσει."),
+                "που χρειάζεται ο πελάτης για να πληρώσει.",
+            choice = Choice(
+                key = KEAO_SCOPE,
+                label = "Τι θα δείχνει το έντυπο",
+                values = listOf(
+                    KeaoCard.SCOPE_REGULATED to "Ρυθμίσεις και συνολική οφειλή",
+                    KeaoCard.SCOPE_ALL to "Και οι οφειλές εκτός ρύθμισης",
+                ),
+                default = KeaoCard.SCOPE_REGULATED,
+            )),
         Item("atlas", "Ασφαλιστικό / εργασιακό ιστορικό (ΑΤΛΑΣ)", GROUP_INSURANCE,
             "atlas-insurance-history", applies = Applies.NATURAL_ONLY),
 

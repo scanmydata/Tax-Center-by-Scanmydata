@@ -150,38 +150,76 @@ object KeaoPdf {
             y += 8f
         }
 
-        // --------------------------------------------------------- πίνακες
-        for (table in report.tables) {
-            room(46f)
-            c().drawText(table.caption, MARGIN, y + 10f, paint(11f, bold = true))
-            y += 18f
+        // -------------------------------------------------------- ενότητες
 
+        fun drawTable(table: KeaoCard.Table) {
             val sum = table.weights.sum().takeIf { it > 0f } ?: 1f
             val widths = table.weights.map { width * it / sum }
             val xs = ArrayList<Float>(widths.size)
             var x = MARGIN
             for (w in widths) { xs += x; x += w }
 
-            val headPaint = paint(8.5f, bold = true, colour = MUTED)
-            for (i in table.headers.indices) {
-                c().drawText(fit(table.headers[i], headPaint, widths[i] - 6f), xs[i], y + 9f, headPaint)
-            }
-            y += 13f
-            c().drawRect(MARGIN, y, PAGE_W - MARGIN, y + 0.7f, Paint().apply { color = LINE })
-            y += 6f
-
-            val cellPaint = paint(9f)
-            for (row in table.rows) {
-                room(15f)
-                for (i in row.indices) {
+            fun rowOf(cells: List<String>, textPaint: Paint) {
+                for (i in cells.indices) {
                     if (i >= xs.size) break
-                    c().drawText(fit(row[i], cellPaint, widths[i] - 6f), xs[i], y + 9f, cellPaint)
+                    c().drawText(fit(cells[i], textPaint, widths[i] - 6f), xs[i], y + 9f, textPaint)
                 }
                 y += 13f
+            }
+
+            // Η κεφαλίδα ξαναγράφεται σε κάθε νέα σελίδα: ένας πίνακας δόσεων
+            // που συνεχίζει χωρίς επικεφαλίδες είναι στήλες αριθμών χωρίς όνομα.
+            val headPaint = paint(8.5f, bold = true, colour = MUTED)
+            fun header() {
+                rowOf(table.headers, headPaint)
+                c().drawRect(MARGIN, y, PAGE_W - MARGIN, y + 0.7f, Paint().apply { color = LINE })
+                y += 6f
+            }
+
+            room(40f)
+            header()
+            val cellPaint = paint(9f)
+            for (row in table.rows) {
+                if (y + 15f > PAGE_H - MARGIN - 28f) {
+                    room(15f)
+                    header()
+                }
+                rowOf(row, cellPaint)
                 c().drawRect(MARGIN, y, PAGE_W - MARGIN, y + 0.4f, Paint().apply { color = LINE })
                 y += 2f
             }
-            y += 12f
+            if (table.totals.isNotEmpty()) {
+                room(18f)
+                y += 2f
+                rowOf(table.totals, paint(9f, bold = true))
+                y += 2f
+            }
+        }
+
+        for (section in report.sections) {
+            room(46f)
+            c().drawText(section.caption, MARGIN, y + 10f, paint(11f, bold = true))
+            y += 18f
+
+            for ((label, value) in section.facts) {
+                room(14f)
+                c().drawText(label, MARGIN, y + 9f, labelPaint)
+                c().drawText(fit(value, valuePaint, width - 140f), MARGIN + 140f, y + 9f, valuePaint)
+                y += 14f
+            }
+            if (section.facts.isNotEmpty()) y += 6f
+
+            section.table?.let { drawTable(it) }
+
+            if (section.note.isNotBlank()) {
+                val notePaint = paint(8f, colour = MUTED)
+                for (piece in wrap(section.note, notePaint, width)) {
+                    room(12f)
+                    c().drawText(piece, MARGIN, y + 8f, notePaint)
+                    y += 11f
+                }
+            }
+            y += 14f
         }
 
         // -------------------------------------------------------- υποσέλιδο

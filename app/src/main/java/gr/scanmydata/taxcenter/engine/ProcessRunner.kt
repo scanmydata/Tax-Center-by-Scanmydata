@@ -255,6 +255,7 @@ class ProcessRunner(
             afm = job.client.afm,
             office = settings.officeName,
             retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
+            scope = job.extraInputs[DocumentCatalog.KEAO_SCOPE] ?: KeaoCard.SCOPE_REGULATED,
         )
         for (report in reports) KeaoPdf.write(report, File(outDir, report.fileName))
     }
