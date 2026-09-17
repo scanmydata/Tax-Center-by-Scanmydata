@@ -192,8 +192,29 @@ object KeaoCard {
         afm: String,
         office: String,
         retrievedAt: String,
-    ): List<Report> = carriers.mapIndexed { index, c ->
-        val tag = listOf(c.carrierAm, c.amo, (index + 1).toString())
+    ): List<Report> {
+        // Τα ονόματα κρατιούνται για να μη συγκρουστούν — βλ. [fileName].
+        val used = HashSet<String>()
+        return carriers.mapIndexed { index, c -> report(c, index, used, clientName, afm, office, retrievedAt) }
+    }
+
+    private fun report(
+        c: Carrier,
+        index: Int,
+        used: MutableSet<String>,
+        clientName: String,
+        afm: String,
+        office: String,
+        retrievedAt: String,
+    ): Report {
+        // **Ο ΑΜΟ πρώτος, όχι ο Αριθμός Μητρώου.**
+        //
+        // Επαληθεύτηκε σε πραγματικό λογαριασμό με τρεις φορείς: το ΤΕΚΑ και το
+        // ΟΠΣ-ΙΚΑ είχαν **τον ίδιο** ΑΜ (9310464020) και διαφορετικό ΑΜΟ. Με τον
+        // ΑΜ στο όνομα, το τρίτο έντυπο έγραφε πάνω στο δεύτερο και η καρτέλα
+        // ΤΕΚΑ εξαφανιζόταν χωρίς κανένα σφάλμα πουθενά — ο λογιστής θα έβλεπε
+        // δύο έντυπα εκεί που έπρεπε να δει τρία.
+        val tag = listOf(c.amo, c.carrierAm, (index + 1).toString())
             .firstOrNull { it.isNotBlank() }.orEmpty()
 
         val tables = ArrayList<Table>()
@@ -226,13 +247,16 @@ object KeaoCard {
             )
         }
 
-        Report(
-            fileName = fileName(afm, tag),
+        return Report(
+            fileName = unique(fileName(afm, tag), used),
             title = "Καρτέλα οφειλέτη ΚΕΑΟ",
             office = office,
             identity = buildList {
                 add("Υπόχρεος" to listOf(clientName, afm).filter { it.isNotBlank() }.joinToString(" · "))
-                if (c.description.isNotBlank()) add("Φορέας" to c.description)
+                val name = carrierName(c.description)
+                if (name.title.isNotBlank()) add("Φορέας" to name.title)
+                if (name.category.isNotBlank()) add("Κατηγορία" to name.category)
+                if (c.amo.isNotBlank()) add("ΑΜΟ" to c.amo)
                 if (c.carrierAm.isNotBlank()) add("Αριθμός Μητρώου" to c.carrierAm)
                 if (c.companyName.isNotBlank()) add("Επωνυμία" to c.companyName)
                 if (c.branch.isNotBlank()) add("Αρμόδιο υποκατάστημα" to c.branch)
@@ -258,9 +282,46 @@ object KeaoCard {
         )
     }
 
-    /** `KEAO_KARTELA_<ΑΦΜ>_<ΑΜ φορέα>.pdf` — ό,τι περιμένει το [DocumentNaming]. */
+    /** `KEAO_KARTELA_<ΑΦΜ>_<ΑΜΟ>.pdf` — ό,τι περιμένει το `DocumentNaming`. */
     fun fileName(afm: String, tag: String): String {
         val clean = tag.map { if (it.isLetterOrDigit()) it else '-' }.joinToString("").trim('-')
         return "KEAO_KARTELA_${afm}_${clean.ifBlank { "1" }}.pdf"
+    }
+
+    /**
+     * Εγγυάται ότι δύο φορείς δεν θα γράψουν στο ίδιο αρχείο.
+     *
+     * Ο ΑΜΟ είναι μοναδικός σε ό,τι έχουμε δει, αλλά αυτό ακριβώς πιστεύαμε και
+     * για τον Αριθμό Μητρώου μέχρι που δύο φορείς τον μοιράστηκαν. Το δίχτυ
+     * κοστίζει τρεις γραμμές· η απώλεια ενός εντύπου δεν φαίνεται πουθενά.
+     */
+    private fun unique(name: String, used: MutableSet<String>): String {
+        if (used.add(name)) return name
+        val base = name.removeSuffix(".pdf")
+        var n = 2
+        while (!used.add("${base}_$n.pdf")) n++
+        return "${base}_$n.pdf"
+    }
+
+    data class CarrierName(val title: String, val category: String)
+
+    /**
+     * «Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ» -> τίτλος «ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ»,
+     * κατηγορία «Ληξιπρόθεσμο».
+     *
+     * Η λίστα του ΚΕΑΟ βάζει μπροστά το είδος της οφειλής και συχνά επαναλαμβάνει
+     * το όνομα του φορέα δύο φορές. Κρατάμε **και τα δύο** αλλά χωριστά: η
+     * κατηγορία είναι πληροφορία, όχι θόρυβος, και δεν έχει λόγο να γεμίζει τον
+     * τίτλο του εντύπου που θα διαβάσει ο πελάτης.
+     */
+    fun carrierName(raw: String): CarrierName {
+        val value = raw.trim()
+        val kinds = listOf("Ληξιπρόθεσμο", "Εμπρόθεσμο", "Ληξιπρόθεσμες", "Εμπρόθεσμες")
+        val kind = kinds.firstOrNull { value.startsWith("$it - ", ignoreCase = true) }
+        var title = if (kind != null) value.removePrefix("$kind - ").trim() else value
+        // «Χ - Χ» από τη λίστα: ίδιο όνομα δύο φορές, χωρίς νόημα στο έντυπο.
+        val halves = title.split(" - ")
+        if (halves.size == 2 && halves[0].trim() == halves[1].trim()) title = halves[0].trim()
+        return CarrierName(title, kind.orEmpty())
     }
 }

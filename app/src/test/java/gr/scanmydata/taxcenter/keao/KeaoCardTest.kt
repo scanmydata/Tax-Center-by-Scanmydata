@@ -24,9 +24,9 @@ class KeaoCardTest {
       "retrievedAt": "2026-09-17T08:00:00.000Z",
       "carriers": [
         {
-          "Amo": "100",
-          "CarrierDescr": "ΟΑΕΕ",
-          "CarrierAm": "0123456",
+          "Amo": "3143975",
+          "CarrierDescr": "Ληξιπρόθεσμο - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ",
+          "CarrierAm": "9310464020",
           "CompanyName": "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ",
           "DeptorTransactions": {
             "DeptorID": "1234 5678 9012 3456",
@@ -70,9 +70,9 @@ class KeaoCardTest {
           }
         },
         {
-          "Amo": "200",
-          "CarrierDescr": "ΙΚΑ-ΕΤΑΜ",
-          "CarrierAm": "0987654",
+          "Amo": "5546808",
+          "CarrierDescr": "Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ",
+          "CarrierAm": "9310464020",
           "CompanyName": "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ",
           "DeptorTransactions": {
             "DeptorID": "9999 8888 7777 6666",
@@ -92,7 +92,7 @@ class KeaoCardTest {
     fun `διαβάζονται όλοι οι φορείς με την ταυτότητα οφειλέτη τους`() {
         val carriers = KeaoCard.parse(sample)
         assertEquals(2, carriers.size)
-        assertEquals("ΟΑΕΕ", carriers[0].description)
+        assertEquals("Ληξιπρόθεσμο - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ", carriers[0].description)
         assertEquals("1234 5678 9012 3456", carriers[0].debtorId)
         assertEquals("ΚΕΑΟ ΑΘΗΝΩΝ", carriers[0].branch)
         assertEquals("3.000,00", carriers[0].totals.balance)
@@ -135,12 +135,15 @@ class KeaoCardTest {
             retrievedAt = "17/09/2026 11:00",
         )
         assertEquals(2, reports.size)
-        assertEquals("KEAO_KARTELA_123456783_0123456.pdf", reports[0].fileName)
-        assertEquals("KEAO_KARTELA_123456783_0987654.pdf", reports[1].fileName)
+        // Με τον ΑΜΟ και όχι με τον ΑΜ: οι δύο φορείς μοιράζονται τον ίδιο ΑΜ.
+        assertEquals("KEAO_KARTELA_123456783_3143975.pdf", reports[0].fileName)
+        assertEquals("KEAO_KARTELA_123456783_5546808.pdf", reports[1].fileName)
         assertEquals("1234 5678 9012 3456", reports[0].debtorId)
         assertEquals("9999 8888 7777 6666", reports[1].debtorId)
         // Δύο διαφορετικά αρχεία — αλλιώς το δεύτερο σβήνει το πρώτο.
         assertTrue(reports[0].fileName != reports[1].fileName)
+        // Και ο ΑΜ όντως συμπίπτει: αυτό ακριβώς εξαφάνιζε την καρτέλα ΤΕΚΑ.
+        assertEquals(reports[0].identity.toMap()["Αριθμός Μητρώου"], reports[1].identity.toMap()["Αριθμός Μητρώου"])
     }
 
     @Test
@@ -172,6 +175,38 @@ class KeaoCardTest {
             "DeptorTransactions":{"DeptorID":"1","Debits":{"Balance":"1,00"}}}]}"""
         val report = KeaoCard.reports(KeaoCard.parse(json), "Χ", "123456783", "", "").single()
         assertEquals("KEAO_KARTELA_123456783_1.pdf", report.fileName)
+    }
+
+    /**
+     * Το πραγματικό σφάλμα, κλειδωμένο: δύο φορείς με **ίδιο ΑΜΟ** δεν
+     * επιτρέπεται να δώσουν το ίδιο αρχείο. Ο ΑΜΟ φαίνεται μοναδικός, αλλά το
+     * ίδιο πιστεύαμε και για τον ΑΜ.
+     */
+    @Test
+    fun `ίδιος ΑΜΟ δεν σβήνει το προηγούμενο έντυπο`() {
+        val json = """{"carriers":[
+            {"Amo":"7","CarrierDescr":"Α","DeptorTransactions":{"DeptorID":"RF1"}},
+            {"Amo":"7","CarrierDescr":"Β","DeptorTransactions":{"DeptorID":"RF2"}}]}"""
+        val reports = KeaoCard.reports(KeaoCard.parse(json), "Χ", "123456783", "", "")
+        assertEquals("KEAO_KARTELA_123456783_7.pdf", reports[0].fileName)
+        assertEquals("KEAO_KARTELA_123456783_7_2.pdf", reports[1].fileName)
+    }
+
+    @Test
+    fun `ο τίτλος του φορέα καθαρίζεται χωρίς να χαθεί η κατηγορία`() {
+        val teka = KeaoCard.carrierName("Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ")
+        assertEquals("ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ", teka.title)
+        assertEquals("Ληξιπρόθεσμο", teka.category)
+
+        // Η λίστα του ΚΕΑΟ γράφει τον φορέα δύο φορές· στο έντυπο μία.
+        val efka = KeaoCard.carrierName(
+            "Ληξιπρόθεσμο - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ",
+        )
+        assertEquals("ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ", efka.title)
+
+        // Ό,τι δεν έχει πρόθεμα μένει ακέραιο.
+        assertEquals("ΤΑΜΕΙΟ", KeaoCard.carrierName("ΤΑΜΕΙΟ").title)
+        assertEquals("", KeaoCard.carrierName("ΤΑΜΕΙΟ").category)
     }
 
     @Test
