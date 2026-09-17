@@ -213,8 +213,17 @@ object DocumentCatalog {
             "efka-notices", applies = Applies.NATURAL_ONLY),
         Item("efka-certificate", "Φορολογικές βεβαιώσεις ΕΦΚΑ/ΤΕΚΑ", GROUP_INSURANCE,
             "efka-teka-certificate", needsYear = true, applies = Applies.NATURAL_ONLY),
-        Item("keao", "Οφειλές ΚΕΑΟ + ΠΒΟ", GROUP_INSURANCE,
-            "keao-debts", mapOf("pdf" to "ναι"), applies = Applies.NATURAL_ONLY),
+        // Δύο διαφορετικές πύλες, και οι δύο λέγονται «ΚΕΑΟ» στη γλώσσα του
+        // γραφείου. Το πρώτο είναι οι υποχρεώσεις ασφάλισης του νέου ΟΠΣ, με τα
+        // ΠΒΟ ως επίσημα έγγραφα. Το δεύτερο είναι η καρτέλα οφειλέτη της
+        // Ηλεκτρονικής Πλατφόρμας Οφειλετών, που δίνει το **υπόλοιπο ανά φορέα
+        // και την ταυτότητα πληρωμής του** — κάτι που τα ΠΒΟ δεν λένε.
+        Item("efka-obligations", "Υποχρεώσεις ασφάλισης & ΠΒΟ ΚΕΑΟ", GROUP_INSURANCE,
+            "efka-obligations", mapOf("pdf" to "ναι"), applies = Applies.NATURAL_ONLY),
+        Item("keao", "Καρτέλα οφειλέτη ΚΕΑΟ — ανά φορέα", GROUP_INSURANCE,
+            "keao-debts", applies = Applies.NATURAL_ONLY,
+            note = "Ένα έντυπο ανά φορέα, με το υπόλοιπο και την Ταυτότητα Οφειλέτη " +
+                "που χρειάζεται ο πελάτης για να πληρώσει."),
         Item("atlas", "Ασφαλιστικό / εργασιακό ιστορικό (ΑΤΛΑΣ)", GROUP_INSURANCE,
             "atlas-insurance-history", applies = Applies.NATURAL_ONLY),
 

@@ -30,7 +30,8 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `efka-notices` | `EFKA_<EFKA\|TEKA>_<meta>.pdf` |
  * | `efka-teka-certificate` | `VEV_<EFKA\|TEKA>_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-employer-card` | `KARTELA_ERGODOTI_<EFKA\|TEKA>_<χρήστης>[_<έτος>].pdf` |
- * | `keao-debts` | `KEAO_PBO_<ΑΦΜ>_<αριθμός>.pdf` |
+ * | `efka-obligations` | `KEAO_PBO_<ΑΦΜ>_<αριθμός>.pdf` |
+ * | `keao-debts` | `KEAO_KARTELA_<ΑΦΜ>_<ΑΜ φορέα>.pdf` — το φτιάχνει η εφαρμογή |
  *
  * Η αντιστοίχιση γίνεται από το πρόθεμα και **όχι** από το `configId`: ένα
  * `aade-income` κρύβει οκτώ διαφορετικά έντυπα και ένα `aade-general-forms`
@@ -81,6 +82,7 @@ object DocumentNaming {
         Entry("TELH_KYKLOFORIAS", "Τέλη κυκλοφορίας"),
         Entry("OFEILI", "Ταυτότητα οφειλής", yearInName = false),
         Entry("KEAO_PBO", "ΚΕΑΟ — πράξη βεβαίωσης οφειλής", yearInName = false),
+        Entry("KEAO_KARTELA", "ΚΕΑΟ — καρτέλα οφειλέτη ανά φορέα", yearInName = false),
 
         // ------------------------------------------------------ ασφάλιση
         Entry("KARTELA_ERGODOTI_TEKA", "Καρτέλα εργοδότη — ΤΕΚΑ"),

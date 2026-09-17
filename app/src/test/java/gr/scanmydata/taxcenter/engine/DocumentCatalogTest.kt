@@ -69,7 +69,7 @@ class DocumentCatalogTest {
     @Test
     fun `οι διαδικασίες ΕΦΚΑ δεν ισχύουν σε νομικό πρόσωπο`() {
         // Θέλουν ΑΜΚΑ στη φόρμα ρόλου· νομικό πρόσωπο δεν έχει.
-        for (id in listOf("efka-notices", "efka-certificate", "keao", "atlas", "amka")) {
+        for (id in listOf("efka-notices", "efka-certificate", "keao", "efka-obligations", "atlas", "amka")) {
             val item = DocumentCatalog.byId(id)!!
             assertFalse("το $id δεν έπρεπε να ισχύει σε νομικό πρόσωπο", item.matches(ClientKind.LEGAL))
             assertTrue("το $id έπρεπε να ισχύει σε ιδιώτη", item.matches(ClientKind.PRIVATE))
@@ -102,7 +102,8 @@ class DocumentCatalogTest {
         val stays = listOf(
             "e1", "e2", "ekkatharistiko", "enfia", "e9", "property", "lease",
             "debts", "tax-account", "traffic-fees", "efka-notices",
-            "efka-certificate", "keao", "atlas", "registry-natural", "profile", "amka",
+            "efka-certificate", "keao", "efka-obligations", "atlas", "registry-natural",
+            "profile", "amka",
         )
         for (id in stays) {
             assertTrue(

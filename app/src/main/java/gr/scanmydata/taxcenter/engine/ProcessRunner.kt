@@ -9,6 +9,9 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
+import gr.scanmydata.taxcenter.keao.KeaoCard
+import gr.scanmydata.taxcenter.keao.KeaoPdf
+import gr.scanmydata.taxcenter.ui.AthensDates
 import java.io.File
 
 /**
@@ -124,6 +127,11 @@ class ProcessRunner(
             outDir = outDir,
             keepDiagnostics = settings.diagnostics,
         )
+        // Τα έντυπα που φτιάχνει η **εφαρμογή** από τα δεδομένα του engine
+        // γράφονται πριν μετρηθεί η παραγωγή: έτσι μπαίνουν στα Έγγραφα και
+        // στέλνονται με τον ίδιο δρόμο που περνά κάθε άλλο PDF, χωρίς δεύτερη
+        // διαδρομή που θα έπρεπε να συντηρείται παράλληλα.
+        if (result.ok) runCatching { renderReports(job, outDir) }
         val produced = existingFiles(outDir) - before
 
         if (result.ok) {
@@ -222,6 +230,34 @@ class ProcessRunner(
 
     private fun existingFiles(dir: File): Set<String> =
         dir.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()
+
+    /**
+     * Έντυπα που **δεν** τα δίνει η πύλη — τα συνθέτει η εφαρμογή από ό,τι
+     * διάβασε το config.
+     *
+     * Σήμερα ένα: η καρτέλα οφειλέτη ΚΕΑΟ. Η Ηλεκτρονική Πλατφόρμα Οφειλετών
+     * δίνει οθόνες και όχι εκτύπωση, ενώ αυτό που χρειάζεται ο πελάτης είναι
+     * ένα χαρτί με το υπόλοιπο και την **Ταυτότητα Οφειλέτη** του κάθε φορέα.
+     *
+     * Η αποτυχία εδώ δεν ρίχνει τη λήψη — τα δεδομένα έχουν ήδη αντληθεί και το
+     * JSON είναι γραμμένο· ο καλών τυλίγει την κλήση σε `runCatching`.
+     */
+    private fun renderReports(job: Job, outDir: File) {
+        if (job.configId != "keao-debts") return
+        val source = outDir.listFiles()
+            ?.firstOrNull { it.name.startsWith("KEAO_ofeiles_") && it.name.endsWith(".json") }
+            ?: return
+        val carriers = KeaoCard.parse(source.readText(Charsets.UTF_8))
+        if (carriers.isEmpty()) return
+        val reports = KeaoCard.reports(
+            carriers = carriers,
+            clientName = job.client.displayName,
+            afm = job.client.afm,
+            office = settings.officeName,
+            retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
+        )
+        for (report in reports) KeaoPdf.write(report, File(outDir, report.fileName))
+    }
 
     /**
      * Καταγράφει τα παραγόμενα PDF. Τα `.json`, `.html` και `run.log` είναι

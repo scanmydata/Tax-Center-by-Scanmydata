@@ -55,6 +55,7 @@ object CredentialMap {
         "efka-notices" to TAXIS_AFM_AMKA,
         "efka-teka-certificate" to TAXIS_AFM_AMKA,
         "keao-debts" to TAXIS_AFM_AMKA,
+        "efka-obligations" to TAXIS_AFM_AMKA,
         "atlas-insurance-history" to TAXIS_AFM_AMKA,
 
         // MyAMKA — TAXISnet, χωρίς άλλα

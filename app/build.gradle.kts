@@ -104,4 +104,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    // Το `org.json` της συσκευής το δίνει το ίδιο το Android· στα unit tests
+    // όμως το android.jar είναι κέλυφος που πετά «not mocked». Η πραγματική
+    // υλοποίηση μπαίνει ΜΟΝΟ στο test classpath — δεν φτάνει ποτέ στο APK.
+    testImplementation(libs.json)
 }

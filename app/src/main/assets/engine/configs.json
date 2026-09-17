@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 20,
+  "count": 22,
   "configs": [
     {
       "id": "aade-debts",
@@ -133,6 +133,49 @@
           "key": "ekk",
           "label": "Και το εκκαθαριστικό ΕΝΦΙΑ; (ναι/όχι — κενό = ναι)",
           "env": "AADE_ENFIA_EKK",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-eservices",
+      "file": "aade-eservices.js",
+      "owner": "runner",
+      "title": "Λοταρία (Φορολοταρία) & Βεβαίωση Επιστρεπτέας Προκαταβολής",
+      "portal": "AADE (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "which",
+          "label": "Ποιο (LOTARIA / EPISTREPTEA — κενό = και τα δύο)",
+          "env": "AADE_ESVC",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "vat",
+          "label": "ΑΦΜ (κενό = ο ΑΦΜ του λογαριασμού)",
+          "env": "AADE_VAT",
           "hidden": false,
           "optional": true
         }
@@ -685,47 +728,46 @@
       "id": "keao-debts",
       "file": "keao-debts.js",
       "owner": "runner",
-      "title": "Οφειλές ΕΦΚΑ/ΚΕΑΟ ανά Φορέα + Χρεώσεις/Πιστώσεις",
-      "portal": "e-EFKA νέο ΟΠΣ (services.e-efka.gov.gr, non-employee)",
+      "title": "Οφειλές ΚΕΑΟ ανά φορέα (Ηλεκτρονική Καρτέλα Οφειλέτη)",
+      "portal": "e-EFKA / ΚΕΑΟ (services.e-efka.gov.gr, non-employee/employer)",
       "subsystem": "Hyper.Server",
       "actions": [
-        "retrieve",
-        "download"
+        "retrieve"
       ],
       "needsBrowser": false,
       "inputs": [
         {
           "key": "user",
           "label": "TAXISnet username",
-          "env": "KEAO_USER",
+          "env": "EFKA_USER",
           "hidden": false,
           "optional": false
         },
         {
           "key": "pass",
           "label": "TAXISnet password",
-          "env": "KEAO_PASS",
+          "env": "EFKA_PASS",
           "hidden": true,
           "optional": false
         },
         {
           "key": "afm",
           "label": "ΑΦΜ",
-          "env": "KEAO_AFM",
+          "env": "EFKA_AFM",
           "hidden": false,
           "optional": false
         },
         {
           "key": "amka",
-          "label": "ΑΜΚΑ",
-          "env": "KEAO_AMKA",
+          "label": "ΑΜΚΑ (φυσικά πρόσωπα)",
+          "env": "EFKA_AMKA",
           "hidden": false,
           "optional": false
         },
         {
-          "key": "pdf",
-          "label": "Λήψη PDF ΠΒΟ ΚΕΑΟ; (ναι/όχι, default ναι)",
-          "env": "KEAO_PDF",
+          "key": "ame",
+          "label": "Αρ.Μ.Εργοδότη (νομικά πρόσωπα — κενό για φυσικά)",
+          "env": "EFKA_AME",
           "hidden": false,
           "optional": true
         }
@@ -796,6 +838,56 @@
           "key": "vat",
           "label": "ΑΦΜ-στόχος (κενό = ο ΑΦΜ του λογαριασμού)",
           "env": "AADE_VAT",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "efka-obligations",
+      "file": "efka-obligations.js",
+      "owner": "app",
+      "title": "Οφειλές ΕΦΚΑ/ΚΕΑΟ ανά Φορέα + Χρεώσεις/Πιστώσεις",
+      "portal": "e-EFKA νέο ΟΠΣ (services.e-efka.gov.gr, non-employee)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "KEAO_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "KEAO_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ",
+          "env": "KEAO_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ",
+          "env": "KEAO_AMKA",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF ΠΒΟ ΚΕΑΟ; (ναι/όχι, default ναι)",
+          "env": "KEAO_PDF",
           "hidden": false,
           "optional": true
         }

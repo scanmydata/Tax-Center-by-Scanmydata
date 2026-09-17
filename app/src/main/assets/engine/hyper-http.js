@@ -134,18 +134,19 @@ class HyperHttp {
         for (const [k, v] of Object.entries(this.jar[h])) parts.push(k + '=' + v);
     return parts.join('; ');
   }
-  async once(method, url, form) {
+  async once(method, url, form, extraHeaders) {
     const h = { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'el-GR,el;q=0.9,en;q=0.8' };
     const ck = this._cookie(url); if (ck) h['Cookie'] = ck;
     // charset=UTF-8 is REQUIRED — the e-EFKA JSF server otherwise transliterates Greek in the
     // partial-response to '?' (== C# sets HttpContent.Headers.ContentType.CharSet = "UTF-8").
     let body; if (form) { h['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'; body = new URLSearchParams(form).toString(); }
+    if (extraHeaders) Object.assign(h, extraHeaders);
     const res = await fetch(url, { method, headers: h, body, redirect: 'manual' });
     this._store(url, res);
     return res;
   }
-  async follow(method, url, form) {
-    let res = await this.once(method, url, form);
+  async follow(method, url, form, extraHeaders) {
+    let res = await this.once(method, url, form, extraHeaders);
     let loc = res.headers.get('location'); let cur = url; let hops = 0;
     this.log(`  ${method} ${url} -> ${res.status}${loc ? ' -> ' + loc : ''}`);
     while (loc && res.status >= 300 && res.status < 400 && hops < 25) {
@@ -267,6 +268,47 @@ async function efkaNonEmployeeLogin(http, { user, pass, afm, amka }) {
     const t = stripTags(a[2]); if (t) links[t] = new URL(decodeHtml(a[1]), SVC).toString();
   }
   http.log('[efka-login] OK (AMKA ' + amka + ')');
+  return { ok: true, landing: rr.text, links, SVC };
+}
+
+// e-EFKA services.e-efka.gov.gr login supporting BOTH roles (== KeaoRetrieveService.Login):
+//   non-employee: element id "social-external-non-employee" -> POST parent form action; role external-non-employee (afm+amka)
+//   employer:     element id "social-taxisnet-employer"     -> GET element href;         role external-employer (afm+ame)
+// inputs: {user,pass,afm,amka,ame,isLegal}. Returns {ok, landing, links, SVC}.
+async function efkaServicesLogin(http, { user, pass, afm, amka, ame, isLegal }) {
+  const SVC = 'https://services.e-efka.gov.gr/';
+  const LAND = SVC + 'ssp.commonservices.home/views/secure/index.xhtml';
+  http.log('[efka-svc-login] GET home (' + (isLegal ? 'employer' : 'non-employee') + ')');
+  const r = await http.follow('GET', LAND); http.dump('01_home.html', r.text);
+  if (isLegal) {
+    const m = r.text.match(/id="social-taxisnet-employer"[^>]*href="([^"]*)"/i)
+           || r.text.match(/href="([^"]*)"[^>]*id="social-taxisnet-employer"/i);
+    if (!m) return { ok: false, reason: 'HomeFormEmployer' };
+    http.log('[efka-svc-login] enter employer -> GSIS');
+    await http.follow('GET', new URL(decodeHtml(m[1]), SVC).toString());
+  } else {
+    const act = decodeHtml(formActionOf(r.text, 'social-external-non-employee'));
+    if (!act) return { ok: false, reason: 'HomeForm' };
+    http.log('[efka-svc-login] enter non-employee -> GSIS');
+    await http.follow('POST', new URL(act, SVC).toString(), {});
+  }
+  http.log('[efka-svc-login] TAXISnet credentials + approval');
+  const g = await gsisSubmitAndApprove(http, user, pass);
+  if (!g.ok) return g;
+  http.dump('02_selectrole.html', g.page.text);
+  const roleAction = decodeHtml(ownFormAction(g.page.text, 'kc-form-select-role'));
+  if (!roleAction) return { ok: false, reason: 'SelectRole' };
+  http.log('[efka-svc-login] select role ' + (isLegal ? 'external-employer (afm+ame)' : 'external-non-employee (afm+amka)'));
+  const rr = await http.follow('POST', new URL(roleAction, g.page.url).toString(), {
+    role: isLegal ? 'external-employer' : 'external-non-employee',
+    afm, amka: isLegal ? '' : amka, pa: '', ame: isLegal ? (ame || '') : '', amoe: '',
+    'authorizing-afm': '', 'authorizing-contractor-afm': '', 'submit-role-attribute': 'Υποβολή',
+  });
+  http.dump('03_landing.html', rr.text);
+  if (!hasId(rr.text, 'viewsPanel') || !rr.text.includes('Καλώς ήρθατε')) return { ok: false, reason: 'LandPage' };
+  const links = {};
+  for (const a of rr.text.matchAll(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)) { const t = stripTags(a[2]); if (t) links[t] = new URL(decodeHtml(a[1]), SVC).toString(); }
+  http.log('[efka-svc-login] OK (' + (isLegal ? 'employer AME ' + (ame || '') : 'AMKA ' + amka) + ')');
   return { ok: true, landing: rr.text, links, SVC };
 }
 
@@ -515,6 +557,6 @@ module.exports = {
   HyperHttp, ask, gatherInputs,
   decodeHtml, stripTags, between, viewState, formActionOf, ownFormAction, hasId,
   anchorHrefByText, findTabByText, extractUpdate, dataTableRows,
-  gsisSubmitAndApprove, efkaNonEmployeeLogin, efkaGgpsLogin, atlasGrid,
+  gsisSubmitAndApprove, efkaNonEmployeeLogin, efkaServicesLogin, efkaGgpsLogin, atlasGrid,
   myAmkaLogin, myAmkaApi, aadeLogin, efkaErgodLogin, keaoLogin, idikaLoginAade,
 };
