@@ -29,15 +29,66 @@ function parseInstallments(html, strip) {
   return out;
 }
 
+// <table id="generalInstallmentInfo_N"> Γενική Εικόνα Δόσεων: label/value ζεύγη
+// (Αριθμός δόσεων, Ημ/νία πρώτης δόσης, Ημ/νία ισχύος έκπτωσης, Ποσό έκπτωσης).
+// Ζει δίπλα στο installmentInfo_N και το συμπληρώνει -- χωρίς αυτό, το δοσολόγιο
+// λέει πότε λήγει η κάθε δόση αλλά όχι πόσες είναι συνολικά.
+function parseGeneralInstallments(html, strip) {
+  const out = {};
+  for (const m of html.matchAll(/<table[^>]*id="generalInstallmentInfo_(\d+)"[\s\S]*?<\/table>/gi)) {
+    const rows = [...m[0].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+      .map(r => [...r[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => strip(c[1]))).filter(c => c.some(x => x));
+    if (rows.length) out[m[1]] = { rows };
+  }
+  return out;
+}
+
+/*
+ * Το κουμπί «Εκτύπωση» της σελίδας ταυτότητας: ποια φόρμα υποβάλλεται, σε ποιο
+ * action και με ποιες τιμές. Και τα τρία είναι γραμμένα στη σελίδα -- doViewPdf()
+ * ορίζει την αντιστοίχιση παραμέτρων -> πεδίων, το onclick δίνει τις τιμές, η
+ * φόρμα τα hidden. Τα διαβάζουμε αντί να τα μαντέψουμε, γιατί η σελίδα των
+ * ρυθμίσεων (ΤΡΟ) χρησιμοποιεί άλλα ονόματα από τη σελίδα των οφειλών (ΤΟ).
+ */
+function printForm(html) {
+  const call = html.match(/doViewPdf\(\s*document\.([A-Za-z0-9_]+)\s*,([^)]*)\)/i);
+  if (!call) return null;
+  const args = call[2].split(',').map(a => a.trim().replace(/^['"]|['"]$/g, ''));
+  const fn = html.match(/function\s+doViewPdf\s*\(([^)]*)\)\s*\{([\s\S]*?)\n\s*\}/i);
+  const params = fn ? fn[1].split(',').map(s => s.trim()) : [];
+  const body = fn ? fn[2] : '';
+  const form = html.match(new RegExp('<form[^>]*name="' + call[1] + '"[^>]*>([\\s\\S]*?)</form>', 'i'));
+  if (!form) return null;
+  const open = form[0].slice(0, form[0].indexOf('>') + 1);
+  const inBody = body.match(/frm\.action\s*=\s*['"]([^'"]+)['"]/);
+  const action = (inBody && inBody[1]) || (open.match(/action="([^"]*)"/i) || [])[1] || '';
+  if (!action) return null;
+  const fields = {};
+  for (const inp of form[1].match(/<input[^>]*>/gi) || []) {
+    const name = (inp.match(/name="([^"]*)"/i) || [])[1];
+    if (name) fields[name] = (inp.match(/value="([^"]*)"/i) || [])[1] || '';
+  }
+  for (const m of body.matchAll(/frm\.elements\['([^']+)'\]\.value\s*=\s*([A-Za-z0-9_]+)\s*;/g)) {
+    // params[0] είναι το frm, που ΔΕΝ βρίσκεται στα args: το όνομα της φόρμας
+    // το κατανάλωσε το πρώτο group του regex. Άρα το args[i-1].
+    const i = params.indexOf(m[2]);
+    if (i > 0 && args[i - 1] != null) fields[m[1]] = args[i - 1];
+  }
+  return { action, fields };
+}
+
 const BASE = '/taxisnet/info/protected/';
 const PAGES = [
   { key: 'debts_unregulated', title: 'Οφειλές εκτός Ρύθμισης και Πληρωμή', url: BASE + 'displayDebtInfoAndPay.htm', debts: true },
-  { key: 'debts_arrangement', title: 'Οφειλές σε Ρύθμιση και Πληρωμή', url: BASE + 'displayArrangementInfoAndPay.htm' },
+  { key: 'debts_arrangement', title: 'Οφειλές σε Ρύθμιση και Πληρωμή', url: BASE + 'displayArrangementInfoAndPay.htm', arrangements: true },
   { key: 'debts_coresponsible', title: 'Οφειλές από Συνυπευθυνότητα', url: BASE + 'displayCoResponsibleDebtInfo.htm' },
   { key: 'payments', title: 'Στοιχεία Πληρωμών', url: BASE + 'displayActualPaymentInfo.htm' },
   { key: 'returns', title: 'Επιστροφές', url: BASE + 'displayReturnInfo.htm' },
 ];
 const TO_ARGS = ['action', 'returnView', 'mchDoy', 'mchDept', 'mchMctCode', 'mchSctCode', 'mchYear', 'mchSourceCode', 'mchMcNo', 'mcLineNo', 'index'];
+// Η σελίδα των ρυθμίσεων έχει ΑΛΛΗ υπογραφή για την ίδια συνάρτηση:
+// doDisplayPaymentCode(frm, returnView, arnDoy, arnDept, arnYear, arrAA) -> displayArrangementCode.htm
+const ARR_ARGS = ['returnView', 'arnDoy', 'arnDept', 'arnYear', 'arrAA'];
 
 const rowsOf = (html, strip) => [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
   .map(r => [...r[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => strip(c[1])))
@@ -113,10 +164,14 @@ module.exports = {
           // attach στο JSON + κράτα το HTML ώστε να μπει ως 2η σελίδα ΜΕΣΑ στο PDF της Ταυτότητας Οφειλής.
           if (wantDoseis) {
             const instMap = parseInstallments(r.text, strip);
+            const genMap = parseGeneralInstallments(r.text, strip);
             debts.forEach((d, i) => {
-              const inst = instMap[d.instIdx != null ? d.instIdx : String(i)] || instMap[String(i)];
+              const key = d.instIdx != null ? d.instIdx : String(i);
+              const inst = instMap[key] || instMap[String(i)];
               if (!inst) return;
               d.installments = inst;                               // consolidated into the debts JSON
+              const gen = genMap[key] || genMap[String(i)];
+              if (gen) d.general = gen;                            // αριθμός δόσεων, πρώτη δόση, έκπτωση
               const katigoria = d.fields['Είδος φόρου'] || d.fields['Είδος'] || p.key;
               const poso = d.total || d.overdueBalance || d.nonOverdue || '';
               d._doseisHtml = tableDoc('Ανάλυση Δόσεων Οφειλής', 'ΑΦΜ ' + afm + ' · ' + strip(katigoria) + ' · Σύνολο ' + strip(poso),
@@ -159,8 +214,70 @@ module.exports = {
             idx++;
           }
         }
+        /*
+         * Ρυθμίσεις (εντός ρύθμισης). Ίδια μηχανική με τις οφειλές -- κρυφοί
+         * πίνακες δόσεων στο HTML, ταυτότητα με GET, εκτύπωση με POST -- αλλά
+         * με άλλα ονόματα παραμέτρων και άλλο endpoint. Μέχρι τώρα η σελίδα
+         * σωζόταν μόνο ως γραμμές κειμένου: ο πελάτης έπαιρνε τις ληξιπρόθεσμες
+         * οφειλές του σε PDF και για τη ρύθμιση που πληρώνει κάθε μήνα τίποτα.
+         */
+        if (p.arrangements) {
+          const cellsOf = (tr) => [...tr.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => strip(c[1]));
+          const instMap = parseInstallments(r.text, strip);
+          const genMap = parseGeneralInstallments(r.text, strip);
+          const arrangements = [];
+          let header = [];
+          let sampled = false;
+          for (const tr of r.text.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || []) {
+            const call = tr.match(/doDisplayPaymentCode\(document\.displayPaymentCodeForm\s*,([\s\S]*?)\)/i);
+            const cells = cellsOf(tr);
+            // Οι επικεφαλίδες δεν έχουν σταθερό όνομα ή id: κρατάμε την τελευταία
+            // «πλατιά» γραμμή πριν από τα δεδομένα. Οι δίστηλες γραμμές της
+            // «Γενικής Εικόνας» δεν είναι κεφαλίδα πίνακα.
+            if (!call) { if (cells.filter(c => c).length >= 4) header = cells; continue; }
+            const args = [...call[1].matchAll(/"([^"]*)"/g)].map(a => a[1]);
+            const to = {}; ARR_ARGS.forEach((k, i) => { to[k] = args[i]; });
+            const instIdx = (tr.match(/showInstallmentInfoRadio_(\d+)/) || tr.match(/showTObut_(\d+)/) || [])[1];
+            const fields = {}; header.forEach((h, i) => { if (h) fields[h] = cells[i] != null ? cells[i] : ''; });
+            arrangements.push({ fields, cells, to, instIdx });
+          }
+
+          for (const a of arrangements) {
+            if (wantDoseis && a.instIdx != null) {
+              if (instMap[a.instIdx]) a.installments = instMap[a.instIdx];
+              if (genMap[a.instIdx]) a.general = genMap[a.instIdx];
+            }
+            if (!a.to.arrAA) continue;
+            const q = new URLSearchParams({
+              returnView: a.to.returnView || p.url.split('/').pop(),
+              arnDoy: a.to.arnDoy || '', arnDept: a.to.arnDept || '',
+              arnYear: a.to.arnYear || '', arrAA: a.to.arrAA,
+            }).toString();
+            const codeUrl = new URL(BASE + 'displayArrangementCode.htm?' + q, L.AADE).toString();
+            const code = await http.getDoc(codeUrl);
+            if (!code.text) { http.log('[' + p.key + '] ΤΡΟ σελίδα κενή για ρύθμιση ' + a.to.arrAA); continue; }
+            if (!sampled) { http.dump('tro_arrangement_sample.html', code.text); sampled = true; }
+            a.troCode = (code.text.match(/RF\d{2}[A-Z0-9]{4,}/) || code.text.match(/Ταυτότητα[\s\S]{0,160}?(\d[\d\s]{12,})/) || [])[0] || null;
+            const pf = printForm(code.text);
+            if (!pf) { http.log('[' + p.key + '] δεν βρέθηκε κουμπί εκτύπωσης για ρύθμιση ' + a.to.arrAA); continue; }
+            const pdf = await http.postForPdf(new URL(pf.action, codeUrl).toString(), pf.fields);
+            if (!pdf) { http.log('[' + p.key + '] ΤΡΟ PDF failed (' + pf.action + ')'); continue; }
+            // Όνομα από τον αριθμό της ρύθμισης και το έτος της -- οι στήλες του
+            // πίνακα αλλάζουν, ο αριθμός ρύθμισης όχι.
+            const f = 'RYTHMISI_' + afm + '_' + san(a.to.arnYear || '') + '_' + san(a.to.arrAA) + '.pdf';
+            a.troPdf = f;
+            fs.writeFileSync(path.join(http.dlDir, f), pdf); pdfs.push(f);
+            http.log('[' + p.key + '] ✅ ΤΡΟ PDF -> ' + f + ' (' + pdf.length + ' b)' + (a.troCode ? ' code=' + a.troCode : ''));
+          }
+          // Ίδια ονόματα με τη σελίδα των οφειλών: ο αναγνώστης του JSON
+          // (εφαρμογή ή άνθρωπος) δεν έχει λόγο να μάθει δεύτερο λεξιλόγιο.
+          section.debts = arrangements.map(a => ({ fields: a.fields, cells: a.cells, to: a.to, installments: a.installments, general: a.general, toCode: a.troCode, toPdf: a.troPdf }));
+          section.columns = header;
+          section.counts = { total: arrangements.length, withInstallments: arrangements.filter(a => a.installments).length };
+        }
+
         result.sections[p.key] = section;
-        http.log('[' + p.key + '] rows=' + allRows.length + (p.debts ? (' debts=' + section.debts.length + ' (ληξιπρόθεσμες=' + section.counts.lixiprothesmes + ', εμπρόθεσμες=' + section.counts.emprothesmes + ')') : ''));
+        http.log('[' + p.key + '] rows=' + allRows.length + (p.debts ? (' debts=' + section.debts.length + ' (ληξιπρόθεσμες=' + section.counts.lixiprothesmes + ', εμπρόθεσμες=' + section.counts.emprothesmes + ')') : '') + (p.arrangements ? (' ρυθμίσεις=' + section.debts.length) : ''));
       } catch (e) {
         http.log('[' + p.key + '] error ' + (e && e.message ? e.message : e));
         result.sections[p.key] = { title: p.title, error: String(e && e.message || e) };

@@ -620,5 +620,94 @@ check('οι επιλογείς του aade-enfia αναλύονται όλοι',
   }
 });
 
+
+console.log('\naade-debts.js — δοσολόγιο και κουμπί εκτύπωσης\n');
+
+/*
+ * Οι δύο συναρτήσεις που κρίνουν αν θα φύγει δοσολόγιο στον πελάτη ζουν στο
+ * config και δεν εξάγονται (το `module.exports` είναι το συμβόλαιο του engine,
+ * όχι δοκιμαστικό σημείο). Τις βγάζουμε από τον ΙΔΙΟ κώδικα που φορτώνει το
+ * κινητό και τις τρέχουμε σε καθαρό context.
+ *
+ * Το δείγμα HTML είναι η δομή των πραγματικών σελίδων της ΑΑΔΕ — κρυφοί πίνακες
+ * `installmentInfo_N`/`generalInstallmentInfo_N`, φόρμα εκτύπωσης που γεμίζει η
+ * `doViewPdf()` — με συνθετικά νούμερα.
+ */
+const debtsSrc = fs.readFileSync(path.join(ASSETS, 'configs', 'aade-debts.js'), 'utf8');
+const debtsCtx = vm.createContext({ URLSearchParams });
+vm.runInContext(
+  debtsSrc.slice(debtsSrc.indexOf('function parseInstallments'), debtsSrc.indexOf('const BASE =')),
+  debtsCtx,
+  { filename: 'aade-debts-helpers.js' },
+);
+debtsCtx.strip = (s) => String(s || '')
+  .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&euro;/g, '€')
+  .replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+
+const TO_PAGE = `<html><body>
+  <form name="viewPdf" method="post" action="debtInfoPdf.htm" target="_blank">
+    <input type="hidden" name="mchDoy" value="" />
+    <input type="hidden" name="mchDept" value="" />
+    <input type="hidden" name="mchYear" value="" />
+    <input type="hidden" name="withoutAmounts" value="false">
+  </form>
+  <input type="button" name="printPayment" value="Εκτύπωση"
+    onclick="doViewPdf(document.viewPdf, 9776, 1,
+             2026);" class="navbtn" />
+  <script>
+  function doViewPdf(frm, mchDoy, mchDept, mchYear) {
+    frm.action = 'debtInfoPdf.htm';
+    frm.elements['mchDoy'].value = mchDoy;
+    frm.elements['mchDept'].value = mchDept;
+    frm.elements['mchYear'].value = mchYear;
+    frm.submit();
+  }
+  </script></body></html>`;
+
+check('το κουμπί «Εκτύπωση» δίνει action και τιμές με τη σωστή σειρά', () => {
+  const pf = JSON.parse(vm.runInContext(
+    `JSON.stringify(printForm(${JSON.stringify(TO_PAGE)}))`, debtsCtx));
+  assert(pf, 'δεν βρέθηκε φόρμα εκτύπωσης');
+  assert(pf.action === 'debtInfoPdf.htm', `action: ${pf.action}`);
+  // Το πρώτο όρισμα της doViewPdf είναι η ΦΟΡΜΑ, όχι παράμετρος: μια μετατόπιση
+  // κατά ένα εδώ ζητά την ταυτότητα ΑΛΛΗΣ οφειλής, και η πύλη απαντά κανονικά.
+  assert(pf.fields.mchDoy === '9776', `mchDoy: ${pf.fields.mchDoy}`);
+  assert(pf.fields.mchDept === '1', `mchDept: ${pf.fields.mchDept}`);
+  assert(pf.fields.mchYear === '2026', `mchYear: ${pf.fields.mchYear}`);
+  // Τα hidden που δεν αγγίζει το κουμπί μένουν όπως τα έδωσε η σελίδα.
+  assert(pf.fields.withoutAmounts === 'false', `withoutAmounts: ${pf.fields.withoutAmounts}`);
+});
+
+check('σελίδα χωρίς κουμπί εκτύπωσης δεν εφευρίσκει φόρμα', () => {
+  const pf = vm.runInContext(
+    `JSON.stringify(printForm('<html><body>Δεν βρέθηκαν εγγραφές</body></html>') || null)`, debtsCtx);
+  assert(pf === 'null', `περίμενα null, πήρα ${pf}`);
+});
+
+const ROWS_PAGE = `<html><body>
+  <table class="table" id="generalInstallmentInfo_0" style="display:none">
+    <tr><td>Αριθμός δόσεων</td><td>2</td></tr>
+    <tr><td>Ημ/νία πρώτης δόσης</td><td>31/07/2026</td></tr>
+  </table>
+  <table class="table" id="installmentInfo_0" style="display:none">
+    <tr class="tblHeader"><td>Α/Α δόσης</td><td>Ημ/νία λήξης δόσης</td><td>Υπόλοιπο Δόσης</td></tr>
+    <tr><td>1</td><td>31/07/2026</td><td>0,00&nbsp;&euro;</td></tr>
+    <tr><td>2</td><td>31/08/2026</td><td>1.000,00&nbsp;&euro;</td></tr>
+  </table></body></html>`;
+
+check('οι κρυφοί πίνακες δόσεων διαβάζονται χωριστά ο ένας από τον άλλον', () => {
+  const inst = JSON.parse(vm.runInContext(
+    `JSON.stringify(parseInstallments(${JSON.stringify(ROWS_PAGE)}, strip))`, debtsCtx));
+  const gen = JSON.parse(vm.runInContext(
+    `JSON.stringify(parseGeneralInstallments(${JSON.stringify(ROWS_PAGE)}, strip))`, debtsCtx));
+  // `id="installmentInfo_0"` ΔΕΝ πρέπει να πιάσει το `generalInstallmentInfo_0`.
+  assert(Object.keys(inst).length === 1, `πίνακες δόσεων: ${Object.keys(inst)}`);
+  assert(inst['0'].headers[0] === 'Α/Α δόσης', JSON.stringify(inst['0'].headers));
+  assert(inst['0'].rows.length === 2, `γραμμές: ${inst['0'].rows.length}`);
+  assert(inst['0'].rows[1][2] === '1.000,00 €', `ποσό: ${inst['0'].rows[1][2]}`);
+  assert(gen['0'].rows[0][1] === '2', JSON.stringify(gen['0'].rows));
+});
+
+
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);

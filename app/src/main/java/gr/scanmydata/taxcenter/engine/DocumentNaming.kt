@@ -24,7 +24,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `aade-tax-account` | `FOR_LOGARIASMOS_<ΑΦΜ>_<έτος>_<μήνας>.pdf` |
  * | `aade-enfia` | `ENFIA_EKK_…`, `PERIOUSIAKI_…` |
  * | `aade-registry` | `STOIXEIA_FYSIKOU_…`, `STOIXEIA_EPIXEIRISIS_[NOMIKO_]…` |
- * | `aade-debts` | `OFEILI_<ΑΦΜ>_<κατηγορία>_<ποσό>.pdf` |
+ * | `aade-debts` | `OFEILI_<ΑΦΜ>_<κατηγορία>_<ποσό>.pdf`, `RYTHMISI_<ΑΦΜ>_<έτος>_<αριθμός>.pdf` |
  * | `aade-lease` | `MISTH_<ρόλος>_<αριθμός>_<όνομα>.pdf` |
  * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-notices` | `EFKA_<EFKA\|TEKA>_<meta>.pdf` |
@@ -81,6 +81,12 @@ object DocumentNaming {
         Entry("FOR_LOGARIASMOS", "Φορολογικός λογαριασμός"),
         Entry("TELH_KYKLOFORIAS", "Τέλη κυκλοφορίας"),
         Entry("OFEILI", "Ταυτότητα οφειλής", yearInName = false),
+        // Η ρύθμιση έχει δικό της έντυπο και δικό της κωδικό πληρωμής (ΤΡΟ) —
+        // δεν είναι η ταυτότητα της οφειλής που ρυθμίστηκε.
+        Entry("RYTHMISI", "Ταυτότητα ρυθμισμένης οφειλής"),
+        // Μπαίνει κανονικά ως σελίδα μέσα στα δύο παραπάνω· βγαίνει χωριστό
+        // αρχείο μόνο όταν το έντυπο της πύλης δεν βγήκε ή δεν διαβάζεται.
+        Entry("DOSEIS", "Ανάλυση δόσεων οφειλής", yearInName = false),
         Entry("KEAO_PBO", "ΚΕΑΟ — πράξη βεβαίωσης οφειλής", yearInName = false),
         Entry("KEAO_KARTELA", "ΚΕΑΟ — καρτέλα οφειλέτη ανά φορέα", yearInName = false),
 

@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 22,
+  "count": 24,
   "configs": [
     {
       "id": "aade-debts",
@@ -585,6 +585,83 @@
           "env": "EFKA_AMKA",
           "hidden": false,
           "optional": false
+        }
+      ]
+    },
+    {
+      "id": "easycheck",
+      "file": "easycheck.js",
+      "owner": "runner",
+      "title": "EasyCheck — Μαζικός έλεγχος υποχρεώσεων (ObligationScan, DB-driven)",
+      "portal": "TaxSystem SQL Server (όχι HTTP)",
+      "subsystem": "Scheduler",
+      "actions": [
+        "scan"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "year",
+          "label": "Έτος ελέγχου (fiscal year)",
+          "env": "EASYCHECK_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "easynotify",
+      "file": "easynotify.js",
+      "owner": "runner",
+      "title": "EasyNotify — Μηνύματα/Ειδοποιήσεις ΑΑΔΕ (Μηνύματα / myPROPERTY / Τα Αιτήματά μου)",
+      "portal": "AADE (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "which",
+          "label": "Ποια (AADE / PROPERTY / REQUESTS — κενό = όλα)",
+          "env": "EN_WHICH",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "vat",
+          "label": "ΑΦΜ (κενό = αυτόματα)",
+          "env": "AADE_VAT",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "since",
+          "label": "Μηνύματα ΑΑΔΕ από ημ/νία (dd/mm/yyyy, κενό = όλα)",
+          "env": "EN_SINCE",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "files",
+          "label": "Λήψη συνημμένων ΑΑΔΕ (1/0)",
+          "env": "EN_FILES",
+          "hidden": false,
+          "optional": true
         }
       ]
     },

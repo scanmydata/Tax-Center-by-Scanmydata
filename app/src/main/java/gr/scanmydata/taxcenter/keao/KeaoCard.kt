@@ -1,5 +1,9 @@
 package gr.scanmydata.taxcenter.keao
 
+import gr.scanmydata.taxcenter.doc.Money
+import gr.scanmydata.taxcenter.doc.Report
+import gr.scanmydata.taxcenter.doc.Section
+import gr.scanmydata.taxcenter.doc.Table
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -23,7 +27,7 @@ import org.json.JSONObject
  *
  * Ο διαχωρισμός σε [Carrier] (δεδομένα) και [Report] (τι τυπώνεται) είναι
  * σκόπιμος: το δεύτερο ελέγχεται ολόκληρο χωρίς Android, και η ζωγραφική στο
- * [KeaoPdf] δεν παίρνει καμία απόφαση.
+ * [gr.scanmydata.taxcenter.doc.ReportPdf] δεν παίρνει καμία απόφαση.
  */
 object KeaoCard {
 
@@ -191,39 +195,6 @@ object KeaoCard {
 
     // -------------------------------------------------------------- έντυπο
 
-    data class Table(
-        val headers: List<String>,
-        /** Αναλογίες πλάτους στηλών· κανονικοποιούνται κατά τη σχεδίαση. */
-        val weights: List<Float>,
-        val rows: List<List<String>>,
-        /** Γραμμή συνόλων, αν έχει νόημα. Τυπώνεται έντονη και χωριστά. */
-        val totals: List<String> = emptyList(),
-    )
-
-    /**
-     * Ένα κομμάτι του εντύπου: τίτλος, ζεύγη ετικέτα-τιμή, και προαιρετικά ένας
-     * πίνακας. Τα τρία μαζί καλύπτουν όσα δείχνει η καρτέλα, χωρίς να χρειάζεται
-     * ο σχεδιαστής [KeaoPdf] να ξέρει τι σημαίνει το καθένα.
-     */
-    data class Section(
-        val caption: String,
-        val facts: List<Pair<String, String>> = emptyList(),
-        val table: Table? = null,
-        val note: String = "",
-    )
-
-    data class Report(
-        val fileName: String,
-        val title: String,
-        val office: String,
-        val identity: List<Pair<String, String>>,
-        /** Η ταυτότητα πληρωμής — μπαίνει σε πλαίσιο, μόνη της. */
-        val debtorId: String,
-        val summary: List<Pair<String, String>>,
-        val sections: List<Section>,
-        val footer: List<String>,
-    )
-
     /** Τι περιλαμβάνει το έντυπο — η επιλογή του χρήστη στην οθόνη λήψης. */
     const val SCOPE_REGULATED = "regulated"
     const val SCOPE_ALL = "all"
@@ -308,8 +279,9 @@ object KeaoCard {
         // κρυβόταν μέσα τους.
         for (r in c.regulated.filter { it.active && it.instalments.isNotEmpty() }) {
             val pending = r.pending
+            val paid = r.installments - pending.size
             sections += Section(
-                caption = "Ρύθμιση " + r.resolutionType.ifBlank { r.info },
+                caption = "Δοσολόγιο ρύθμισης " + r.resolutionType.ifBlank { r.info },
                 facts = buildList {
                     if (r.info.isNotBlank()) add("Αρ. / ημ. απόφασης" to r.info)
                     if (r.primary.isNotBlank()) add("Κύρια εισφορά" to r.primary)
@@ -318,27 +290,38 @@ object KeaoCard {
                     if (r.total.isNotBlank()) add("Σύνολο ρύθμισης" to r.total)
                     if (r.payType.isNotBlank()) add("Τρόπος" to r.payType)
                     if (r.status.isNotBlank()) add("Κατάσταση" to r.status)
+                    add("Δόσεις" to "$paid πληρωμένες από ${r.installments}")
                     if (r.lastDue.isNotBlank()) add("Τελευταία δόση" to r.lastDue)
                 },
-                table = if (pending.isEmpty()) {
-                    null
-                } else {
-                    Table(
-                        headers = listOf("Α/Α", "Ημ. λήξης", "Ποσό δόσης", "Προσαύξηση", "Υπόλοιπο"),
-                        weights = listOf(0.7f, 1.4f, 1.4f, 1.4f, 1.4f),
-                        rows = pending.map { i ->
-                            listOf(i.no, i.due, i.amount, i.increments, i.balance)
-                        },
-                        totals = listOf(
-                            "ΣΥΝΟΛΑ",
-                            "",
-                            money(sum(pending.map { it.amount })),
-                            money(sum(pending.map { it.increments })),
-                            money(sum(pending.map { it.balance })),
+                // **Ολόκληρο** το δοσολόγιο, πληρωμένες και απλήρωτες μαζί.
+                //
+                // Η πρώτη έκδοση έδειχνε μόνο τις εκκρεμείς, με το σκεπτικό ότι
+                // αυτές αφορούν τον πελάτη. Αφορούν — αλλά το χαρτί που ζητά ο
+                // πελάτης λέγεται «δοσολόγιο» και απαντά σε άλλη ερώτηση: πόσες
+                // έχω πληρώσει, πόσες μένουν, πότε τελειώνει. Χωρίς τις
+                // πληρωμένες, δεν αποδεικνύεται καμία καταβολή.
+                table = Table(
+                    headers = listOf("Α/Α", "Ημ. λήξης", "Ποσό δόσης", "Προσαύξηση", "Καταβολή", "Υπόλοιπο"),
+                    weights = listOf(0.6f, 1.3f, 1.3f, 1.2f, 1.3f, 1.3f),
+                    rows = r.instalments.map { i ->
+                        listOf(i.no, i.due, i.amount, i.increments, i.paid, i.balance)
+                    },
+                    totals = Money.totals(
+                        "ΣΥΝΟΛΑ", 1,
+                        listOf(
+                            r.instalments.map { it.amount },
+                            r.instalments.map { it.increments },
+                            r.instalments.map { it.paid },
+                            r.instalments.map { it.balance },
                         ),
-                    )
+                    ),
+                ),
+                note = if (pending.isEmpty()) {
+                    "Δεν υπάρχουν εκκρεμείς δόσεις."
+                } else {
+                    "Εκκρεμούν ${pending.size} δόσεις, υπολοίπου " +
+                        money(sum(pending.map { it.balance })) + " €."
                 },
-                note = if (pending.isEmpty()) "Δεν υπάρχουν εκκρεμείς δόσεις." else "",
             )
         }
 
@@ -351,12 +334,13 @@ object KeaoCard {
                     rows = c.outstanding.map { o ->
                         listOf(o.issueDate, o.document, o.primary, o.additional, o.total)
                     },
-                    totals = listOf(
-                        "ΣΥΝΟΛΑ",
-                        "",
-                        money(sum(c.outstanding.map { it.primary })),
-                        money(sum(c.outstanding.map { it.additional })),
-                        money(sum(c.outstanding.map { it.total })),
+                    totals = Money.totals(
+                        "ΣΥΝΟΛΑ", 1,
+                        listOf(
+                            c.outstanding.map { it.primary },
+                            c.outstanding.map { it.additional },
+                            c.outstanding.map { it.total },
+                        ),
                     ),
                 ),
             )
@@ -408,33 +392,14 @@ object KeaoCard {
 
     // ------------------------------------------------------------------ ποσά
 
-    /**
-     * «1.234,56» σε αριθμό. Οι πύλες δίνουν ελληνική μορφή· ό,τι δεν διαβάζεται
-     * μετρά ως μηδέν, γιατί ένα σύνολο που λείπει είναι λιγότερο επικίνδυνο από
-     * ένα σύνολο λάθος κατά έναν παράγοντα χιλίων.
-     */
-    fun amount(raw: String): Double {
-        val clean = raw.replace(".", "").replace("€", "").replace(" ", "").replace(",", ".").trim()
-        return clean.toDoubleOrNull() ?: 0.0
-    }
+    // Τα ποσά ζουν πια στο [Money], κοινά με τα έντυπα οφειλών της ΑΑΔΕ. Τα δύο
+    // ονόματα μένουν εδώ επειδή τα καλεί ο έλεγχος της καρτέλας — και επειδή
+    // «KeaoCard.money» διαβάζεται καλύτερα μέσα στην καρτέλα.
+    fun amount(raw: String): Double = Money.amount(raw)
 
-    private fun sum(values: List<String>): Double = values.sumOf { amount(it) }
+    private fun sum(values: List<String>): Double = Money.sum(values)
 
-    /**
-     * Αριθμός σε «1.234,56».
-     *
-     * Χτίζεται στο χέρι και όχι με NumberFormat: η μορφή πρέπει να είναι ίδια
-     * στη συσκευή και στα τεστ, και το locale της συσκευής δεν είναι δεδομένο.
-     */
-    fun money(value: Double): String {
-        val cents = Math.round(value * 100)
-        val sign = if (cents < 0) "-" else ""
-        val abs = kotlin.math.abs(cents)
-        val whole = (abs / 100).toString()
-        val frac = (abs % 100).toString().padStart(2, '0')
-        val grouped = whole.reversed().chunked(3).joinToString(".").reversed()
-        return "$sign$grouped,$frac"
-    }
+    fun money(value: Double): String = Money.money(value)
 
     /** `KEAO_KARTELA_<ΑΦΜ>_<ΑΜΟ>.pdf` — ό,τι περιμένει το `DocumentNaming`. */
     fun fileName(afm: String, tag: String): String {

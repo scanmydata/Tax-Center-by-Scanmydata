@@ -231,8 +231,11 @@ object DocumentCatalog {
             "aade-lease"),
 
         // ----------------------------------------------------------- οφειλές
-        Item("debts", "Οφειλές & ταυτότητες οφειλής", GROUP_DEBTS,
-            "aade-debts", mapOf("doseis" to "ναι")),
+        Item("debts", "Οφειλές & ταυτότητες οφειλής — με δοσολόγιο", GROUP_DEBTS,
+            "aade-debts", mapOf("doseis" to "ναι"),
+            note = "Ένα έντυπο ανά οφειλή (εντός και εκτός ρύθμισης) με την " +
+                "ταυτότητα πληρωμής της. Όπου η οφειλή έχει δόσεις, το δοσολόγιο " +
+                "μπαίνει ως επόμενη σελίδα μέσα στο ίδιο αρχείο."),
         Item("tax-account", "Φορολογικός λογαριασμός (μηνιαία ενημέρωση)", GROUP_DEBTS,
             "aade-tax-account", needsYear = true, needsMonth = true),
         Item("traffic-fees", "Τέλη κυκλοφορίας (myCAR)", GROUP_DEBTS,

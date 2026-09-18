@@ -123,17 +123,40 @@ fun ClientEditScreen(
      * Λίστα και όχι ενωμένη συμβολοσειρά: όποιον διαχωριστή κι αν διάλεγα, μια
      * τιμή θα μπορούσε να τον περιέχει και δύο διαφορετικές φόρμες να δώσουν
      * ίδιο αποτύπωμα.
+     *
+     * Κάθε τιμή κουβαλά το **όνομα που βλέπει ο χρήστης** στη φόρμα, ώστε ο
+     * διάλογος της αποθήκευσης να μπορεί να πει τι ακριβώς θα χαθεί. Οι τιμές
+     * των κωδικών μένουν εδώ για τη σύγκριση και **δεν** φεύγουν ποτέ από τη
+     * συνάρτηση: ο διάλογος δείχνει μόνο ονόματα πεδίων.
      */
-    fun formSnapshot(): List<String> = listOf(
-        Normalize.afm(afm), name, firstName, kind, amka, doy, maritalStatus,
-        Normalize.afm(spouseAfm), active.toString(), emailAade, emailManual,
-        mobile, preferManual.toString(),
+    fun formSnapshot(): List<Pair<String, String>> = listOf(
+        "ΑΦΜ" to Normalize.afm(afm),
+        "Επωνυμία" to name,
+        "Όνομα" to firstName,
+        "Είδος υπόχρεου" to kind,
+        "ΑΜΚΑ" to amka,
+        "ΔΟΥ" to doy,
+        "Οικογενειακή κατάσταση" to maritalStatus,
+        "ΑΦΜ συζύγου" to Normalize.afm(spouseAfm),
+        "Ενεργός" to active.toString(),
+        "Email ΑΑΔΕ" to emailAade,
+        "Email γραφείου" to emailManual,
+        "Κινητό" to mobile,
+        "Προτιμώμενο email" to preferManual.toString(),
     ) + credentials.entries
         .sortedBy { entry -> entry.key.name }
-        .map { entry -> entry.key.name + "=" + entry.value }
+        .map { entry -> credentialLabel(entry.key) to entry.value }
 
     /** Η φόρμα όπως ήταν την τελευταία φορά που γράφτηκε (ή φορτώθηκε). */
-    var baseline by remember { mutableStateOf(emptyList<String>()) }
+    var baseline by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
+
+    /** Ποια πεδία διαφέρουν από την τελευταία αποθήκευση — ονόματα, όχι τιμές. */
+    fun changedFields(): List<String> {
+        val before = baseline.toMap()
+        return formSnapshot()
+            .filter { (label, value) -> before[label] != value }
+            .map { it.first }
+    }
 
     /**
      * Υπάρχουν αλλαγές που αξίζει — και μπορούν — να σωθούν;
@@ -257,7 +280,11 @@ fun ClientEditScreen(
         else -> ""
     }
     // Ο φύλακας ρωτά όταν ο χρήστης φεύγει από το μενού ή από την ξενάγηση.
-    GuardUnsaved(dirty = { unsavedNow() }, save = { saveForm() })
+    GuardUnsaved(
+        dirty = { unsavedNow() },
+        save = { saveForm() },
+        changed = { changedFields() },
+    )
 
     // Και όταν φεύγει με το κουμπί «πίσω», που είναι ο άλλος τρόπος να χαθεί
     // μια γεμάτη φόρμα — και ο πιο εύκολος να πατηθεί κατά λάθος.
@@ -827,4 +854,22 @@ private fun SecretField(
         visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
     )
+}
+
+/**
+ * Το όνομα ενός κωδικού όπως γράφεται στη φόρμα.
+ *
+ * Χρησιμεύει στον διάλογο «δεν αποθήκευσες»: «Συνθηματικό TAXISnet» λέει στον
+ * χρήστη τι θα χαθεί, ενώ `TAXIS_PASS` είναι όνομα πεδίου βάσης. Η **τιμή** δεν
+ * φεύγει ποτέ από τη φόρμα — μόνο αυτή η ετικέτα.
+ */
+private fun credentialLabel(field: Field): String = when (field) {
+    Field.TAXIS_USER -> "Όνομα χρήστη TAXISnet"
+    Field.TAXIS_PASS -> "Συνθηματικό TAXISnet"
+    Field.TAXIS_KLIDARITHMOS -> "Κλειδάριθμος"
+    Field.IKA_EMPLOYER_USER -> "Όνομα χρήστη ΙΚΑ εργοδότη"
+    Field.IKA_EMPLOYER_PASS -> "Συνθηματικό ΙΚΑ εργοδότη"
+    Field.IKA_INSURED_USER -> "Όνομα χρήστη ΙΚΑ ασφαλισμένου"
+    Field.IKA_INSURED_PASS -> "Συνθηματικό ΙΚΑ ασφαλισμένου"
+    else -> field.name
 }

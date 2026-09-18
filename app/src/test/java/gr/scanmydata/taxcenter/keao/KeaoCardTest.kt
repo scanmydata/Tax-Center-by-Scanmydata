@@ -207,30 +207,46 @@ class KeaoCardTest {
     }
 
     /**
-     * Ο αναλυτικός πίνακας δόσεων: **μόνο οι εκκρεμείς**, και μόνο για ενεργή
-     * ρύθμιση. Μια απολεσθείσα ρύθμιση με δεκάδες δόσεις θα έθαβε τη δόση που
-     * πρέπει να πληρωθεί αυτόν τον μήνα.
+     * Το δοσολόγιο: **ολόκληρο**, και μόνο για ενεργή ρύθμιση.
+     *
+     * Ολόκληρο, επειδή αυτό ζητά ο πελάτης όταν λέει «στείλε μου το δοσολόγιο»:
+     * τι πλήρωσα, τι μένει, πότε τελειώνει. Μόνο για ενεργή, επειδή μια
+     * απολεσθείσα ρύθμιση με δεκάδες δόσεις θα έθαβε τη δόση που πρέπει να
+     * πληρωθεί αυτόν τον μήνα.
      */
     @Test
-    fun `οι δόσεις αναλύονται μόνο για την ενεργή ρύθμιση`() {
+    fun `το δοσολόγιο βγαίνει ολόκληρο, μόνο για την ενεργή ρύθμιση`() {
         val report = reports(KeaoCard.SCOPE_REGULATED).first()
         val captions = report.sections.map { it.caption }
         assertEquals("Ρυθμίσεις", captions.first())
         assertEquals(
             "μόνο η ενεργή ρύθμιση αναλύεται",
             1,
-            captions.count { it.startsWith("Ρύθμιση ") },
+            captions.count { it.startsWith("Δοσολόγιο ") },
         )
 
-        val detail = report.sections.first { it.caption.startsWith("Ρύθμιση ") }
+        val detail = report.sections.first { it.caption.startsWith("Δοσολόγιο ") }
         assertTrue(detail.caption.contains("ΠΑΓΙΑ ΡΥΘΜΙΣΗ"))
         assertEquals("137612 07/02/2026", detail.facts.toMap()["Αρ. / ημ. απόφασης"])
         assertEquals("31/03/2026", detail.facts.toMap()["Τελευταία δόση"])
+        assertEquals("1 πληρωμένες από 3", detail.facts.toMap()["Δόσεις"])
 
         val table = detail.table!!
-        assertEquals("η πληρωμένη δόση δεν τυπώνεται", 2, table.rows.size)
-        assertEquals(listOf("2", "28/02/2026", "250,00", "1,50", "250,00"), table.rows.first())
-        assertEquals(listOf("ΣΥΝΟΛΑ", "", "1.500,00", "1,50", "1.500,00"), table.totals)
+        assertEquals("και οι πληρωμένες δόσεις τυπώνονται", 3, table.rows.size)
+        // Α/Α · λήξη · ποσό · προσαύξηση · καταβολή · υπόλοιπο
+        assertEquals(
+            listOf("1", "31/01/2026", "250,00", "0,00", "250,00", "0,00"),
+            table.rows.first(),
+        )
+        assertEquals(
+            listOf("2", "28/02/2026", "250,00", "1,50", "0,00", "250,00"),
+            table.rows[1],
+        )
+        assertEquals(
+            listOf("ΣΥΝΟΛΑ", "", "1.750,00", "1,50", "250,00", "1.500,00"),
+            table.totals,
+        )
+        assertEquals("Εκκρεμούν 2 δόσεις, υπολοίπου 1.500,00 €.", detail.note)
     }
 
     @Test

@@ -9,8 +9,10 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
+import gr.scanmydata.taxcenter.aade.DebtSchedule
+import gr.scanmydata.taxcenter.doc.PdfAppend
+import gr.scanmydata.taxcenter.doc.ReportPdf
 import gr.scanmydata.taxcenter.keao.KeaoCard
-import gr.scanmydata.taxcenter.keao.KeaoPdf
 import gr.scanmydata.taxcenter.ui.AthensDates
 import java.io.File
 
@@ -235,15 +237,27 @@ class ProcessRunner(
      * Έντυπα που **δεν** τα δίνει η πύλη — τα συνθέτει η εφαρμογή από ό,τι
      * διάβασε το config.
      *
-     * Σήμερα ένα: η καρτέλα οφειλέτη ΚΕΑΟ. Η Ηλεκτρονική Πλατφόρμα Οφειλετών
-     * δίνει οθόνες και όχι εκτύπωση, ενώ αυτό που χρειάζεται ο πελάτης είναι
-     * ένα χαρτί με το υπόλοιπο και την **Ταυτότητα Οφειλέτη** του κάθε φορέα.
+     * Δύο περιπτώσεις:
+     *
+     *  * **Καρτέλα οφειλέτη ΚΕΑΟ.** Η Ηλεκτρονική Πλατφόρμα Οφειλετών δίνει
+     *    οθόνες και όχι εκτύπωση, ενώ αυτό που χρειάζεται ο πελάτης είναι ένα
+     *    χαρτί με το υπόλοιπο και την **Ταυτότητα Οφειλέτη** του κάθε φορέα.
+     *  * **Δοσολόγιο οφειλών ΑΑΔΕ.** Η Ταυτότητα Οφειλής που εκδίδει η ΑΑΔΕ δεν
+     *    γράφει τις δόσεις· αυτές φαίνονται μόνο στην οθόνη. Τις προσαρτούμε
+     *    στο ίδιο PDF, ώστε ο πελάτης να μη λάβει δύο αρχεία που πρέπει να
+     *    διαβάσει μαζί.
      *
      * Η αποτυχία εδώ δεν ρίχνει τη λήψη — τα δεδομένα έχουν ήδη αντληθεί και το
      * JSON είναι γραμμένο· ο καλών τυλίγει την κλήση σε `runCatching`.
      */
     private fun renderReports(job: Job, outDir: File) {
-        if (job.configId != "keao-debts") return
+        when (job.configId) {
+            "keao-debts" -> keaoCards(job, outDir)
+            "aade-debts" -> debtSchedules(job, outDir)
+        }
+    }
+
+    private fun keaoCards(job: Job, outDir: File) {
         val source = outDir.listFiles()
             ?.firstOrNull { it.name.startsWith("KEAO_ofeiles_") && it.name.endsWith(".json") }
             ?: return
@@ -257,7 +271,30 @@ class ProcessRunner(
             retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
             scope = job.extraInputs[DocumentCatalog.KEAO_SCOPE] ?: KeaoCard.SCOPE_REGULATED,
         )
-        for (report in reports) KeaoPdf.write(report, File(outDir, report.fileName))
+        for (report in reports) ReportPdf.write(report, File(outDir, report.fileName))
+    }
+
+    /**
+     * Το δοσολόγιο μπαίνει **μέσα** στο έντυπο της πύλης. Όταν αυτό δεν γίνεται
+     * — έντυπο που δεν βγήκε, PDF που δεν διαβάζεται — γράφεται δικό του
+     * αρχείο: το χειρότερο αποτέλεσμα είναι δύο συνημμένα, όχι κανένα.
+     */
+    private fun debtSchedules(job: Job, outDir: File) {
+        val source = outDir.listFiles()
+            ?.firstOrNull { it.name.startsWith("AADE_debts_") && it.name.endsWith(".json") }
+            ?: return
+        val attachments = DebtSchedule.attachments(
+            json = source.readText(Charsets.UTF_8),
+            clientName = job.client.displayName,
+            afm = job.client.afm,
+            office = settings.officeName,
+            retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
+        )
+        for (attachment in attachments) {
+            val target = attachment.target.takeIf { it.isNotBlank() }?.let { File(outDir, it) }
+            if (target != null && PdfAppend.append(target, attachment.report)) continue
+            ReportPdf.write(attachment.report, File(outDir, attachment.fallback))
+        }
     }
 
     /**
