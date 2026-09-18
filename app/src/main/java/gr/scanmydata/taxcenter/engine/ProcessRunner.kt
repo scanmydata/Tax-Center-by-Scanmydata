@@ -10,8 +10,8 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import gr.scanmydata.taxcenter.aade.DebtSchedule
-import gr.scanmydata.taxcenter.doc.PdfAppend
-import gr.scanmydata.taxcenter.doc.ReportPdf
+import gr.scanmydata.taxcenter.doc.Fonts
+import gr.scanmydata.taxcenter.doc.PdfFile
 import gr.scanmydata.taxcenter.keao.KeaoCard
 import gr.scanmydata.taxcenter.ui.AthensDates
 import java.io.File
@@ -271,7 +271,8 @@ class ProcessRunner(
             retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
             scope = job.extraInputs[DocumentCatalog.KEAO_SCOPE] ?: KeaoCard.SCOPE_REGULATED,
         )
-        for (report in reports) ReportPdf.write(report, File(outDir, report.fileName))
+        val fonts = Fonts.of(context)
+        for (report in reports) PdfFile.write(report, fonts, File(outDir, report.fileName))
     }
 
     /**
@@ -290,10 +291,11 @@ class ProcessRunner(
             office = settings.officeName,
             retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
         )
+        val fonts = Fonts.of(context)
         for (attachment in attachments) {
             val target = attachment.target.takeIf { it.isNotBlank() }?.let { File(outDir, it) }
-            if (target != null && PdfAppend.append(target, attachment.report)) continue
-            ReportPdf.write(attachment.report, File(outDir, attachment.fallback))
+            if (target != null && PdfFile.append(attachment.report, fonts, target)) continue
+            PdfFile.write(attachment.report, fonts, File(outDir, attachment.fallback))
         }
     }
 

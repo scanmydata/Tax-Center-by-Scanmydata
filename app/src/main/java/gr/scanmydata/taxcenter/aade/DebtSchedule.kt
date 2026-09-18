@@ -22,7 +22,7 @@ import org.json.JSONObject
  * Ο desktop runner το έλυνε με Playwright: τύπωνε τον πίνακα σε PDF και τον
  * κολλούσε δεύτερη σελίδα. Στο Android το rendering γίνεται εδώ, με τον ίδιο
  * σχεδιαστή που φτιάχνει την καρτέλα ΚΕΑΟ, και η προσάρτηση στο
- * [gr.scanmydata.taxcenter.doc.PdfAppend].
+ * [gr.scanmydata.taxcenter.doc.PdfFile.append].
  *
  * ## Οι στήλες δεν είναι γραμμένες πουθενά
  *
@@ -144,7 +144,8 @@ object DebtSchedule {
         val moneyColumn = columns.map { c -> rows.any { row -> isMoney(row.getOrNull(c)) } }
         return Table(
             headers = headers,
-            weights = columns.map { if (it == 0) 0.6f else 1.2f },
+            // Χωρίς αναλογίες: τις στήλες τις ονομάζει η πύλη, και το
+            // «Προσαυξήσεις, Τόκοι, Τέλη» δεν χωρά σε καμία σταθερή αναλογία.
             rows = rows.map { row -> columns.map { row.getOrNull(it).orEmpty() } },
             totals = columns.map { c ->
                 when {
@@ -153,6 +154,7 @@ object DebtSchedule {
                     else -> ""
                 }
             },
+            numeric = columns.filter { moneyColumn[it] },
         )
     }
 

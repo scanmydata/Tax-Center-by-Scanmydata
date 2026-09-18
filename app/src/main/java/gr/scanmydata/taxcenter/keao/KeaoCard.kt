@@ -253,6 +253,7 @@ object KeaoCard {
                 table = Table(
                     headers = listOf("Ρύθμιση", "Είδος", "Κατάσταση", "Δόσεις", "Επόμενη", "Σύνολο"),
                     weights = listOf(1.6f, 2.6f, 1.2f, 0.9f, 1.5f, 1.3f),
+                    numeric = listOf(5),
                     rows = c.regulated.map { r ->
                         listOf(
                             r.info,
@@ -303,6 +304,7 @@ object KeaoCard {
                 table = Table(
                     headers = listOf("Α/Α", "Ημ. λήξης", "Ποσό δόσης", "Προσαύξηση", "Καταβολή", "Υπόλοιπο"),
                     weights = listOf(0.6f, 1.3f, 1.3f, 1.2f, 1.3f, 1.3f),
+                    numeric = listOf(2, 3, 4, 5),
                     rows = r.instalments.map { i ->
                         listOf(i.no, i.due, i.amount, i.increments, i.paid, i.balance)
                     },
@@ -331,6 +333,7 @@ object KeaoCard {
                 table = Table(
                     headers = listOf("Ημερομηνία", "Παραστατικό", "Κύρια", "Πρόσθετα", "Σύνολο"),
                     weights = listOf(1.2f, 3.4f, 1.2f, 1.2f, 1.2f),
+                    numeric = listOf(2, 3, 4),
                     rows = c.outstanding.map { o ->
                         listOf(o.issueDate, o.document, o.primary, o.additional, o.total)
                     },
