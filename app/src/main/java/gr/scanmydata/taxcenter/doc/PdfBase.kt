@@ -62,6 +62,7 @@ class PdfBase private constructor(
         private val INFO_REF = Regex("""/Info\s+(\d+)\s+(\d+)\s+R""")
         private val ID_ARRAY = Regex("""/ID\s*(\[[^]]*])""")
         private val SIZE = Regex("""/Size\s+(\d+)""")
+        private val PREV = Regex("""/Prev\s+(\d+)""")
 
         /** `null` όταν το αρχείο δεν είναι δομής που ξέρουμε να επεκτείνουμε. */
         fun read(bytes: ByteArray): PdfBase? {
@@ -78,25 +79,43 @@ class PdfBase private constructor(
             // Συμπιεσμένος πίνακας θέσεων: εκεί θα βρίσκαμε «N 0 obj», όχι «xref».
             if (!text.startsWith("xref", start)) return null
 
-            val scanner = Scanner(text, start + 4)
+            // Η αλυσίδα των πινάκων, από τον νεότερο προς τα πίσω.
+            //
+            // Ένα αρχείο που έχει ήδη επεκταθεί μία φορά — και το δικό μας
+            // αποτέλεσμα είναι ακριβώς αυτό — κρατά τα παλιά αντικείμενα σε
+            // προηγούμενο πίνακα, με το `/Prev` να δείχνει εκεί. Χωρίς να την
+            // ακολουθήσουμε, ο κατάλογος του εγγράφου «δεν υπάρχει».
             val offsets = HashMap<Int, Int>()
-            while (true) {
-                val head = scanner.token() ?: return null
-                if (head == "trailer") break
-                val first = head.toIntOrNull() ?: return null
-                val count = scanner.token()?.toIntOrNull() ?: return null
-                for (i in 0 until count) {
-                    val offset = scanner.token()?.toIntOrNull() ?: return null
-                    scanner.token() ?: return null                       // γενιά
-                    val kind = scanner.token() ?: return null
-                    if (kind == "n") offsets[first + i] = offset
+            val known = HashSet<Int>()
+            var trailer: String? = null
+            var section: Int? = start
+            val visited = HashSet<Int>()
+            while (section != null && visited.add(section)) {
+                if (!text.startsWith("xref", section)) return null
+                val scanner = Scanner(text, section + 4)
+                while (true) {
+                    val head = scanner.token() ?: return null
+                    if (head == "trailer") break
+                    val first = head.toIntOrNull() ?: return null
+                    val count = scanner.token()?.toIntOrNull() ?: return null
+                    for (i in 0 until count) {
+                        val offset = scanner.token()?.toIntOrNull() ?: return null
+                        scanner.token() ?: return null                   // γενιά
+                        val kind = scanner.token() ?: return null
+                        // Ο νεότερος πίνακας υπερισχύει — και το «f» σημαίνει
+                        // «διαγράφηκε», που επίσης δεν αναιρείται από παλιότερο.
+                        if (known.add(first + i) && kind == "n") offsets[first + i] = offset
+                    }
                 }
+                val dict = dictAt(text, scanner.at) ?: return null
+                if (dict.contains("/Encrypt")) return null
+                if (trailer == null) trailer = dict
+                section = PREV.find(dict)?.groupValues?.get(1)?.toIntOrNull()
             }
-            val trailer = dictAt(text, scanner.at) ?: return null
-            if (trailer.contains("/Encrypt")) return null
+            val newest = trailer ?: return null
 
-            val root = ROOT_REF.find(trailer)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-            val size = SIZE.find(trailer)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+            val root = ROOT_REF.find(newest)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+            val size = SIZE.find(newest)?.groupValues?.get(1)?.toIntOrNull() ?: return null
 
             val catalog = objectAt(text, offsets[root] ?: return null) ?: return null
             val pagesNumber = PAGES_REF.find(catalog)?.groupValues?.get(1)?.toIntOrNull() ?: return null
@@ -111,8 +130,8 @@ class PdfBase private constructor(
                 rootNumber = root,
                 pagesNumber = pagesNumber,
                 pagesDict = pages.trim(),
-                info = INFO_REF.find(trailer)?.groupValues?.get(1).orEmpty(),
-                id = ID_ARRAY.find(trailer)?.groupValues?.get(1).orEmpty(),
+                info = INFO_REF.find(newest)?.groupValues?.get(1).orEmpty(),
+                id = ID_ARRAY.find(newest)?.groupValues?.get(1).orEmpty(),
             )
         }
 

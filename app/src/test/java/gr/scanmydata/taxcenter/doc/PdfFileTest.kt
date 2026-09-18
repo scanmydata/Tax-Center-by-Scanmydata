@@ -247,6 +247,27 @@ class PdfFileTest {
         }
     }
 
+    /**
+     * Δεύτερη προσάρτηση στο ίδιο αρχείο.
+     *
+     * Εδώ φάνηκε ότι ο αναγνώστης κοίταζε μόνο τον τελευταίο πίνακα θέσεων: τα
+     * αντικείμενα της πρώτης γραφής ζουν στον προηγούμενο, και χωρίς να
+     * ακολουθηθεί το `/Prev` ο κατάλογος του εγγράφου «δεν υπήρχε».
+     */
+    @Test
+    fun `το αρχείο επεκτείνεται και δεύτερη φορά`() {
+        val file = temp("twice.pdf")
+        PdfFile.write(report, fonts, file)
+        assertTrue(PdfFile.append(report, fonts, file))
+        assertTrue(PdfFile.append(report, fonts, file))
+
+        val base = PdfBase.read(file.readBytes())
+        assertNotNull("δεν ξαναδιαβάζεται μετά από δύο προσαρτήσεις", base)
+        assertEquals(3, Regex("""/Count\s+(\d+)""").find(base!!.pagesDict)!!.groupValues[1].toInt())
+        // Τρεις σελίδες, τρεις αναφορές στο /Kids.
+        assertEquals(3, Regex("""\d+ 0 R""").findAll(base.pagesDict).count())
+    }
+
     @Test
     fun `δεν αγγίζουμε αρχεία που δεν καταλαβαίνουμε`() {
         assertNull(PdfBase.read("δεν είναι PDF".toByteArray()))
