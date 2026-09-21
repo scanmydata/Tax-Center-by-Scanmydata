@@ -71,15 +71,29 @@ object DocumentCatalog {
         val inputs: Map<String, String> = emptyMap(),
         val needsYear: Boolean = false,
         /**
-         * Δέχεται **όλα** τα έτη σε μία εκτέλεση, μέσω input `years`.
+         * Δέχεται **όλα** τα έτη σε μία εκτέλεση, ως `year` με κόμμα.
          *
-         * Ισχύει σήμερα μόνο για το ETAK (ΕΝΦΙΑ/Ε9), και για σοβαρό λόγο: εκεί
-         * η σύνδεση είναι πραγματικός browser με GSIS OAuth, και μία σύνδεση
-         * ανά έτος σημαίνει τρεις συνεδρίες GSIS για τρία έτη — δηλαδή
-         * ακριβώς η συνθήκη που φέρνει το κλείδωμα OAM-6. Μέσα στην ίδια
-         * συνεδρία η αλλαγή έτους είναι ένα `select`.
+         * Ισχύει σήμερα μόνο για το ETAK (ΕΝΦΙΑ/Ε9). Η εφαρμογή ADF είναι
+         * stateful: μπαίνεις μία φορά, και μέσα στην ίδια συνεδρία η αλλαγή
+         * έτους είναι ένα event. Μία εκτέλεση ανά έτος θα σήμαινε τρεις
+         * συνδέσεις GSIS για τρία έτη — δηλαδή ακριβώς τη συνθήκη που φέρνει
+         * το κλείδωμα OAM-6.
          */
         val batchYears: Boolean = false,
+        /**
+         * Input που **ενώνεται** όταν δύο επιλογές τρέχουν την ίδια διαδικασία
+         * για τον ίδιο πελάτη και τα ίδια έτη.
+         *
+         * ΕΝΦΙΑ και Ε9 είναι δύο έντυπα αλλά μία σύνδεση στο ETAK: με `docs`
+         * ενωμένο (`EKK,PERIOUSIAKI`) κατεβαίνουν και τα δύο σε μία εκτέλεση,
+         * αντί για δύο logins στη σειρά.
+         */
+        val mergeInput: String = "",
+        /**
+         * Ο χρήστης διαλέγει **ποια μητρώα** (φορείς) θα κατέβουν — ή όλα.
+         * Η επιλογή ταξιδεύει ως [KEAO_REGISTRIES].
+         */
+        val pickRegistries: Boolean = false,
         /** Δέχεται μήνα 1-12 (σήμερα μόνο ο Φορολογικός Λογαριασμός). */
         val needsMonth: Boolean = false,
         val applies: Applies = Applies.ALL,
@@ -115,6 +129,17 @@ object DocumentCatalog {
      * συμβολοσειρά σε τρία αρχεία.
      */
     const val KEAO_SCOPE = "scope"
+
+    /**
+     * Τα μητρώα ΚΕΑΟ που ζήτησε ο χρήστης: ΑΜΟ ή Αρ. Μητρώου, με κόμμα. Κενό =
+     * όλα. Το ίδιο κλειδί διαβάζει το config (`inp.amo`) και η σύνθεση των
+     * εντύπων.
+     */
+    const val KEAO_REGISTRIES = "amo"
+
+    /** «3143975, 5546808» -> λίστα, χωρίς κενά και διπλά. */
+    fun registries(raw: String): List<String> =
+        raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
     const val GROUP_INCOME = "Εισόδημα"
     const val GROUP_VAT = "ΦΠΑ"
@@ -213,16 +238,19 @@ object DocumentCatalog {
             applies = Applies.BUSINESS_ONLY),
 
         // ---------------------------------------------------------- ακίνητα
-        // Το ETAK δίνει **πάντα** την τελευταία εκκαθάριση, ό,τι έτος κι αν
-        // επιλεγεί (επαληθεύτηκε ζωντανά: επιλογή 2025 -> PDF 2022). Το έτος
-        // κρίνει μόνο αν προσφέρεται καθόλου ο σύνδεσμος.
-        Item("enfia", "ΕΝΦΙΑ — Εκκαθαριστικό", GROUP_PROPERTY,
-            "aade-enfia", mapOf("e9" to "όχι", "ekk" to "ναι"), needsYear = true, batchYears = true,
-            note = "Δίνει πάντα την τελευταία εκκαθάριση — το έτος του PDF είναι " +
-                "στο όνομα του αρχείου. Το έτος N αφορά την περιουσία της 1ης " +
-                "Ιανουαρίου N, δηλαδή τις μεταβολές του N-1."),
-        Item("e9", "Ε9 / Περιουσιακή κατάσταση (ETAK)", GROUP_PROPERTY,
-            "aade-enfia", mapOf("e9" to "ναι", "ekk" to "όχι"), needsYear = true, batchYears = true,
+        // ETAK με **καθαρό HTTP** (`aade-enfia-http`), όχι browser: η ADF
+        // εφαρμογή απαντά σε event POST με το PDF, όπως κάνει και το TaxSystem.
+        // Επαληθεύτηκε ζωντανά ότι το εκκαθαριστικό ακολουθεί το έτος που
+        // επιλέγεται (2025 και 2026 δίνουν διαφορετικά PDF) — η παλιά σημείωση
+        // «πάντα η τελευταία εκκαθάριση» ήταν λάθος της browser διαδρομής.
+        Item("enfia", "ΕΝΦΙΑ — Εκκαθαριστικό (με δόσεις)", GROUP_PROPERTY,
+            "aade-enfia-http", mapOf("docs" to "EKK"), needsYear = true, batchYears = true,
+            mergeInput = "docs",
+            note = "Ένα PDF ανά έτος, με τις δόσεις του ΕΝΦΙΑ μέσα στο ίδιο το " +
+                "εκκαθαριστικό. Πολλά έτη με μία σύνδεση."),
+        Item("e9", "Ε9 / Περιουσιακή κατάσταση", GROUP_PROPERTY,
+            "aade-enfia-http", mapOf("docs" to "PERIOUSIAKI"), needsYear = true, batchYears = true,
+            mergeInput = "docs",
             note = "Πολλά έτη με μία σύνδεση. Το έτος N αφορά την περιουσία της " +
                 "1ης Ιανουαρίου N — οι μεταβολές του 2026 φαίνονται στο 2027."),
         Item("property", "Περιουσιακή κατάσταση (myPROPERTY)", GROUP_PROPERTY,
@@ -254,9 +282,9 @@ object DocumentCatalog {
         Item("efka-obligations", "Υποχρεώσεις ασφάλισης & ΠΒΟ ΚΕΑΟ", GROUP_INSURANCE,
             "efka-obligations", mapOf("pdf" to "ναι"), applies = Applies.NATURAL_ONLY),
         Item("keao", "Καρτέλα οφειλέτη ΚΕΑΟ — ανά φορέα", GROUP_INSURANCE,
-            "keao-debts", applies = Applies.NATURAL_ONLY,
-            note = "Ένα έντυπο ανά φορέα, με το υπόλοιπο και την Ταυτότητα Οφειλέτη " +
-                "που χρειάζεται ο πελάτης για να πληρώσει.",
+            "keao-debts", applies = Applies.NATURAL_ONLY, pickRegistries = true,
+            note = "Ένα έντυπο ανά φορέα με το υπόλοιπο και την Ταυτότητα Οφειλέτη, " +
+                "και ένα δοσολόγιο για κάθε ενεργή ρύθμιση. Όλα τα μητρώα ή όσα διαλέξεις.",
             choice = Choice(
                 key = KEAO_SCOPE,
                 label = "Τι θα δείχνει το έντυπο",

@@ -218,7 +218,22 @@ class Settings(context: Context) {
         }.getOrDefault(gr.scanmydata.taxcenter.ui.theme.ThemeVariant.CLASSIC)
         set(v) = prefs.edit().putString(KEY_THEME, v.name).apply()
 
+    /**
+     * Τα **αγαπημένα** έντυπα του καταλόγου λήψης, ως `id` του
+     * [gr.scanmydata.taxcenter.engine.DocumentCatalog].
+     *
+     * Μόνο αναγνωριστικά εντύπων — κανένα στοιχείο πελάτη — γι' αυτό ζουν στις
+     * απλές προτιμήσεις και όχι στην κρυπτογραφημένη βάση. Η σειρά εμφάνισης
+     * είναι του καταλόγου, όχι της προσθήκης: έτσι το Ε1 είναι πάντα πριν το Ε9.
+     */
+    var favoriteDocuments: Set<String>
+        get() = prefs.getStringSet(KEY_FAVORITE_DOCUMENTS, emptySet())?.toSet().orEmpty()
+        // Αντίγραφο και όχι το ίδιο set: το SharedPreferences δεν εγγυάται τίποτα
+        // για set που τροποποιείται αφού του δοθεί.
+        set(v) = prefs.edit().putStringSet(KEY_FAVORITE_DOCUMENTS, HashSet(v)).apply()
+
     private companion object {
+        const val KEY_FAVORITE_DOCUMENTS = "favorite_documents"
         const val KEY_THEME = "theme_variant"
         const val KEY_GROUP_FETCH = "group_fetch_by_client"
         const val KEY_DRIVE_MODE = "drive_mode"

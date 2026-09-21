@@ -457,6 +457,69 @@ async function keaoLogin(http, { user, pass, amka }) {
   return { ok: true, page: ed, afm, EFKA };
 }
 
+// ΚΕΑΟ eDebtor login == WebRequestHelper.LoginKeao (decompiled 24114) — ΑΚΡΙΒΩΣ όπως το hyperserver:
+// μπαίνει ΠΡΩΤΑ από eDebtor/secure/index.xhtml (ώστε να στηθεί το eDebtor context/si), «Συνέχεια στο
+// TAXISNET» -> GSIS -> eAccess afm1 «Είσοδος» -> ακολουθεί το <redirect> ΠΙΣΩ στο eDebtor authenticated.
+// Διαφέρει από το keaoLogin (που μπαίνει από eAccess/login.xhtml -> δεν αποκτά eDebtor δικαιώματα).
+// inputs: {user,pass}. Returns {ok, EFKA}. Session στο shared jar.
+async function keaoEDebtorLogin(http, { user, pass }) {
+  const EFKA = 'https://apps.e-efka.gov.gr';
+  http.log('[keao-edebtor] GET eDebtor/secure/index.xhtml');
+  const r0 = await http.follow('GET', EFKA + '/eDebtor/secure/index.xhtml');
+  http.dump('01_edebtor_login.html', r0.text);
+  // //div[@class='login_inputs']/div/button[0] onclick [function(event){window.location = 'URL'; return false;}
+  const btn = r0.text.match(/<div\b[^>]*class="login_inputs"[\s\S]*?<button\b([^>]*)>([\s\S]*?)<\/button>/i);
+  if (!btn || stripTags(btn[2]) !== 'Συνέχεια στο TAXISNET') return { ok: false, reason: 'PageError' };
+  const gsis = between(decodeHtml((btn[1].match(/onclick="([^"]*)"/i) || [])[1] || ''), "window.location = '", "'; return false;}")[0];
+  if (!gsis) return { ok: false, reason: 'GsisLink' };
+  http.log('[keao-edebtor] GET GSIS authorize');
+  await http.follow('GET', decodeHtml(gsis));
+  http.log('[keao-edebtor] TAXISnet credentials + approval');
+  const g = await gsisSubmitAndApprove(http, user, pass);
+  if (!g.ok) return g;
+  const accessText = g.page.text; http.dump('02_edebtor_eaccess.html', accessText);
+  let btnId = '';
+  for (const b of accessText.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi))
+    if (/type="submit"/i.test(b[1]) && stripTags(b[2]) === 'Είσοδος') { btnId = (b[1].match(/id="([^"]*)"/i) || [])[1] || ''; break; }
+  const vs = viewState(accessText, 'javax\\.faces\\.ViewState');
+  const afm1 = (accessText.match(/id="gsisTabView:afm1"[^>]*value="([^"]*)"/i) || accessText.match(/name="gsisTabView:afm1"[^>]*value="([^"]*)"/i) || [])[1] || '';
+  if (!btnId || !vs || !afm1) return { ok: false, reason: 'EaccessForm' };
+  http.log('[keao-edebtor] submit afm1 ' + afm1 + ' (button ' + btnId + ')');
+  const rr = await http.follow('POST', EFKA + '/eAccess/gsis/login.xhtml', {
+    'javax.faces.partial.ajax': 'true', 'javax.faces.source': btnId,
+    'javax.faces.partial.execute': 'mainForm', 'javax.faces.partial.render': 'mainForm',
+    [btnId]: btnId, 'mainForm': 'mainForm', 'gsisTabView:afm1': afm1,
+    'gsisTabView_activeIndex': '0', 'javax.faces.ViewState': vs,
+  });
+  // <redirect url="..."> -> GET apps.e-efka.gov.gr + url  (πίσω στο eDebtor authenticated)
+  const red = (rr.text.match(/<redirect\b[^>]*url="([^"]*)"/i) || [])[1];
+  const land = await http.follow('GET', EFKA + decodeHtml(red || '/eDebtor/secure/inbox.xhtml'));
+  http.dump('03_edebtor_land.html', land.text);
+  if (/Σύνδεση με κωδικούς TAXISNET/.test(land.text)) return { ok: false, reason: 'KeaoLoginFailed' };
+  if (/Αποστολή κωδικού επιβεβαίωσης/.test(land.text)) return { ok: false, reason: 'ContactNotConfirmed' };
+  if (/secureError|Δεν έχετε δικαίωμα/.test(land.text)) return { ok: false, reason: 'NoEdebtorRights' };
+  http.log('[keao-edebtor] OK');
+  return { ok: true, EFKA, page: land };
+}
+
+// ΓΕΜΗ / businessportal login == WebRequestHelper.LoginGemi (decompiled 24080). Κωδικοί Γ.Ε.ΜΗ. (F_GEMH_*).
+//   GET  {host}                              (services.businessportal.gr/)
+//   GET  {host}api/public/getGlobalMessage?lang=el
+//   POST {host}api/welcome/login?lang=el  {username,password} (form) -> session JSON (session.username == user)
+// inputs: {user,pass}. Session cookie lives in the shared jar. Returns {ok, host}.
+async function gemiLogin(http, { user, pass }) {
+  const host = 'https://services.businessportal.gr/';
+  http.log('[gemi-login] GET home + getGlobalMessage');
+  await http.follow('GET', host);
+  await http.follow('GET', host + 'api/public/getGlobalMessage?lang=el');
+  http.log('[gemi-login] POST api/welcome/login');
+  const r = await http.follow('POST', host + 'api/welcome/login?lang=el', { username: user, password: pass });
+  let sess; try { sess = JSON.parse(r.text); } catch (e) { return { ok: false, reason: 'GemiLoginParse' }; }
+  if (!sess || !sess.session || String(sess.session.username || '') !== String(user)) return { ok: false, reason: 'InvalidCredentials' };
+  http.log('[gemi-login] OK (' + user + ')');
+  return { ok: true, host };
+}
+
 // idika EfkaServices login with GSIS OAuth2 == WebRequestHelper.LoginIdikaWithAadeAuth (decompiled ~72743).
 // This is the portal for ΕΦΚΑ/ΚΕΑΟ ΟΦΕΙΛΕΣ (Debts.aspx) & χρεώσεις/πιστώσεις (Contributions.aspx),
 // personal messages, βεβαιώσεις, ειδοποιητήρια. Flow:
@@ -557,6 +620,6 @@ module.exports = {
   HyperHttp, ask, gatherInputs,
   decodeHtml, stripTags, between, viewState, formActionOf, ownFormAction, hasId,
   anchorHrefByText, findTabByText, extractUpdate, dataTableRows,
-  gsisSubmitAndApprove, efkaNonEmployeeLogin, efkaServicesLogin, efkaGgpsLogin, atlasGrid,
+  gsisSubmitAndApprove, efkaNonEmployeeLogin, efkaServicesLogin, efkaGgpsLogin, atlasGrid, gemiLogin, keaoEDebtorLogin,
   myAmkaLogin, myAmkaApi, aadeLogin, efkaErgodLogin, keaoLogin, idikaLoginAade,
 };

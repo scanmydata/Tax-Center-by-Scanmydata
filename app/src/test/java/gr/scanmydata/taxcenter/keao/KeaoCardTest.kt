@@ -99,14 +99,22 @@ class KeaoCardTest {
     }
     """.trimIndent()
 
-    private fun reports(scope: String) = KeaoCard.reports(
+    private fun all(scope: String, only: List<String> = emptyList()) = KeaoCard.reports(
         carriers = KeaoCard.parse(sample),
         clientName = "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ",
         afm = "123456783",
         office = "Λογιστικό Γραφείο",
         retrievedAt = "17/09/2026 11:00",
         scope = scope,
+        only = only,
     )
+
+    /** Οι καρτέλες φορέων, χωρίς τα έντυπα των ρυθμίσεων. */
+    private fun reports(scope: String) = all(scope).filter { it.fileName.startsWith("KEAO_KARTELA_") }
+
+    /** Τα έντυπα των ρυθμίσεων. */
+    private fun regulations(scope: String = KeaoCard.SCOPE_REGULATED) =
+        all(scope).filter { it.fileName.startsWith("KEAO_RYTHMISI_") }
 
     // ----------------------------------------------------------- ανάγνωση
 
@@ -207,30 +215,38 @@ class KeaoCardTest {
     }
 
     /**
-     * Το δοσολόγιο: **ολόκληρο**, και μόνο για ενεργή ρύθμιση.
+     * Το δοσολόγιο: **δικό του έντυπο ανά ενεργή ρύθμιση**, ολόκληρο.
      *
      * Ολόκληρο, επειδή αυτό ζητά ο πελάτης όταν λέει «στείλε μου το δοσολόγιο»:
      * τι πλήρωσα, τι μένει, πότε τελειώνει. Μόνο για ενεργή, επειδή μια
-     * απολεσθείσα ρύθμιση με δεκάδες δόσεις θα έθαβε τη δόση που πρέπει να
-     * πληρωθεί αυτόν τον μήνα.
+     * απολεσθείσα ρύθμιση δεν αφορά πια κανέναν. Σε χωριστό αρχείο, επειδή δύο
+     * ρυθμίσεις στον ίδιο φορέα είναι δύο διαφορετικές υποχρεώσεις.
      */
     @Test
-    fun `το δοσολόγιο βγαίνει ολόκληρο, μόνο για την ενεργή ρύθμιση`() {
-        val report = reports(KeaoCard.SCOPE_REGULATED).first()
-        val captions = report.sections.map { it.caption }
-        assertEquals("Ρυθμίσεις", captions.first())
-        assertEquals(
-            "μόνο η ενεργή ρύθμιση αναλύεται",
-            1,
-            captions.count { it.startsWith("Δοσολόγιο ") },
+    fun `κάθε ενεργή ρύθμιση βγαίνει σε δικό της έντυπο, με όλο το δοσολόγιο`() {
+        val card = reports(KeaoCard.SCOPE_REGULATED).first()
+        assertFalse(
+            "το δοσολόγιο δεν μένει πια μέσα στην καρτέλα",
+            card.sections.any { it.caption.startsWith("Δοσολόγιο") },
         )
 
-        val detail = report.sections.first { it.caption.startsWith("Δοσολόγιο ") }
-        assertTrue(detail.caption.contains("ΠΑΓΙΑ ΡΥΘΜΙΣΗ"))
-        assertEquals("137612 07/02/2026", detail.facts.toMap()["Αρ. / ημ. απόφασης"])
-        assertEquals("31/03/2026", detail.facts.toMap()["Τελευταία δόση"])
-        assertEquals("1 πληρωμένες από 3", detail.facts.toMap()["Δόσεις"])
+        val regulation = regulations().single()
+        assertEquals("KEAO_RYTHMISI_123456783_3143975_137612.pdf", regulation.fileName)
+        assertEquals("Δοσολόγιο ρύθμισης ΚΕΑΟ", regulation.title)
+        // Πληρώνεται με την ταυτότητα του φορέα της — ίδια με της καρτέλας.
+        assertEquals("RF09902208120000003143975", regulation.debtorId)
+        assertEquals("3143975", regulation.identity.toMap()["ΑΜΟ"])
+        assertEquals("1.500,00", regulation.summary.toMap()["Υπόλοιπο"])
+        assertEquals("250,00", regulation.summary.toMap()["Καταβλήθηκαν"])
 
+        val facts = regulation.sections.first { it.caption == "Στοιχεία ρύθμισης" }.facts.toMap()
+        assertTrue(facts["Ρύθμιση"]!!.contains("ΠΑΓΙΑ ΡΥΘΜΙΣΗ"))
+        assertEquals("137612 07/02/2026", facts["Αρ. / ημ. απόφασης"])
+        assertEquals("31/03/2026", facts["Τελευταία δόση"])
+        assertEquals("1 πληρωμένες από 3", facts["Δόσεις"])
+        assertEquals("28/02/2026 · 250,00", facts["Επόμενη δόση"])
+
+        val detail = regulation.sections.first { it.caption == "Δοσολόγιο" }
         val table = detail.table!!
         assertEquals("και οι πληρωμένες δόσεις τυπώνονται", 3, table.rows.size)
         // Α/Α · λήξη · ποσό · προσαύξηση · καταβολή · υπόλοιπο
@@ -250,10 +266,27 @@ class KeaoCardTest {
     }
 
     @Test
-    fun `η συγκεντρωτική γραμμή δείχνει πόσες δόσεις μένουν`() {
-        val overview = reports(KeaoCard.SCOPE_REGULATED).first().sections.first()
-        assertEquals(2, overview.table!!.rows.size)
+    fun `στην καρτέλα φαίνονται μόνο οι ενεργές ρυθμίσεις`() {
+        val card = reports(KeaoCard.SCOPE_REGULATED).first()
+        val overview = card.sections.first()
+        assertEquals("Ενεργές ρυθμίσεις", overview.caption)
+        assertEquals("η απολεσθείσα μένει έξω", 1, overview.table!!.rows.size)
         assertEquals("2/3", overview.table!!.rows.first()[3])
+        assertFalse(overview.table!!.rows.any { row -> row.any { it.contains("Απολεσθείσα") } })
+        // Λέγεται όμως ότι υπάρχει, για να μη θεωρηθεί ότι χάθηκε.
+        assertTrue(card.footer.any { it.contains("1 ρύθμιση που δεν είναι ενεργή") })
+    }
+
+    @Test
+    fun `ανενεργή κατάσταση δεν περνά για ενεργή`() {
+        assertTrue(KeaoCard.isActive("Ενεργή"))
+        assertTrue(KeaoCard.isActive("ΕΝΕΡΓΗ"))
+        assertTrue(KeaoCard.isActive(" ενεργή "))
+        // Ένα `contains("ενεργ")` θα τα δεχόταν και τα τρία.
+        assertFalse(KeaoCard.isActive("Ανενεργή"))
+        assertFalse(KeaoCard.isActive("Μη ενεργή"))
+        assertFalse(KeaoCard.isActive("Απολεσθείσα"))
+        assertFalse(KeaoCard.isActive(""))
     }
 
     @Test
@@ -261,6 +294,28 @@ class KeaoCardTest {
         val teka = reports(KeaoCard.SCOPE_ALL)[1]
         assertTrue(teka.sections.isEmpty())
         assertEquals("RF28902208120000005546808", teka.debtorId)
+    }
+
+    // ------------------------------------------------------------ μητρώα
+
+    @Test
+    fun `τα μητρώα της προηγούμενης λήψης προσφέρονται για επιλογή`() {
+        val registries = KeaoCard.registries(KeaoCard.parse(sample))
+        assertEquals(listOf("3143975", "5546808"), registries.map { it.key })
+        assertEquals("ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ", registries[1].title)
+    }
+
+    @Test
+    fun `με επιλογή μητρώου βγαίνουν μόνο τα έντυπά του`() {
+        val only = all(KeaoCard.SCOPE_REGULATED, only = listOf("5546808"))
+        assertEquals(listOf("KEAO_KARTELA_123456783_5546808.pdf"), only.map { it.fileName })
+
+        // Ο Αρ. Μητρώου είναι κοινός στους δύο φορείς — και τους φέρνει και τους δύο.
+        val byAm = all(KeaoCard.SCOPE_REGULATED, only = listOf("9310464020"))
+        assertEquals(3, byAm.size)
+
+        // Χωρίς επιλογή: όλα, καρτέλες και ρυθμίσεις.
+        assertEquals(3, all(KeaoCard.SCOPE_REGULATED).size)
     }
 
     // ------------------------------------------------------------ λεπτομέρειες

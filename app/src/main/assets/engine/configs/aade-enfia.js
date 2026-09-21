@@ -1,11 +1,13 @@
 /*
- * configs/aade-enfia.js  --  ΕΝΦΙΑ Εκκαθαριστικό (+ προαιρετικά Ε9 / Περιουσιακή Κατάσταση)
- * App: ETAK  www1.aade.gr/etak/faces/main.jspx  (Oracle ADF + F5 ASM — απαιτεί ΠΡΑΓΜΑΤΙΚΟ browser).
+ * configs/aade-enfia.js  --  ΕΝΦΙΑ Εκκαθαριστικό (+ προαιρετικά Ε9 / Περιουσιακή Κατάσταση) — BROWSER
+ * App: ETAK  www1.aade.gr/etak/faces/main.jspx  (Oracle ADF).
  *
- * Γιατί browser-step κι όχι HTTP: το ETAK κάνει ADF loopback + F5 client-verification (bot-detection)
- * που δεν αναπαράγονται με σκέτο HTTP χωρίς πλαστογράφηση cookies (εκτός ορίων). Ο desktop runner το
- * τρέχει με Playwright· η μελλοντική Android εφαρμογή υλοποιεί το ΙΔΙΟ BrowserPage contract με native
- * WebView (τρέχει το ίδιο page-JS on-device, χωρίς πλαστογράφηση). Ροή == ιδιοκτήτη e9.py.
+ * ⚠ ΕΝΗΜΕΡΩΣΗ (live-verified 2026-09-21): το ETAK ΔΕΝ χρειάζεται browser. Το `configs/aade-enfia-http.js`
+ * κάνει την ΙΔΙΑ δουλειά (status + λήψη εκκαθαριστικού & περιουσιακής PDF) με ΚΑΘΑΡΟ HTTP (ADF _afrLoop +
+ * ViewState + event POST -> PostDataStream), όπως το ίδιο το TaxSystem (Easy_Aade.GetAdde_E9Page). Δεν
+ * υπήρξε F5 bot-detection στη ροή. ΠΡΟΤΙΜΑ το HTTP· αυτό εδώ κρατιέται για το structured Ε9-grid extraction
+ * (relations/ATAK rows σε JSON μέσω div[role=grid]) που το HTTP δεν βγάζει ακόμη ως JSON (τα δεδομένα όμως
+ * υπάρχουν στο περιουσιακή-PDF). Ροή == ιδιοκτήτη e9.py.
  *
  * ΣΗΜΕΙΩΣΗ: ΕΝΦΙΑ Δόσεις & Ειδοποιητήριο έχουν ΚΛΕΙΣΕΙ — δεν υλοποιούνται.
  *

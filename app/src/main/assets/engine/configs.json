@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 24,
+  "count": 27,
   "configs": [
     {
       "id": "aade-debts",
@@ -78,6 +78,48 @@
           "env": "AADE_FORMS",
           "hidden": false,
           "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-enfia-http",
+      "file": "aade-enfia-http.js",
+      "owner": "runner",
+      "title": "ΕΝΦΙΑ/Ε9 — Έλεγχος ολοκλήρωσης (καθαρό HTTP, ADF/ETAK)",
+      "portal": "AADE webtax3/etak (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "check"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος/η (κόμμα)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "docs",
+          "label": "Λήψη PDF; (EKK=εκκαθαριστικό, PERIOUSIAKI=περιουσιακή· κόμμα· κενό=μόνο status)",
+          "env": "AADE_ENFIA_DOCS",
+          "hidden": false,
+          "optional": true
         }
       ]
     },
@@ -361,6 +403,48 @@
       ]
     },
     {
+      "id": "aade-obligations-check",
+      "file": "aade-obligations-check.js",
+      "owner": "runner",
+      "title": "EasyCheck (ΑΑΔΕ): Έλεγχος ολοκλήρωσης υποχρεώσεων",
+      "portal": "AADE taxisnet (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "check"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "obl",
+          "label": "Υποχρεώσεις (Φ2/Φ4/Φ5/Φ1/ΕΙΣΟΔΗΜΑ_ΝΠ/ΜΥΦ/E1/E3/ΠΕΡΙΒΑΛΛΟΝ/ΔΙΑΜΟΝΗ/ΤΕΛΟΣ_H2B/ΣΥΜΦΩΝΗΤΙΚΑ/ΕΡΓΟΛΑΒΩΝ/ΦΜΥ/ΦΜΥ_ΕΠΙΧ/ΦΜΥ_ΔΙΚΑΙΩΜΑΤΑ/ΦΜΥ_ΜΕΡΙΣΜΑΤΑ/ΦΜΥ_ΤΟΚΟΙ | ALL/VAT/FMY/DEDUCT/OTHER/INCOME, κόμμα· κενό=Φ2)",
+          "env": "AADE_OBL",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "aade-property",
       "file": "aade-property.js",
       "owner": "runner",
@@ -589,6 +673,98 @@
       ]
     },
     {
+      "id": "easycheck-status",
+      "file": "easycheck-status.js",
+      "owner": "runner",
+      "title": "EasyCheck ΠΛΗΡΕΣ — υποχρεώσεις ΑΑΔΕ + κατάσταση ΕΦΚΑ/ΚΕΑΟ/ΓΕΜΗ",
+      "portal": "AADE + e-EFKA/KEAO + ΓΕΜΗ",
+      "subsystem": "Hyper.Server + EasyNotify",
+      "actions": [
+        "check",
+        "status"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username (ΑΑΔΕ)",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password (ΑΑΔΕ)",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "obl",
+          "label": "Υποχρεώσεις ΑΑΔΕ (ALL/VAT/FMY/DEDUCT/OTHER/INCOME/FYSIKA ή keys· κενό=Φ2)",
+          "env": "AADE_OBL",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "efkaUser",
+          "label": "ΕΦΚΑ/ΚΕΑΟ TAXISnet username (προαιρετικό)",
+          "env": "EFKA_USER",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "efkaPass",
+          "label": "ΕΦΚΑ/ΚΕΑΟ password (προαιρετικό)",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": true
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ (ΕΦΚΑ/ΚΕΑΟ)",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ (ΕΦΚΑ/ΚΕΑΟ μη μισθωτού)",
+          "env": "EFKA_AMKA",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "ame",
+          "label": "ΑΜΕ (ΕΦΚΑ εργοδότη — προαιρετικό)",
+          "env": "EFKA_AME",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "gemhUser",
+          "label": "ΓΕΜΗ username (προαιρετικό)",
+          "env": "GEMH_USER",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "gemhPass",
+          "label": "ΓΕΜΗ password (προαιρετικό)",
+          "env": "GEMH_PASS",
+          "hidden": true,
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "easycheck",
       "file": "easycheck.js",
       "owner": "runner",
@@ -637,7 +813,7 @@
         },
         {
           "key": "which",
-          "label": "Ποια (AADE / PROPERTY / REQUESTS — κενό = όλα)",
+          "label": "Ποια (AADE/PROPERTY/REQUESTS/EFKA/KEAO/GEMH — κενό = όλες οι ΑΑΔΕ)",
           "env": "EN_WHICH",
           "hidden": false,
           "optional": true
@@ -647,6 +823,27 @@
           "label": "ΑΦΜ (κενό = αυτόματα)",
           "env": "AADE_VAT",
           "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ (για ΕΦΚΑ/ΚΕΑΟ μηνύματα)",
+          "env": "AADE_AMKA",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "gemhUser",
+          "label": "Κωδικός Γ.Ε.ΜΗ. username (για GEMH)",
+          "env": "GEMH_USER",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "gemhPass",
+          "label": "Κωδικός Γ.Ε.ΜΗ. password (για GEMH)",
+          "env": "GEMH_PASS",
+          "hidden": true,
           "optional": true
         },
         {
@@ -845,6 +1042,13 @@
           "key": "ame",
           "label": "Αρ.Μ.Εργοδότη (νομικά πρόσωπα — κενό για φυσικά)",
           "env": "EFKA_AME",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "amo",
+          "label": "Μόνο αυτά τα μητρώα: ΑΜΟ ή Αρ. Μητρώου (κόμμα· κενό = όλα)",
+          "env": "KEAO_AMO",
           "hidden": false,
           "optional": true
         }

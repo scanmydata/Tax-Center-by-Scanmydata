@@ -32,35 +32,135 @@ module.exports = {
   inputs: [
     { key: 'user', label: 'TAXISnet username', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
-    { key: 'which', label: 'Ποια (AADE / PROPERTY / REQUESTS — κενό = όλα)', env: 'EN_WHICH', optional: true },
+    { key: 'which', label: 'Ποια (AADE/PROPERTY/REQUESTS/EFKA/KEAO/GEMH — κενό = όλες οι ΑΑΔΕ)', env: 'EN_WHICH', optional: true },
     { key: 'vat', label: 'ΑΦΜ (κενό = αυτόματα)', env: 'AADE_VAT', optional: true },
+    { key: 'amka', label: 'ΑΜΚΑ (για ΕΦΚΑ/ΚΕΑΟ μηνύματα)', env: 'AADE_AMKA', optional: true },
+    { key: 'gemhUser', label: 'Κωδικός Γ.Ε.ΜΗ. username (για GEMH)', env: 'GEMH_USER', optional: true },
+    { key: 'gemhPass', label: 'Κωδικός Γ.Ε.ΜΗ. password (για GEMH)', env: 'GEMH_PASS', optional: true, hidden: true },
     { key: 'since', label: 'Μηνύματα ΑΑΔΕ από ημ/νία (dd/mm/yyyy, κενό = όλα)', env: 'EN_SINCE', optional: true },
     { key: 'files', label: 'Λήψη συνημμένων ΑΑΔΕ (1/0)', env: 'EN_FILES', optional: true },
   ],
 
   async run(http, inp, lib) {
-    const L = await lib.aadeLogin(http, inp);
-    if (!L.ok) { http.log('AADE LOGIN FAILED: ' + L.reason); return { ok: false, reason: L.reason }; }
     const want = (inp.which || '').trim().toUpperCase();
-    const doAade = !want || /AADE|ΜΗΝΥΜ|MSG/.test(want);
-    const doProp = !want || /PROP|ΠΕΡΙΟΥΣ/.test(want);
-    const doReq = !want || /REQ|ΑΙΤΗΜ/.test(want);
-    let vat = (inp.vat || '').trim()
-      || (lib.stripTags(L.page && L.page.text || '').match(/Α\.?Φ\.?Μ\.?\s*[:\-]?\s*(\d{9})/) || [])[1] || '';
-    const out = { portal: this.portal, vat, retrievedAt: new Date().toISOString() };
+    // AADE-login types (default όλες οι ΑΑΔΕ όταν κενό)· οι ΕΦΚΑ/ΚΕΑΟ/ΓΕΜΗ μόνο ρητά (ή ALL).
+    const all = want === 'ALL' || want === 'ΟΛΑ';
+    const aadeDefault = !want; // κενό = AADE trio (backward compatible)
+    const doAade = all || aadeDefault || /\bAADE\b|ΜΗΝΥΜ|MSG/.test(want);
+    const doProp = all || aadeDefault || /PROP|ΠΕΡΙΟΥΣ/.test(want);
+    const doReq = all || aadeDefault || /REQ|ΑΙΤΗΜ/.test(want);
+    const doEfka = all || /EFKA|ΕΦΚΑ/.test(want);
+    const doKeao = all || /KEAO|ΚΕΑΟ/.test(want);
+    const doGemi = all || /GEMH|GEMI|ΓΕΜΗ/.test(want);
+    const out = { portal: this.portal, retrievedAt: new Date().toISOString() };
     const files = [];
+    let vat = (inp.vat || '').trim();
 
-    if (doAade) { try { out.aadeMessages = await this.getAadeMessages(http, lib, inp, files); } catch (e) { out.aadeMessages = 'ERR:' + e.message; http.log('[aade-msg] ERROR ' + e.message); } }
-    if (doProp) { try { out.myProperty = await this.getMyProperty(http, lib, vat); } catch (e) { out.myProperty = 'ERR:' + e.message; http.log('[property] ERROR ' + e.message); } }
-    if (doReq) { try { const r = await this.getAadeRequests(http, lib, vat); out.aadeRequests = r.list; if (!vat && r.vat) out.vat = vat = r.vat; } catch (e) { out.aadeRequests = 'ERR:' + e.message; http.log('[requests] ERROR ' + e.message); } }
+    // ── AADE portal (Μηνύματα / myPROPERTY / Αιτήματα) — ένα OAM login ──
+    if (doAade || doProp || doReq) {
+      const L = await lib.aadeLogin(http, inp);
+      if (!L.ok) { http.log('AADE LOGIN FAILED: ' + L.reason); if (!(doEfka || doKeao || doGemi)) return { ok: false, reason: L.reason }; }
+      else {
+        if (!vat) vat = (lib.stripTags(L.page && L.page.text || '').match(/Α\.?Φ\.?Μ\.?\s*[:\-]?\s*(\d{9})/) || [])[1] || '';
+        out.vat = vat;
+        if (doAade) { try { out.aadeMessages = await this.getAadeMessages(http, lib, inp, files); } catch (e) { out.aadeMessages = 'ERR:' + e.message; http.log('[aade-msg] ERROR ' + e.message); } }
+        if (doProp) { try { out.myProperty = await this.getMyProperty(http, lib, vat); } catch (e) { out.myProperty = 'ERR:' + e.message; http.log('[property] ERROR ' + e.message); } }
+        if (doReq) { try { const r = await this.getAadeRequests(http, lib, vat); out.aadeRequests = { count: r.list.length, summary: r.summary, items: r.list }; if (!vat && r.vat) out.vat = vat = r.vat; } catch (e) { out.aadeRequests = 'ERR:' + e.message; http.log('[requests] ERROR ' + e.message); } }
+      }
+    }
+    // ── ΚΕΑΟ μηνύματα (eDebtor inbox) — δικό του login ──
+    if (doKeao) { try { out.keaoMessages = await this.getKeaoMessages(http, lib, inp); } catch (e) { out.keaoMessages = 'ERR:' + e.message; http.log('[keao-msg] ERROR ' + e.message); } }
+    // ── ΕΦΚΑ μηνύματα (idika EfkaPersonalMessages) — δικό του login ──
+    if (doEfka) { try { out.efkaMessages = await this.getEfkaMessages(http, lib, inp, vat); } catch (e) { out.efkaMessages = 'ERR:' + e.message; http.log('[efka-msg] ERROR ' + e.message); } }
+    // ── ΓΕΜΗ μηνύματα (businessportal) — κωδικοί Γ.Ε.ΜΗ. ──
+    if (doGemi) { try { out.gemiMessages = await this.getGemiMessages(http, lib, inp); } catch (e) { out.gemiMessages = 'ERR:' + e.message; http.log('[gemi-msg] ERROR ' + e.message); } }
 
+    const n = (x, k) => (x && Array.isArray(x) ? x.length : (x && x[k] != null ? (Array.isArray(x[k]) ? x[k].length : x[k]) : (x && x.count != null ? x.count : '-')));
     const jf = path.join(http.dlDir, 'EASYNOTIFY_' + (vat || inp.user) + '.json');
     fs.writeFileSync(jf, JSON.stringify(out, null, 2));
     http.log('[easynotify] ✅ saved -> ' + path.basename(jf)
-      + ' (aade=' + (out.aadeMessages && out.aadeMessages.length != null ? out.aadeMessages.length : '-')
-      + ' property=' + (out.myProperty && out.myProperty.messages ? out.myProperty.messages.length : '-')
-      + ' requests=' + (Array.isArray(out.aadeRequests) ? out.aadeRequests.length : '-') + ')');
+      + ' (aade=' + n(out.aadeMessages) + ' property=' + n(out.myProperty, 'messages') + ' requests=' + n(out.aadeRequests)
+      + ' keao=' + n(out.keaoMessages) + ' efka=' + n(out.efkaMessages) + ' gemi=' + n(out.gemiMessages) + ')');
     return { ok: true, files: [path.basename(jf), ...files] };
+  },
+
+  // ── ΚΕΑΟ μηνύματα (== GetKEAOMessages: eDebtor inbox.xhtml) ──
+  async getKeaoMessages(http, lib, inp) {
+    const strip = lib.stripTags;
+    const L = await lib.keaoEDebtorLogin(http, { user: inp.user, pass: inp.pass });
+    if (!L.ok) { http.log('[keao-msg] LOGIN FAILED: ' + L.reason); return 'LOGIN:' + L.reason; }
+    const html = (await http.follow('GET', 'https://apps.e-efka.gov.gr/eDebtor/secure/inbox.xhtml')).text;
+    http.dump('keao_inbox.html', html);
+    const grid = html.match(/id="inboxMessagesTable"[\s\S]*?<table[^>]*role="grid"[^>]*>([\s\S]*?)<\/table>/i);
+    const rows = [];
+    if (grid) {
+      const tbody = grid[1].match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+      for (const tr of (tbody ? tbody[1] : grid[1]).matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+        const tds = [...tr[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)];
+        if (tds.length < 4) continue;
+        const info = strip(tds[1][1]).split(',').map(s => s.trim());
+        const find = (p) => { const x = info.find(s => s.startsWith(p)); return x ? x.replace(p, '').trim() : ''; };
+        const titleA = tds[2][1].match(/<a\b[^>]*>([\s\S]*?)<\/a>/i);
+        rows.push({
+          hmer: strip(tds[0][1]), amo: find('Α.Μ.Ο.:'), foreas: find('Φορέας:'),
+          amStonForea: find('Α.Μ. στο Φορέα:'), titlos: strip(titleA ? titleA[1] : tds[2][1]), hmerAnagn: strip(tds[3][1]),
+        });
+      }
+    }
+    http.log('[keao-msg] ' + rows.length + ' μηνύματα ΚΕΑΟ');
+    return rows;
+  },
+
+  // ── ΕΦΚΑ μηνύματα (== GetEfkaMessages: idika EfkaPersonalMessages ASPxGridView) ──
+  // idika EfkaServices (www.idika.org.gr) — προς το παρόν 503 (μεταφορά στο νέο ΟΠΣ)· η ροή είναι πιστή.
+  async getEfkaMessages(http, lib, inp, vat) {
+    const strip = lib.stripTags;
+    const L = await lib.idikaLoginAade(http, { user: inp.user, pass: inp.pass, afm: vat || inp.vat, amka: inp.amka });
+    if (!L.ok) { http.log('[efka-msg] idika LOGIN FAILED: ' + L.reason + ' (idika EfkaServices πιθανόν 503/μεταφερθέν)'); return 'LOGIN:' + L.reason; }
+    const IDIKA = L.IDIKA || 'https://www.idika.org.gr/EfkaServices';
+    await http.follow('GET', IDIKA + '/Application/MyDashboard.aspx');
+    const page = (await http.follow('GET', IDIKA + '/Application/EfkaPersonalMessages.aspx')).text;
+    http.dump('efka_messages.html', page);
+    const grid = page.match(/id="ContentPlaceHolder1_PersonalMessagesGV_DXMainTable"[\s\S]*?<\/table>/i);
+    const keyIds = (lib.between(page, "'stateObject':{'keys':[", "'],")[0] || '').replace(/'/g, '').split(',').filter(Boolean);
+    const rows = [];
+    if (grid) {
+      let i = 0;
+      for (const tr of grid[0].matchAll(/<tr\b([^>]*id="[^"]*_DXDataRow[^"]*"[^>]*)>([\s\S]*?)<\/tr>/gi)) {
+        const tds = [...tr[2].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)];
+        if (tds.length < 3) continue;
+        rows.push({ messageId: keyIds[i] || '', messageDate: strip(tds[1][1]), title: strip(tds[2][1]) });
+        i++;
+      }
+    }
+    // Σημ.: η σελιδοποίηση/άνοιγμα σώματος γίνονται με DevExpress ASPxGridView callbacks
+    // (EfkaMessageNextPage/EfkaMessagePopUp)· απαιτούν ζωντανό idika για ακριβή αναπαραγωγή.
+    http.log('[efka-msg] ' + rows.length + ' μηνύματα ΕΦΚΑ (σελ.1)');
+    return rows;
+  },
+
+  // ── ΓΕΜΗ μηνύματα (== GetGemiMessages: businessportal emailsAsJSON + emailDetails) ──
+  async getGemiMessages(http, lib, inp) {
+    if (!inp.gemhUser || !inp.gemhPass) { http.log('[gemi-msg] χωρίς κωδικούς Γ.Ε.ΜΗ. (gemhUser/gemhPass) — παράλειψη'); return 'NoGemhCreds'; }
+    const L = await lib.gemiLogin(http, { user: inp.gemhUser, pass: inp.gemhPass });
+    if (!L.ok) { http.log('[gemi-msg] LOGIN FAILED: ' + L.reason); return 'LOGIN:' + L.reason; }
+    const host = L.host;
+    await http.follow('GET', host + 'api/authentication/checkSession?lang=el');
+    const pageSize = 5; const msgs = []; let pg = 0, loop = true, guard = 0;
+    while (loop) {
+      const r = await http.follow('POST', host + 'api/email/emailsAsJSON?lang=el', { length: String(pageSize), start: String(pg * pageSize) });
+      const res = this.json(r.text); if (!res) throw new Error('emailsAsJSON parse');
+      const total = res.recordsTotal || 0;
+      if ((pg === 0 && total === 0) || Math.ceil(total / pageSize) === pg + 1) loop = false;
+      pg++; if (pg > 1000) break;
+      for (const m of (res.data || [])) {
+        const det = this.json((await http.follow('GET', host + '/api/email/emailDetails?emailId=' + m.id + '&type=' + m.messageTypeId + '&lang=el')).text);
+        m._body = det && det.emailData ? det.emailData.body : '';
+        if (!msgs.find(x => x.id === m.id)) msgs.push(m);
+      }
+    }
+    http.log('[gemi-msg] ' + msgs.length + ' μηνύματα Γ.Ε.ΜΗ.');
+    return msgs;
   },
 
   // ── AADE «Τα Μηνύματά μου» (== GetMessagesAade + ReadPage) ──
@@ -179,13 +279,25 @@ module.exports = {
       pageCount = pn.pageCount || pageCount;
       for (const m of (pn.entityModels || [])) if (!seen.has(m.messageId)) { seen.add(m.messageId); all.push(m); }
     }
+    // compact, human-readable view ανά αίτημα (πλήρη πεδία στο items)
+    const summary = all.map(m => ({
+      messageId: m.messageId, caseNumber: m.caseNumber,
+      submittedDate: m.submittedDate, updatedDate: m.updatedDate,
+      status: m.messageStatusText || m.messageStatus,
+      thematiki: m.thematicalGroupText || m.processGroupText || m.diadikasiaText || '',
+      ypiresia: [m.orgGroupText, m.functionalAreaText, m.protipoTmimaText].filter(Boolean).join(' / '),
+      taxee: m.taxeeName, taxeeVat: m.taxeeVat,
+      answer: (m.answerText || '').trim(),
+    }));
     http.log('[requests] userVat=' + userVat + ' αιτήματα=' + all.length + ' (σελ ' + pageCount + ')');
-    return { vat: userVat, list: all };
+    return { vat: userVat, list: all, summary };
   },
-  async reqPage(http, url, vat, pageIndex, caseNumber) {
-    const jsonText = '{"pageIndex":' + pageIndex + ',"pageSize":10,"startDate":"","endDate":"","representativeRole":0,"transactorVat":"' + vat + '","taxeeVat":"","caseNumber":"' + caseNumber + '","messageStatus":0,"sortBy":"submittedDate","sortByDesc":true}';
-    const r = await http.follow('POST', url, { jsonText });
-    if (process.env.EN_DEBUG) http.dump('DBG_filterMessages_p' + pageIndex + '.json', r.text);
+  // pageNumber is 1-based (like C#); the API's pageIndex is 0-based (== C# pageNumber-1).
+  // Body is RAW application/json (== C# TaxExtPostData StringContent "jsonText" -> application/json).
+  async reqPage(http, url, vat, pageNumber, caseNumber) {
+    const jsonText = '{"pageIndex":' + (pageNumber - 1) + ',"pageSize":10,"startDate":"","endDate":"","representativeRole":0,"transactorVat":"' + vat + '","taxeeVat":"","caseNumber":"' + caseNumber + '","messageStatus":0,"sortBy":"submittedDate","sortByDesc":true}';
+    const r = await http.api('POST', url, jsonText);
+    if (process.env.EN_DEBUG) http.dump('DBG_filterMessages_p' + pageNumber + '.json', r.text);
     return this.json(r.text) || {};
   },
 

@@ -4,7 +4,8 @@
  * =============================================================================
  * Αντιγράφει ΑΥΤΟΥΣΙΑ (byte-για-byte) από το `recerse-engineer/runner`:
  *
- *   lib/hyper-http.js  ->  app/src/main/assets/engine/hyper-http.js
+ *   lib/hyper-http.js             ->  app/src/main/assets/engine/hyper-http.js
+ *   lib/easycheck-obligations.js  ->  app/src/main/assets/engine/easycheck-obligations.js
  *   configs/*.js       ->  app/src/main/assets/engine/configs/
  *
  * ΔΕΝ αντιγράφει τα `lib/browser-step.js` και `lib/render-pdf.js`: αυτά είναι
@@ -67,7 +68,13 @@ function place(relFrom, relTo) {
 }
 
 // ------------------------------------------------------------------- engine
-const rows = [place('lib/hyper-http.js', 'hyper-http.js')];
+const rows = [
+  place('lib/hyper-http.js', 'hyper-http.js'),
+  // Η μηχανή του EasyCheck (έλεγχος ολοκλήρωσης υποχρεώσεων ΑΑΔΕ). Καθαρή JS,
+  // χωρίς require· τη φορτώνουν τα `aade-obligations-check` και
+  // `easycheck-status`. Ο host τη βρίσκει με το basename, όπως το hyper-http.
+  place('lib/easycheck-obligations.js', 'easycheck-obligations.js'),
+];
 
 // ------------------------------------------------------------------ configs
 const configFiles = fs

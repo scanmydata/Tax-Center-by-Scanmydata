@@ -25,6 +25,12 @@ import org.json.JSONObject
  * μέσα είναι ο ασφαλέστερος τρόπος να πληρώσει κάποιος τη λάθος: τα ποσά
  * καταλήγουν σε άλλο ταμείο και η οφειλή που έτρεχε μένει ανοιχτή.
  *
+ * ## Και ένα έντυπο ανά ενεργή ρύθμιση
+ *
+ * Το δοσολόγιο κάθε **ενεργής** ρύθμισης βγαίνει σε δικό του αρχείο
+ * (`KEAO_RYTHMISI_…`), με την ταυτότητα του φορέα της. Οι ανενεργές δεν
+ * τυπώνονται πουθενά — η καρτέλα λέει μόνο πόσες είναι.
+ *
  * Ο διαχωρισμός σε [Carrier] (δεδομένα) και [Report] (τι τυπώνεται) είναι
  * σκόπιμος: το δεύτερο ελέγχεται ολόκληρο χωρίς Android, και η ζωγραφική στο
  * [gr.scanmydata.taxcenter.doc.ReportPdf] δεν παίρνει καμία απόφαση.
@@ -83,8 +89,14 @@ object KeaoCard {
         /** Πότε τελειώνει η ρύθμιση, όπως τη δείχνει και η πύλη. */
         val lastDue: String get() = instalments.lastOrNull()?.due.orEmpty()
 
-        /** Ενεργή ρύθμιση — μόνο αυτές αναλύονται σε δόσεις στο έντυπο. */
-        val active: Boolean get() = status.contains("Ενεργ", ignoreCase = true)
+        /**
+         * Ενεργή ρύθμιση — οι μόνες που φτάνουν στον πελάτη.
+         *
+         * Η κατάσταση πρέπει να **ξεκινά** με «ενεργ». Ένα `contains` θα
+         * δεχόταν και το «Ανενεργή» ή το «Μη ενεργή», δηλαδή ακριβώς τις
+         * ρυθμίσεις που θέλουμε να μείνουν έξω.
+         */
+        val active: Boolean get() = KeaoCard.isActive(status)
     }
 
     data class Outstanding(
@@ -200,7 +212,42 @@ object KeaoCard {
     const val SCOPE_ALL = "all"
 
     /**
-     * Ένα [Report] ανά φορέα.
+     * Ένα μητρώο (φορέας) όπως το βλέπει ο λογιστής όταν διαλέγει τι θα κατέβει.
+     *
+     * Το [key] είναι ό,τι ταξιδεύει ως επιλογή: ο ΑΜΟ, ή ο Αριθμός Μητρώου όπου
+     * ΑΜΟ δεν υπάρχει. Το config δέχεται και τα δύο.
+     */
+    data class Registry(
+        val amo: String,
+        val am: String,
+        val title: String,
+        val category: String,
+    ) {
+        val key: String get() = amo.ifBlank { am }
+    }
+
+    /** Τα μητρώα μιας προηγούμενης λήψης, ένα ανά κλειδί. */
+    fun registries(carriers: List<Carrier>): List<Registry> = carriers
+        .map { c ->
+            val name = carrierName(c.description)
+            Registry(c.amo, c.carrierAm, name.title, name.category)
+        }
+        .filter { it.key.isNotBlank() }
+        .distinctBy { it.key }
+
+    /** Ανήκει ο φορέας στα μητρώα που ζητήθηκαν; Κενή λίστα = όλα. */
+    fun wanted(c: Carrier, only: Collection<String>): Boolean =
+        only.isEmpty() || c.amo in only || c.carrierAm in only
+
+    /**
+     * Τα έντυπα της λήψης: **ένα ανά φορέα**, και πίσω από το καθένα **ένα ανά
+     * ενεργή ρύθμιση** του.
+     *
+     * Η ρύθμιση βγαίνει σε δικό της αρχείο επειδή έχει δικό της κύκλο ζωής: ο
+     * πελάτης με δύο ρυθμίσεις στον ίδιο φορέα πληρώνει δύο δόσεις με δύο
+     * διαφορετικές ημερομηνίες, και ένα αρχείο που τις ανακατεύει είναι ο πιο
+     * σύντομος δρόμος να χαθεί η μία. Με χωριστό όνομα, ο λογιστής στέλνει μόνο
+     * αυτήν που ρωτήθηκε.
      *
      * @param scope [SCOPE_REGULATED] για ρυθμίσεις και συνολική οφειλή,
      *   [SCOPE_ALL] για να μπουν και οι οφειλές εκτός ρύθμισης. Η επιλογή είναι
@@ -209,6 +256,9 @@ object KeaoCard {
      * @param retrievedAt πότε αντλήθηκαν τα στοιχεία, όπως θα το διαβάσει
      *   άνθρωπος. Μπαίνει στο υποσέλιδο επειδή μια καρτέλα οφειλών γερνάει μέσα
      *   σε μέρες, και ο πελάτης πρέπει να ξέρει τι κρατά στα χέρια του.
+     * @param only τα μητρώα που ζήτησε ο χρήστης (ΑΜΟ ή Αρ. Μητρώου)· κενό =
+     *   όλα. Το config φιλτράρει ήδη· εδώ είναι δίχτυ, για JSON παλιότερης
+     *   λήψης που είχε όλους τους φορείς.
      */
     fun reports(
         carriers: List<Carrier>,
@@ -217,17 +267,48 @@ object KeaoCard {
         office: String,
         retrievedAt: String,
         scope: String = SCOPE_REGULATED,
+        only: Collection<String> = emptyList(),
     ): List<Report> {
         // Τα ονόματα κρατιούνται για να μη συγκρουστούν — βλ. τη συνάρτηση unique.
         val used = HashSet<String>()
-        return carriers.mapIndexed { index, c ->
-            report(c, index, used, clientName, afm, office, retrievedAt, scope)
+        val out = ArrayList<Report>()
+        carriers.forEachIndexed { index, c ->
+            if (!wanted(c, only)) return@forEachIndexed
+            // **Ο ΑΜΟ πρώτος, όχι ο Αριθμός Μητρώου.**
+            //
+            // Επαληθεύτηκε σε πραγματικό λογαριασμό με τρεις φορείς: το ΤΕΚΑ και
+            // το ΟΠΣ-ΙΚΑ είχαν **τον ίδιο** ΑΜ (9310464020) και διαφορετικό ΑΜΟ.
+            // Με τον ΑΜ στο όνομα, το τρίτο έντυπο έγραφε πάνω στο δεύτερο και η
+            // καρτέλα ΤΕΚΑ εξαφανιζόταν χωρίς κανένα σφάλμα πουθενά.
+            val tag = listOf(c.amo, c.carrierAm, (index + 1).toString())
+                .firstOrNull { it.isNotBlank() }.orEmpty()
+            out += card(c, tag, used, clientName, afm, office, retrievedAt, scope)
+            c.regulated.filter { it.active }.forEachIndexed { n, r ->
+                out += regulation(c, r, tag, n, used, clientName, afm, office, retrievedAt)
+            }
         }
+        return out
     }
 
-    private fun report(
+    /** Τα στοιχεία του φορέα, κοινά στην καρτέλα και στα έντυπα των ρυθμίσεών του. */
+    private fun carrierIdentity(c: Carrier, clientName: String, afm: String): List<Pair<String, String>> = buildList {
+        add("Υπόχρεος" to listOf(clientName, afm).filter { it.isNotBlank() }.joinToString(" · "))
+        val name = carrierName(c.description)
+        if (name.title.isNotBlank()) add("Φορέας" to name.title)
+        if (name.category.isNotBlank()) add("Κατηγορία" to name.category)
+        if (c.amo.isNotBlank()) add("ΑΜΟ" to c.amo)
+        if (c.carrierAm.isNotBlank()) add("Αριθμός Μητρώου" to c.carrierAm)
+        if (c.companyName.isNotBlank()) add("Επωνυμία" to c.companyName)
+        if (c.branch.isNotBlank()) add("Αρμόδιο υποκατάστημα" to c.branch)
+    }
+
+    private fun retrieved(retrievedAt: String) =
+        "Άντληση από την Ηλεκτρονική Πλατφόρμα Οφειλετών ΚΕΑΟ" +
+            if (retrievedAt.isNotBlank()) " στις $retrievedAt." else "."
+
+    private fun card(
         c: Carrier,
-        index: Int,
+        tag: String,
         used: MutableSet<String>,
         clientName: String,
         afm: String,
@@ -235,26 +316,21 @@ object KeaoCard {
         retrievedAt: String,
         scope: String,
     ): Report {
-        // **Ο ΑΜΟ πρώτος, όχι ο Αριθμός Μητρώου.**
-        //
-        // Επαληθεύτηκε σε πραγματικό λογαριασμό με τρεις φορείς: το ΤΕΚΑ και το
-        // ΟΠΣ-ΙΚΑ είχαν **τον ίδιο** ΑΜ (9310464020) και διαφορετικό ΑΜΟ. Με τον
-        // ΑΜ στο όνομα, το τρίτο έντυπο έγραφε πάνω στο δεύτερο και η καρτέλα
-        // ΤΕΚΑ εξαφανιζόταν χωρίς κανένα σφάλμα πουθενά — ο λογιστής θα έβλεπε
-        // δύο έντυπα εκεί που έπρεπε να δει τρία.
-        val tag = listOf(c.amo, c.carrierAm, (index + 1).toString())
-            .firstOrNull { it.isNotBlank() }.orEmpty()
-
         val sections = ArrayList<Section>()
 
-        if (c.regulated.isNotEmpty()) {
+        // **Μόνο οι ενεργές.** Ένας φορέας κουβαλά συχνά δεκάδες παλιές
+        // ρυθμίσεις — απολεσθείσες, εξοφλημένες — που για τον πελάτη δεν
+        // σημαίνουν τίποτα πια και κρύβουν αυτήν που τρέχει.
+        val active = c.regulated.filter { it.active }
+        val inactive = c.regulated.size - active.size
+        if (active.isNotEmpty()) {
             sections += Section(
-                caption = "Ρυθμίσεις",
+                caption = "Ενεργές ρυθμίσεις",
                 table = Table(
                     headers = listOf("Ρύθμιση", "Είδος", "Κατάσταση", "Δόσεις", "Επόμενη", "Σύνολο"),
                     weights = listOf(1.6f, 2.6f, 1.2f, 0.9f, 1.5f, 1.3f),
                     numeric = listOf(5),
-                    rows = c.regulated.map { r ->
+                    rows = active.map { r ->
                         listOf(
                             r.info,
                             r.resolutionType.ifBlank { r.payType },
@@ -266,63 +342,12 @@ object KeaoCard {
                         )
                     },
                 ),
-                note = if (c.regulated.size > 1) {
-                    "Η στήλη «Δόσεις» δείχνει πόσες μένουν από πόσες συνολικά."
-                } else {
-                    ""
-                },
-            )
-        }
-
-        // Αναλυτικά **μόνο οι ενεργές**. Ένας φορέας μπορεί να κουβαλά δεκάδες
-        // παλιές ρυθμίσεις που έχουν λήξει ή χαθεί· αν αναλύονταν όλες, το
-        // έντυπο θα γινόταν εκατοντάδες γραμμές και η δόση που τρέχει θα
-        // κρυβόταν μέσα τους.
-        for (r in c.regulated.filter { it.active && it.instalments.isNotEmpty() }) {
-            val pending = r.pending
-            val paid = r.installments - pending.size
-            sections += Section(
-                caption = "Δοσολόγιο ρύθμισης " + r.resolutionType.ifBlank { r.info },
-                facts = buildList {
-                    if (r.info.isNotBlank()) add("Αρ. / ημ. απόφασης" to r.info)
-                    if (r.primary.isNotBlank()) add("Κύρια εισφορά" to r.primary)
-                    if (r.additional.isNotBlank()) add("Πρόσθετα τέλη" to r.additional)
-                    if (r.interest.isNotBlank()) add("Τόκος" to r.interest)
-                    if (r.total.isNotBlank()) add("Σύνολο ρύθμισης" to r.total)
-                    if (r.payType.isNotBlank()) add("Τρόπος" to r.payType)
-                    if (r.status.isNotBlank()) add("Κατάσταση" to r.status)
-                    add("Δόσεις" to "$paid πληρωμένες από ${r.installments}")
-                    if (r.lastDue.isNotBlank()) add("Τελευταία δόση" to r.lastDue)
-                },
-                // **Ολόκληρο** το δοσολόγιο, πληρωμένες και απλήρωτες μαζί.
-                //
-                // Η πρώτη έκδοση έδειχνε μόνο τις εκκρεμείς, με το σκεπτικό ότι
-                // αυτές αφορούν τον πελάτη. Αφορούν — αλλά το χαρτί που ζητά ο
-                // πελάτης λέγεται «δοσολόγιο» και απαντά σε άλλη ερώτηση: πόσες
-                // έχω πληρώσει, πόσες μένουν, πότε τελειώνει. Χωρίς τις
-                // πληρωμένες, δεν αποδεικνύεται καμία καταβολή.
-                table = Table(
-                    headers = listOf("Α/Α", "Ημ. λήξης", "Ποσό δόσης", "Προσαύξηση", "Καταβολή", "Υπόλοιπο"),
-                    weights = listOf(0.6f, 1.3f, 1.3f, 1.2f, 1.3f, 1.3f),
-                    numeric = listOf(2, 3, 4, 5),
-                    rows = r.instalments.map { i ->
-                        listOf(i.no, i.due, i.amount, i.increments, i.paid, i.balance)
-                    },
-                    totals = Money.totals(
-                        "ΣΥΝΟΛΑ", 1,
-                        listOf(
-                            r.instalments.map { it.amount },
-                            r.instalments.map { it.increments },
-                            r.instalments.map { it.paid },
-                            r.instalments.map { it.balance },
-                        ),
-                    ),
-                ),
-                note = if (pending.isEmpty()) {
-                    "Δεν υπάρχουν εκκρεμείς δόσεις."
-                } else {
-                    "Εκκρεμούν ${pending.size} δόσεις, υπολοίπου " +
-                        money(sum(pending.map { it.balance })) + " €."
+                note = buildString {
+                    append(
+                        if (active.size > 1) "Το δοσολόγιο κάθε ρύθμισης σε χωριστό έντυπο. "
+                        else "Το δοσολόγιο της ρύθμισης σε χωριστό έντυπο. ",
+                    )
+                    append("Η στήλη «Δόσεις» δείχνει πόσες μένουν από πόσες συνολικά.")
                 },
             )
         }
@@ -353,16 +378,7 @@ object KeaoCard {
             fileName = unique(fileName(afm, tag), used),
             title = "Καρτέλα οφειλέτη ΚΕΑΟ",
             office = office,
-            identity = buildList {
-                add("Υπόχρεος" to listOf(clientName, afm).filter { it.isNotBlank() }.joinToString(" · "))
-                val name = carrierName(c.description)
-                if (name.title.isNotBlank()) add("Φορέας" to name.title)
-                if (name.category.isNotBlank()) add("Κατηγορία" to name.category)
-                if (c.amo.isNotBlank()) add("ΑΜΟ" to c.amo)
-                if (c.carrierAm.isNotBlank()) add("Αριθμός Μητρώου" to c.carrierAm)
-                if (c.companyName.isNotBlank()) add("Επωνυμία" to c.companyName)
-                if (c.branch.isNotBlank()) add("Αρμόδιο υποκατάστημα" to c.branch)
-            },
+            identity = carrierIdentity(c, clientName, afm),
             debtorId = c.debtorId,
             summary = buildList {
                 if (c.totals.debit.isNotBlank()) add("Χρέωση" to c.totals.debit)
@@ -373,10 +389,13 @@ object KeaoCard {
             },
             sections = sections,
             footer = buildList {
-                add(
-                    "Άντληση από την Ηλεκτρονική Πλατφόρμα Οφειλετών ΚΕΑΟ" +
-                        if (retrievedAt.isNotBlank()) " στις $retrievedAt." else ".",
-                )
+                add(retrieved(retrievedAt))
+                if (inactive > 0) {
+                    add(
+                        if (inactive == 1) "Δεν εμφανίζεται 1 ρύθμιση που δεν είναι ενεργή."
+                        else "Δεν εμφανίζονται $inactive ρυθμίσεις που δεν είναι ενεργές.",
+                    )
+                }
                 if (scope != SCOPE_ALL && c.outstanding.isNotEmpty()) {
                     add(
                         "Υπάρχουν και ${c.outstanding.size} οφειλές εκτός ρύθμισης, που δεν " +
@@ -393,6 +412,104 @@ object KeaoCard {
         )
     }
 
+    /**
+     * Το έντυπο **μίας** ενεργής ρύθμισης: ποια είναι, πόσα πληρώθηκαν, πόσα
+     * μένουν, και ολόκληρο το δοσολόγιο.
+     *
+     * Κουβαλά την Ταυτότητα Οφειλέτη του φορέα, γιατί με αυτήν πληρώνονται οι
+     * δόσεις — ένα δοσολόγιο χωρίς τρόπο πληρωμής θα έστελνε τον πελάτη πίσω
+     * στην καρτέλα για να βρει τον κωδικό.
+     */
+    private fun regulation(
+        c: Carrier,
+        r: Regulation,
+        tag: String,
+        n: Int,
+        used: MutableSet<String>,
+        clientName: String,
+        afm: String,
+        office: String,
+        retrievedAt: String,
+    ): Report {
+        val pending = r.pending
+        val paid = r.installments - pending.size
+        // «137612 07/02/2026» -> 137612: ο αριθμός απόφασης ξεχωρίζει τη ρύθμιση
+        // στο όνομα αρχείου· η ημερομηνία θα έβαζε κάθετους σε όνομα αρχείου.
+        val decision = r.info.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+
+        val sections = ArrayList<Section>()
+        sections += Section(
+            caption = "Στοιχεία ρύθμισης",
+            facts = buildList {
+                if (r.resolutionType.isNotBlank()) add("Ρύθμιση" to r.resolutionType)
+                if (r.info.isNotBlank()) add("Αρ. / ημ. απόφασης" to r.info)
+                if (r.payType.isNotBlank()) add("Τρόπος" to r.payType)
+                if (r.status.isNotBlank()) add("Κατάσταση" to r.status)
+                if (r.primary.isNotBlank()) add("Κύρια εισφορά" to r.primary)
+                if (r.additional.isNotBlank()) add("Πρόσθετα τέλη" to r.additional)
+                if (r.interest.isNotBlank()) add("Τόκος" to r.interest)
+                if (r.installments > 0) add("Δόσεις" to "$paid πληρωμένες από ${r.installments}")
+                if (r.nextDue.isNotBlank()) {
+                    add("Επόμενη δόση" to listOf(r.nextDue, r.nextAmount).filter { it.isNotBlank() }.joinToString(" · "))
+                }
+                if (r.lastDue.isNotBlank()) add("Τελευταία δόση" to r.lastDue)
+            },
+        )
+        // **Ολόκληρο** το δοσολόγιο, πληρωμένες και απλήρωτες μαζί: το χαρτί που
+        // ζητά ο πελάτης απαντά στο «πόσες έχω πληρώσει, πόσες μένουν, πότε
+        // τελειώνει». Χωρίς τις πληρωμένες δεν αποδεικνύεται καμία καταβολή.
+        if (r.instalments.isNotEmpty()) {
+            sections += Section(
+                caption = "Δοσολόγιο",
+                table = Table(
+                    headers = listOf("Α/Α", "Ημ. λήξης", "Ποσό δόσης", "Προσαύξηση", "Καταβολή", "Υπόλοιπο"),
+                    weights = listOf(0.6f, 1.3f, 1.3f, 1.2f, 1.3f, 1.3f),
+                    numeric = listOf(2, 3, 4, 5),
+                    rows = r.instalments.map { i ->
+                        listOf(i.no, i.due, i.amount, i.increments, i.paid, i.balance)
+                    },
+                    totals = Money.totals(
+                        "ΣΥΝΟΛΑ", 1,
+                        listOf(
+                            r.instalments.map { it.amount },
+                            r.instalments.map { it.increments },
+                            r.instalments.map { it.paid },
+                            r.instalments.map { it.balance },
+                        ),
+                    ),
+                ),
+                note = if (pending.isEmpty()) {
+                    "Δεν υπάρχουν εκκρεμείς δόσεις."
+                } else {
+                    "Εκκρεμούν ${pending.size} δόσεις, υπολοίπου " +
+                        money(sum(pending.map { it.balance })) + " €."
+                },
+            )
+        }
+
+        return Report(
+            fileName = unique(regulationFileName(afm, tag, decision.ifBlank { (n + 1).toString() }), used),
+            title = "Δοσολόγιο ρύθμισης ΚΕΑΟ",
+            office = office,
+            identity = carrierIdentity(c, clientName, afm),
+            debtorId = c.debtorId,
+            summary = buildList {
+                if (r.total.isNotBlank()) add("Σύνολο ρύθμισης" to r.total)
+                if (r.instalments.isNotEmpty()) {
+                    add("Καταβλήθηκαν" to money(sum(r.instalments.map { it.paid })))
+                    add("Υπόλοιπο" to money(sum(pending.map { it.balance })))
+                }
+            },
+            sections = sections,
+            footer = listOf(
+                retrieved(retrievedAt),
+                "Οι δόσεις πληρώνονται με την παραπάνω Ταυτότητα Οφειλέτη του φορέα. Τα " +
+                    "ποσά αλλάζουν με κάθε καταβολή και με τον χρόνο (προσαυξήσεις).",
+                "Ενημερωτικό έντυπο του γραφείου — δεν είναι έγγραφο του ΚΕΑΟ.",
+            ),
+        )
+    }
+
     // ------------------------------------------------------------------ ποσά
 
     // Τα ποσά ζουν πια στο [Money], κοινά με τα έντυπα οφειλών της ΑΑΔΕ. Τα δύο
@@ -405,10 +522,28 @@ object KeaoCard {
     fun money(value: Double): String = Money.money(value)
 
     /** `KEAO_KARTELA_<ΑΦΜ>_<ΑΜΟ>.pdf` — ό,τι περιμένει το `DocumentNaming`. */
-    fun fileName(afm: String, tag: String): String {
-        val clean = tag.map { if (it.isLetterOrDigit()) it else '-' }.joinToString("").trim('-')
-        return "KEAO_KARTELA_${afm}_${clean.ifBlank { "1" }}.pdf"
-    }
+    fun fileName(afm: String, tag: String): String =
+        "KEAO_KARTELA_${afm}_${clean(tag).ifBlank { "1" }}.pdf"
+
+    /**
+     * `KEAO_RYTHMISI_<ΑΦΜ>_<ΑΜΟ>_<αρ. απόφασης>.pdf`.
+     *
+     * Άλλο πρόθεμα από την καρτέλα **και** από τη ρύθμιση της ΑΑΔΕ
+     * (`RYTHMISI_…`): στο email του πελάτη και στα Έγγραφα του γραφείου πρέπει
+     * να φαίνεται με μια ματιά ποιο αρχείο είναι ποιο.
+     */
+    fun regulationFileName(afm: String, tag: String, decision: String): String =
+        "KEAO_RYTHMISI_${afm}_${clean(tag).ifBlank { "1" }}_${clean(decision).ifBlank { "1" }}.pdf"
+
+    private fun clean(raw: String): String =
+        raw.map { if (it.isLetterOrDigit()) it else '-' }.joinToString("").trim('-')
+
+    /** Βλ. [Regulation.active]: ξεκινά με «ενεργ», χωρίς τόνους και πεζά-κεφαλαία. */
+    fun isActive(status: String): Boolean =
+        java.text.Normalizer.normalize(status.trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            .lowercase()
+            .startsWith("ενεργ")
 
     /**
      * Εγγυάται ότι δύο φορείς δεν θα γράψουν στο ίδιο αρχείο.

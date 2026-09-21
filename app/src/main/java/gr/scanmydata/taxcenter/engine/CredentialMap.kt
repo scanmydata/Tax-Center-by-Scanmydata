@@ -48,6 +48,10 @@ object CredentialMap {
         "aade-tax-account" to TAXIS,
         "aade-traffic-fees" to TAXIS,
         "aade-enfia" to TAXIS,
+        "aade-enfia-http" to TAXIS,
+        // EasyCheck: έλεγχος ολοκλήρωσης υποχρεώσεων. Δεν προσφέρεται ακόμη στην
+        // οθόνη λήψης — η αντιστοίχιση μπαίνει τώρα για να μη χρειαστεί μετά.
+        "aade-obligations-check" to TAXIS,
         "aade-email" to TAXIS,
         "aade-profile" to TAXIS,
 

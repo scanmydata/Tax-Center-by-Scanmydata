@@ -8,12 +8,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -22,7 +25,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -32,6 +38,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -67,6 +75,8 @@ import gr.scanmydata.taxcenter.engine.FetchController
 import gr.scanmydata.taxcenter.engine.ProcessRunner
 import gr.scanmydata.taxcenter.google.GoogleAuthorizer
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
+import gr.scanmydata.taxcenter.keao.KeaoCard
+import gr.scanmydata.taxcenter.keao.KeaoHistory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -131,7 +141,9 @@ private enum class Action(val label: String) {
  * είναι καθημερινό αίτημα — με ένα κοινό πεδίο έτους χρειαζόταν δύο χωριστές
  * εκτελέσεις, δηλαδή δύο συνδέσεις στο GSIS ανά πελάτη.
  *
- * Το [uid] υπάρχει για να μπορεί το ίδιο έντυπο να μπει δύο φορές με άλλο έτος.
+ * Κάθε έντυπο μπαίνει **μία** φορά: τα έτη, οι μήνες και τα μητρώα είναι λίστες
+ * μέσα στην ίδια επιλογή. Δύο γραμμές «Οφειλές ΑΑΔΕ» έτρεχαν την ίδια λήψη δύο
+ * φορές — δύο συνδέσεις στο GSIS και δύο ίδια συνημμένα στο email.
  */
 private data class Pick(
     val uid: Long,
@@ -141,6 +153,8 @@ private data class Pick(
     val months: List<String> = emptyList(),
     /** Η απάντηση στο [DocumentCatalog.Choice] του εντύπου, αν έχει. */
     val choice: String = "",
+    /** Μητρώα ΚΕΑΟ (ΑΜΟ ή Αρ. Μητρώου)· κενό = όλα. */
+    val registries: List<String> = emptyList(),
 )
 
 // --------------------------------------------------------------- επιλογή
@@ -204,6 +218,34 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
     val singleClient = selected.singleOrNull()
     val recipient = rememberRecipient(singleClient)
 
+    var favorites by remember { mutableStateOf(container.settings.favoriteDocuments) }
+    fun toggleFavorite(id: String) {
+        favorites = if (id in favorites) favorites - id else favorites + id
+        container.settings.favoriteDocuments = favorites
+    }
+    fun addPick(item: DocumentCatalog.Item) {
+        // Ένα έντυπο, μία γραμμή. Ο κατάλογος δείχνει ήδη τα επιλεγμένα ως
+        // «ήδη στη λίστα»· ο έλεγχος εδώ πιάνει και τα αγαπημένα, που
+        // προστίθενται με ένα πάτημα χωρίς να ανοίξει ο κατάλογος.
+        if (picks.any { it.itemId == item.id }) return
+        picks.add(
+            Pick(
+                uid = nextUid++,
+                itemId = item.id,
+                years = if (item.needsYear) listOf(defaultYear) else emptyList(),
+                choice = item.choice?.default.orEmpty(),
+            ),
+        )
+    }
+
+    // Τα μητρώα ΚΕΑΟ που έχουν φανεί για τον πελάτη — μόνο όταν ο πελάτης
+    // είναι ένας: οι ΑΜΟ είναι ανά πρόσωπο, και σε παρτίδα δεν σημαίνουν τίποτα.
+    val context = LocalContext.current
+    val knownRegistries by produceState(emptyList<KeaoCard.Registry>(), singleClient?.afm) {
+        val afm = singleClient?.afm.orEmpty()
+        value = withContext(Dispatchers.IO) { KeaoHistory.forClient(context.filesDir, afm) }
+    }
+
     val ready = when (action) {
         Action.FETCH ->
             picks.isNotEmpty() && selected.isNotEmpty() &&
@@ -257,16 +299,20 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                             }
                         }
                     }
-                    DocumentPicker(kind = filterKind) { item ->
-                        picks.add(
-                            Pick(
-                                uid = nextUid++,
-                                itemId = item.id,
-                                years = if (item.needsYear) listOf(defaultYear) else emptyList(),
-                                choice = item.choice?.default.orEmpty(),
-                            ),
-                        )
-                    }
+                    val picked = picks.map { it.itemId }.toSet()
+                    FavoriteChips(
+                        favorites = favorites,
+                        picked = picked,
+                        kind = filterKind,
+                        onPick = ::addPick,
+                    )
+                    DocumentPicker(
+                        kind = filterKind,
+                        picked = picked,
+                        favorites = favorites,
+                        onToggleFavorite = ::toggleFavorite,
+                        onPick = ::addPick,
+                    )
                     Spacer(Modifier.height(8.dp))
 
                     // Οι επιλογές είναι λίγες (τρεις-τέσσερις) και ζουν σε απλή
@@ -276,6 +322,8 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                     picks.toList().forEach { pick ->
                         PickCard(
                             pick = pick,
+                            // null = πολλοί πελάτες: δεν υπάρχει «τα μητρώα του».
+                            registries = if (singleClient != null) knownRegistries else null,
                             onChange = { updated ->
                                 val index = picks.indexOfFirst { it.uid == updated.uid }
                                 if (index >= 0) picks[index] = updated
@@ -589,14 +637,36 @@ private suspend fun buildPlans(
                 val list = pick.years.filter { it.isNotBlank() }
                 val inputs = HashMap(item.inputs)
                 item.choice?.let { inputs[it.key] = pick.choice.ifBlank { it.default } }
-                if (list.isNotEmpty()) inputs["years"] = list.joinToString(",")
+                if (list.isNotEmpty()) inputs["year"] = list.joinToString(",")
+                val label = item.label + if (list.isNotEmpty()) " " + list.joinToString(", ") else ""
+
+                // ΕΝΦΙΑ και Ε9 για τα ίδια έτη: μία σύνδεση, δύο έντυπα.
+                val twin = if (item.mergeInput.isBlank()) -1 else plans.indexOfFirst { plan ->
+                    plan.job.client.id == client.id &&
+                        plan.job.configId == item.configId &&
+                        plan.job.extraInputs["year"] == inputs["year"]
+                }
+                if (twin >= 0) {
+                    val earlier = plans[twin]
+                    val key = item.mergeInput
+                    val joined = (
+                        earlier.job.extraInputs[key].orEmpty().split(',') +
+                            inputs[key].orEmpty().split(',')
+                        ).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(",")
+                    plans[twin] = earlier.copy(
+                        job = earlier.job.copy(extraInputs = earlier.job.extraInputs + (key to joined)),
+                        label = earlier.label + " + " + item.label,
+                    )
+                    continue
+                }
+
                 plans += FetchController.Plan(
                     job = ProcessRunner.Job(
                         client = client,
                         configId = item.configId,
                         extraInputs = inputs,
                     ),
-                    label = item.label + if (list.isNotEmpty()) " " + list.joinToString(", ") else "",
+                    label = label,
                     producesDocuments = item.producesDocuments,
                 )
                 continue
@@ -611,6 +681,11 @@ private suspend fun buildPlans(
                 for (month in months) {
                     val inputs = HashMap(item.inputs)
                     item.choice?.let { inputs[it.key] = pick.choice.ifBlank { it.default } }
+                    // Τα μητρώα είναι ενός συγκεκριμένου πελάτη: σε παρτίδα
+                    // κατεβαίνουν όλα, όπως λέει και η οθόνη.
+                    if (item.pickRegistries && clients.size == 1 && pick.registries.isNotEmpty()) {
+                        inputs[DocumentCatalog.KEAO_REGISTRIES] = pick.registries.joinToString(",")
+                    }
                     if (year.isNotBlank()) inputs["year"] = year
                     if (month.isNotBlank()) inputs["month"] = month
                     plans += FetchController.Plan(
@@ -623,6 +698,7 @@ private suspend fun buildPlans(
                             append(item.label)
                             if (year.isNotBlank()) append(" ").append(year)
                             if (month.isNotBlank()) append("/").append(month)
+                            inputs[DocumentCatalog.KEAO_REGISTRIES]?.let { append(" · ΑΜΟ ").append(it) }
                         },
                         producesDocuments = item.producesDocuments,
                     )
@@ -648,9 +724,18 @@ private suspend fun buildPlans(
  * Με [kind] συμπληρωμένο δείχνει μόνο τα έντυπα που αφορούν αυτό το είδος
  * υπόχρεου. Σε ιδιώτη αυτό βγάζει από τη μέση ΦΠΑ, Ε3, ΦΕΝΠ και τους
  * παρακρατούμενους — έντυπα που δεν έχει, και που η πύλη θα γύριζε άδεια.
+ *
+ * Τα [favorites] ανεβαίνουν σε δική τους ομάδα στην κορυφή, και το αστέρι
+ * δίπλα σε κάθε έντυπο τα αλλάζει. Τα [picked] φαίνονται αλλά δεν ξαναμπαίνουν.
  */
 @Composable
-private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> Unit) {
+private fun DocumentPicker(
+    kind: String = "",
+    picked: Set<String>,
+    favorites: Set<String>,
+    onToggleFavorite: (String) -> Unit,
+    onPick: (DocumentCatalog.Item) -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
@@ -662,15 +747,22 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
     if (!open) return
 
     val needle = query.trim().lowercase()
-    val groups = remember(needle, kind) {
-        DocumentCatalog.GROUPS.map { group ->
-            group to DocumentCatalog.inGroup(group, kind).filter { item ->
-                needle.isBlank() ||
-                    item.label.lowercase().contains(needle) ||
-                    item.group.lowercase().contains(needle) ||
-                    item.note.lowercase().contains(needle)
-            }
-        }.filter { it.second.isNotEmpty() }
+    val groups = remember(needle, kind, favorites) {
+        fun matches(item: DocumentCatalog.Item) =
+            needle.isBlank() ||
+                item.label.lowercase().contains(needle) ||
+                item.group.lowercase().contains(needle) ||
+                item.note.lowercase().contains(needle)
+
+        // Τα αγαπημένα **και** στην ομάδα τους: ο λογιστής που ψάχνει το Ε9 στα
+        // «Ακίνητα» δεν πρέπει να μην το βρίσκει επειδή κάποτε το σημάδεψε.
+        val starred = DocumentCatalog.GROUPS
+            .flatMap { DocumentCatalog.inGroup(it, kind) }
+            .filter { it.id in favorites && matches(it) }
+        val regular = DocumentCatalog.GROUPS.map { group ->
+            group to DocumentCatalog.inGroup(group, kind).filter(::matches)
+        }
+        (listOf(FAVORITES to starred) + regular).filter { it.second.isNotEmpty() }
     }
 
     Spacer(Modifier.height(8.dp))
@@ -691,6 +783,12 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
                 "Κατάλογος εντύπων",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                "Το ☆ δίπλα σε ένα έντυπο το βάζει στα αγαπημένα, για να το βρίσκεις " +
+                    "στην κορυφή και με ένα πάτημα πάνω από τον κατάλογο.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             )
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
@@ -732,43 +830,138 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
                         modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
                     )
                     items.forEach { entry ->
-                        // Κουκκίδα αριστερά κάθε εντύπου: με σημειώσεις δύο
-                        // γραμμών κάτω από τους τίτλους, χωρίς αυτήν δεν φαίνεται
-                        // πού τελειώνει το ένα έντυπο και πού αρχίζει το επόμενο.
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onPick(entry)
-                                    query = ""
-                                    open = false
-                                }
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Text(
-                                "•",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(end = 10.dp),
-                            )
-                            Column(Modifier.weight(1f)) {
-                                Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                                if (entry.note.isNotBlank()) {
-                                    Text(
-                                        entry.note,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            .copy(alpha = 0.8f),
-                                    )
-                                }
-                            }
-                        }
+                        CatalogRow(
+                            entry = entry,
+                            already = entry.id in picked,
+                            favorite = entry.id in favorites,
+                            onToggleFavorite = { onToggleFavorite(entry.id) },
+                            onPick = {
+                                onPick(entry)
+                                query = ""
+                                open = false
+                            },
+                        )
                     }
                 }
             }
         }
     }
     Spacer(Modifier.height(8.dp))
+}
+
+/** Η ψευδο-ομάδα των αγαπημένων· καμία πραγματική ομάδα δεν ξεκινά με αστέρι. */
+private const val FAVORITES = "★ Αγαπημένα"
+
+/**
+ * Μία γραμμή του καταλόγου.
+ *
+ * Κουκκίδα αριστερά κάθε εντύπου: με σημειώσεις δύο γραμμών κάτω από τους
+ * τίτλους, χωρίς αυτήν δεν φαίνεται πού τελειώνει το ένα έντυπο και πού αρχίζει
+ * το επόμενο. Όσα είναι ήδη στη λίστα μένουν ορατά αλλά αχνά, με ✓ — το να
+ * εξαφανίζονται θα έκανε τον χρήστη να τα ψάχνει.
+ */
+@Composable
+private fun CatalogRow(
+    entry: DocumentCatalog.Item,
+    already: Boolean,
+    favorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onPick: () -> Unit,
+) {
+    val dim = if (already) 0.45f else 1f
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !already, onClick = onPick)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (already) "✓" else "•",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(end = 10.dp),
+        )
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Text(
+                entry.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+            )
+            if (already) {
+                Text(
+                    "Ήδη στη λίστα — τα έτη αλλάζουν από τη γραμμή του.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            } else if (entry.note.isNotBlank()) {
+                Text(
+                    entry.note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                )
+            }
+        }
+        IconButton(onClick = onToggleFavorite) {
+            Icon(
+                if (favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                contentDescription = if (favorite) "Αφαίρεση από τα αγαπημένα" else "Προσθήκη στα αγαπημένα",
+                tint = if (favorite) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Τα αγαπημένα ως κουμπιά **πάνω** από τον κατάλογο: ένα πάτημα και το έντυπο
+ * μπαίνει, χωρίς να ανοίξει τίποτα. Αυτό είναι το «γρήγορα» — ο κατάλογος με
+ * αναζήτηση μένει για τα υπόλοιπα.
+ *
+ * Όσα δεν αφορούν τον πελάτη ([kind]) δεν εμφανίζονται, όπως και στον κατάλογο.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FavoriteChips(
+    favorites: Set<String>,
+    picked: Set<String>,
+    kind: String,
+    onPick: (DocumentCatalog.Item) -> Unit,
+) {
+    val items = DocumentCatalog.GROUPS
+        .flatMap { DocumentCatalog.inGroup(it, kind) }
+        .filter { it.id in favorites }
+    if (items.isEmpty()) return
+    Text(
+        "Αγαπημένα",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        for (item in items) {
+            val already = item.id in picked
+            FilterChip(
+                selected = already,
+                enabled = !already,
+                onClick = { onPick(item) },
+                leadingIcon = {
+                    Icon(
+                        if (already) Icons.Filled.Check else Icons.Filled.Star,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
+                label = { Text(item.label, maxLines = 1) },
+            )
+        }
+    }
+    Spacer(Modifier.height(4.dp))
 }
 
 /**
@@ -780,7 +973,13 @@ private fun DocumentPicker(kind: String = "", onPick: (DocumentCatalog.Item) -> 
  * στην πύλη και γυρίζουν κενό αποτέλεσμα χωρίς εξήγηση.
  */
 @Composable
-private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit) {
+private fun PickCard(
+    pick: Pick,
+    /** Τα γνωστά μητρώα του πελάτη· `null` όταν οι πελάτες είναι πολλοί. */
+    registries: List<KeaoCard.Registry>?,
+    onChange: (Pick) -> Unit,
+    onRemove: () -> Unit,
+) {
     val item = DocumentCatalog.byId(pick.itemId) ?: return
     Card(
         Modifier.fillMaxWidth().padding(vertical = 3.dp),
@@ -837,6 +1036,14 @@ private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit)
                     }
                 }
             }
+            if (item.pickRegistries) {
+                Spacer(Modifier.height(6.dp))
+                RegistryPicker(
+                    known = registries,
+                    selected = pick.registries,
+                    onChange = { onChange(pick.copy(registries = it)) },
+                )
+            }
             if (item.needsMonth) {
                 Spacer(Modifier.height(6.dp))
                 MultiPicker(
@@ -852,6 +1059,103 @@ private fun PickCard(pick: Pick, onChange: (Pick) -> Unit, onRemove: () -> Unit)
             }
         }
     }
+}
+
+/**
+ * Ποια μητρώα ΚΕΑΟ θα κατέβουν — όλα, ή όσα τσεκαριστούν.
+ *
+ * Η λίστα έρχεται από τις προηγούμενες λήψεις του πελάτη (βλ. [KeaoHistory]).
+ * Την πρώτη φορά δεν υπάρχει λίστα, οπότε ο λογιστής μπορεί να γράψει ΑΜΟ ή Αρ.
+ * Μητρώου με το χέρι — ή να αφήσει «όλα», που είναι και η προεπιλογή.
+ *
+ * Το φίλτρο εφαρμόζεται **στην πύλη**: ό,τι δεν ζητήθηκε δεν ανοίγει καν, οπότε
+ * ένας πελάτης με πέντε φορείς κατεβαίνει σε κλάσμα του χρόνου όταν ζητηθεί ένας.
+ */
+@Composable
+private fun RegistryPicker(
+    known: List<KeaoCard.Registry>?,
+    selected: List<String>,
+    onChange: (List<String>) -> Unit,
+) {
+    val hint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+    Text("Μητρώα", style = MaterialTheme.typography.bodySmall, color = hint)
+
+    if (known == null) {
+        Text(
+            "Με πολλούς πελάτες κατεβαίνουν όλα τα μητρώα: ο ΑΜΟ είναι του κάθε " +
+                "προσώπου και δεν μεταφέρεται από τον έναν στον άλλον.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        return
+    }
+
+    val knownKeys = known.map { it.key }.toSet()
+    val checked = selected.filter { it in knownKeys }
+    var manual by remember(known) {
+        mutableStateOf(selected.filter { it !in knownKeys }.joinToString(", "))
+    }
+    fun emit(newChecked: List<String>, newManual: String) {
+        onChange((newChecked + DocumentCatalog.registries(newManual)).distinct())
+    }
+
+    Row(
+        Modifier.fillMaxWidth().clickable { manual = ""; onChange(emptyList()) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected.isEmpty(), onClick = { manual = ""; onChange(emptyList()) })
+        Text("Όλα τα μητρώα", style = MaterialTheme.typography.bodySmall)
+    }
+    for (registry in known) {
+        val on = registry.key in checked
+        val toggle = {
+            emit(if (on) checked - registry.key else checked + registry.key, manual)
+        }
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = toggle),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = on, onCheckedChange = { toggle() })
+            Column(Modifier.weight(1f)) {
+                Text(
+                    registry.title.ifBlank { "Φορέας" },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    buildString {
+                        if (registry.amo.isNotBlank()) append("ΑΜΟ ").append(registry.amo)
+                        if (registry.am.isNotBlank()) {
+                            if (isNotEmpty()) append(" · ")
+                            append("ΑΜ ").append(registry.am)
+                        }
+                        if (registry.category.isNotBlank()) append(" · ").append(registry.category)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = hint,
+                )
+            }
+        }
+    }
+    if (known.isEmpty()) {
+        Text(
+            "Τα μητρώα του πελάτη θα εμφανιστούν εδώ μετά την πρώτη λήψη ΚΕΑΟ. " +
+                "Μέχρι τότε μπορείς να γράψεις ΑΜΟ ή Αρ. Μητρώου.",
+            style = MaterialTheme.typography.bodySmall,
+            color = hint,
+        )
+    }
+    OutlinedTextField(
+        value = manual,
+        onValueChange = { raw ->
+            // Μόνο ψηφία και διαχωριστικά: ένα γράμμα εδώ δεν θα ταίριαζε ποτέ,
+            // και η λήψη θα αποτύγχανε με «δεν υπάρχει μητρώο».
+            val clean = raw.filter { it.isDigit() || it == ',' || it == ' ' }
+            manual = clean
+            emit(checked, clean)
+        },
+        label = { Text(if (known.isEmpty()) "ΑΜΟ ή Αρ. Μητρώου (κόμμα)" else "Άλλο μητρώο (ΑΜΟ ή ΑΜ)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 /** Τα έτη που προσφέρονται: το τρέχον και τα δέκα προηγούμενα. */

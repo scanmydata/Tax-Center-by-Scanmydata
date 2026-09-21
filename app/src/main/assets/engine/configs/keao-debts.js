@@ -24,7 +24,8 @@
  *     (μετά από κάθε φορέα, re-GET KeaolandUrl για φρέσκο viewState/postUrl)
  *   Logout(logoutForm «Αποσύνδεση»)
  *
- * INPUTS: TAXISnet user/pass + ΑΦΜ + ΑΜΚΑ (+ legal: Αρ.Μ.Εργοδότη).
+ * INPUTS: TAXISnet user/pass + ΑΦΜ + ΑΜΚΑ (+ legal: Αρ.Μ.Εργοδότη)
+ *         [+ amo: μόνο τα μητρώα με αυτόν τον ΑΜΟ ή Αρ. Μητρώου, κόμμα· κενό = όλα].
  * OUTPUT: KEAO_ofeiles_<afm>.json (πλήρης δομή ανά φορέα, όπως το hyperserver).
  */
 'use strict';
@@ -79,7 +80,16 @@ module.exports = {
     { key: 'afm', label: 'ΑΦΜ', env: 'EFKA_AFM' },
     { key: 'amka', label: 'ΑΜΚΑ (φυσικά πρόσωπα)', env: 'EFKA_AMKA' },
     { key: 'ame', label: 'Αρ.Μ.Εργοδότη (νομικά πρόσωπα — κενό για φυσικά)', env: 'EFKA_AME', optional: true },
+    { key: 'amo', label: 'Μόνο αυτά τα μητρώα: ΑΜΟ ή Αρ. Μητρώου (κόμμα· κενό = όλα)', env: 'KEAO_AMO', optional: true },
   ],
+
+  // Φίλτρο μητρώων: ταιριάζει ΑΜΟ (td 0) ή Αρ. Μητρώου (td 2) της γραμμής φορέα.
+  // Κενή λίστα = όλοι. Κρίνεται ΠΡΙΝ το EnableForea -> ό,τι δεν ζητήθηκε δεν ανοίγει καν.
+  carrierWanted(rowHtml, only, strip) {
+    if (!only || !only.length) return true;
+    const tds = [...String(rowHtml).matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map(c => strip(c[1]));
+    return only.includes((tds[0] || '').trim()) || only.includes((tds[2] || '').trim());
+  },
 
   async run(http, inp, lib) {
     const strip = lib.stripTags;
@@ -109,12 +119,18 @@ module.exports = {
     const result = { portal: this.portal, afm: inp.afm, retrievedAt: new Date().toISOString(), carriers: [] };
     const rowsPerPage = 20;
     let totalPages = 1, totalRows = 0, rowCounter = 0;
+    const only = String(inp.amo || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (only.length) http.log('[keao] μόνο τα μητρώα: ' + only.join(', '));
 
     for (let inStep = 1; inStep <= totalPages; inStep++) {
       let page = await this.carrierPage(http, lib, KeaolandUrl, inStep, rowsPerPage);
       if (inStep === 1) { totalRows = page.totalRows; totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage)); http.log('[keao] φορείς: ' + totalRows + ' σε ' + totalPages + ' σελ.'); }
       for (let cid = 0; cid < page.rows.length; cid++) {
         rowCounter++;
+        if (!this.carrierWanted(page.rows[cid], only, strip)) {
+          http.log('[keao] φορέας ' + rowCounter + '/' + totalRows + ': εκτός επιλογής — παράλειψη');
+          continue;
+        }
         const carrier = await this.getForea(http, lib, page.viewState, page.postUrl, page.rows[cid]);
         http.log('[keao] φορέας ' + rowCounter + '/' + totalRows + ': ' + carrier.CarrierDescr + ' (ΑΜ ' + carrier.CarrierAm + ')');
         result.carriers.push(carrier);
@@ -124,7 +140,11 @@ module.exports = {
     }
 
     await this.logout(http, lib, KeaolandUrl).catch(() => {});
-    const jf = path.join(http.dlDir, 'KEAO_ofeiles_' + inp.afm + '.json');
+    if (only.length && !result.carriers.length) {
+      http.log('[keao] ⚠ κανένα από τα ζητούμενα μητρώα δεν υπάρχει στη λίστα φορέων');
+      return { ok: false, reason: 'NoSuchRegistry' };
+    }
+    const jf =path.join(http.dlDir, 'KEAO_ofeiles_' + inp.afm + '.json');
     fs.writeFileSync(jf, JSON.stringify(result, null, 2));
     http.log('[keao] ✅ ' + result.carriers.length + ' φορείς -> ' + path.basename(jf));
     return { ok: true, files: [path.basename(jf)] };

@@ -13,6 +13,7 @@ import gr.scanmydata.taxcenter.aade.DebtSchedule
 import gr.scanmydata.taxcenter.doc.Fonts
 import gr.scanmydata.taxcenter.doc.PdfFile
 import gr.scanmydata.taxcenter.keao.KeaoCard
+import gr.scanmydata.taxcenter.keao.KeaoHistory
 import gr.scanmydata.taxcenter.ui.AthensDates
 import java.io.File
 
@@ -122,7 +123,7 @@ class ProcessRunner(
             return Outcome(job, false, e.message.orEmpty(), emptyList(), 0)
         }
 
-        val before = existingFiles(outDir)
+        val before = snapshot(outDir)
         val result = host.run(
             configId = job.configId,
             inputs = inputs,
@@ -134,7 +135,7 @@ class ProcessRunner(
         // στέλνονται με τον ίδιο δρόμο που περνά κάθε άλλο PDF, χωρίς δεύτερη
         // διαδρομή που θα έπρεπε να συντηρείται παράλληλα.
         if (result.ok) runCatching { renderReports(job, outDir) }
-        val produced = existingFiles(outDir) - before
+        val produced = written(before, snapshot(outDir))
 
         if (result.ok) {
             recordDocuments(job, outDir, produced)
@@ -230,8 +231,25 @@ class ProcessRunner(
         ).apply { mkdirs() }
     }
 
-    private fun existingFiles(dir: File): Set<String> =
-        dir.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()
+    /** Όνομα -> (χρόνος τροποποίησης, μέγεθος) για κάθε αρχείο του φακέλου. */
+    private fun snapshot(dir: File): Map<String, Pair<Long, Long>> =
+        dir.listFiles()?.filter { it.isFile }?.associate { it.name to (it.lastModified() to it.length()) }
+            ?: emptyMap()
+
+    companion object {
+        /**
+         * Ό,τι **γράφτηκε** σε αυτή την εκτέλεση — νέο αρχείο ή ξαναγραμμένο.
+         *
+         * Η πρώτη έκδοση κρατούσε μόνο τα νέα ονόματα. Η δεύτερη λήψη της ίδιας
+         * καρτέλας ΚΕΑΟ ή του ίδιου εκκαθαριστικού ΕΝΦΙΑ γράφει όμως στο ίδιο
+         * όνομα — και έβγαινε «0 αρχεία», χωρίς αυτόματη αποστολή, με το
+         * φρέσκο έντυπο να κάθεται στον φάκελο.
+         */
+        fun written(
+            before: Map<String, Pair<Long, Long>>,
+            after: Map<String, Pair<Long, Long>>,
+        ): Set<String> = after.filter { (name, stamp) -> before[name] != stamp }.keys
+    }
 
     /**
      * Έντυπα που **δεν** τα δίνει η πύλη — τα συνθέτει η εφαρμογή από ό,τι
@@ -241,7 +259,8 @@ class ProcessRunner(
      *
      *  * **Καρτέλα οφειλέτη ΚΕΑΟ.** Η Ηλεκτρονική Πλατφόρμα Οφειλετών δίνει
      *    οθόνες και όχι εκτύπωση, ενώ αυτό που χρειάζεται ο πελάτης είναι ένα
-     *    χαρτί με το υπόλοιπο και την **Ταυτότητα Οφειλέτη** του κάθε φορέα.
+     *    χαρτί με το υπόλοιπο και την **Ταυτότητα Οφειλέτη** του κάθε φορέα —
+     *    και ένα δοσολόγιο για κάθε ενεργή ρύθμιση.
      *  * **Δοσολόγιο οφειλών ΑΑΔΕ.** Η Ταυτότητα Οφειλής που εκδίδει η ΑΑΔΕ δεν
      *    γράφει τις δόσεις· αυτές φαίνονται μόνο στην οθόνη. Τις προσαρτούμε
      *    στο ίδιο PDF, ώστε ο πελάτης να μη λάβει δύο αρχεία που πρέπει να
@@ -263,6 +282,7 @@ class ProcessRunner(
             ?: return
         val carriers = KeaoCard.parse(source.readText(Charsets.UTF_8))
         if (carriers.isEmpty()) return
+        KeaoHistory.remember(outDir, KeaoCard.registries(carriers))
         val reports = KeaoCard.reports(
             carriers = carriers,
             clientName = job.client.displayName,
@@ -270,6 +290,7 @@ class ProcessRunner(
             office = settings.officeName,
             retrievedAt = AthensDates.stamp(System.currentTimeMillis()),
             scope = job.extraInputs[DocumentCatalog.KEAO_SCOPE] ?: KeaoCard.SCOPE_REGULATED,
+            only = DocumentCatalog.registries(job.extraInputs[DocumentCatalog.KEAO_REGISTRIES].orEmpty()),
         )
         val fonts = Fonts.of(context)
         for (report in reports) PdfFile.write(report, fonts, File(outDir, report.fileName))

@@ -22,7 +22,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `aade-general-forms` | `<κωδικός>_<ΑΦΜ>_<έτος>_<περίοδος>_<id>.pdf` — Φ2, ΦΜΥ… |
  * | `aade-traffic-fees` | `TELH_KYKLOFORIAS_<ΑΦΜ>_<έτος>.pdf` |
  * | `aade-tax-account` | `FOR_LOGARIASMOS_<ΑΦΜ>_<έτος>_<μήνας>.pdf` |
- * | `aade-enfia` | `ENFIA_EKK_…`, `PERIOUSIAKI_…` |
+ * | `aade-enfia-http` | `ENFIA_EKK_<ΑΦΜ>_<έτος>.pdf`, `PERIOUSIAKI_<ΑΦΜ>_<έτος>.pdf` |
  * | `aade-registry` | `STOIXEIA_FYSIKOU_…`, `STOIXEIA_EPIXEIRISIS_[NOMIKO_]…` |
  * | `aade-debts` | `OFEILI_<ΑΦΜ>_<κατηγορία>_<ποσό>.pdf`, `RYTHMISI_<ΑΦΜ>_<έτος>_<αριθμός>.pdf` |
  * | `aade-lease` | `MISTH_<ρόλος>_<αριθμός>_<όνομα>.pdf` |
@@ -31,7 +31,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `efka-teka-certificate` | `VEV_<EFKA\|TEKA>_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-employer-card` | `KARTELA_ERGODOTI_<EFKA\|TEKA>_<χρήστης>[_<έτος>].pdf` |
  * | `efka-obligations` | `KEAO_PBO_<ΑΦΜ>_<αριθμός>.pdf` |
- * | `keao-debts` | `KEAO_KARTELA_<ΑΦΜ>_<ΑΜ φορέα>.pdf` — το φτιάχνει η εφαρμογή |
+ * | `keao-debts` | `KEAO_KARTELA_<ΑΦΜ>_<ΑΜΟ>.pdf`, `KEAO_RYTHMISI_<ΑΦΜ>_<ΑΜΟ>_<απόφαση>.pdf` — τα φτιάχνει η εφαρμογή |
  *
  * Η αντιστοίχιση γίνεται από το πρόθεμα και **όχι** από το `configId`: ένα
  * `aade-income` κρύβει οκτώ διαφορετικά έντυπα και ένα `aade-general-forms`
@@ -89,6 +89,9 @@ object DocumentNaming {
         Entry("DOSEIS", "Ανάλυση δόσεων οφειλής", yearInName = false),
         Entry("KEAO_PBO", "ΚΕΑΟ — πράξη βεβαίωσης οφειλής", yearInName = false),
         Entry("KEAO_KARTELA", "ΚΕΑΟ — καρτέλα οφειλέτη ανά φορέα", yearInName = false),
+        // Πριν από το σκέτο RYTHMISI δεν χρειάζεται: η σειρά κρίνει μόνο όταν
+        // το ένα πρόθεμα είναι αρχή του άλλου, και το KEAO_ δεν είναι.
+        Entry("KEAO_RYTHMISI", "ΚΕΑΟ — δοσολόγιο ρύθμισης", yearInName = false),
 
         // Τα δύο του `aade-eservices`. Το config ήρθε με τον συγχρονισμό του
         // engine και δεν προσφέρεται ακόμη στην οθόνη λήψης — οι ετικέτες όμως

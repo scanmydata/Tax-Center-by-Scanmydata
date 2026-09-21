@@ -170,17 +170,46 @@ class DocumentCatalogTest {
 
     @Test
     fun `μόνο το ETAK μαζεύει πολλά έτη σε μία εκτέλεση`() {
-        // Η ομαδοποίηση ετών δεν είναι βελτιστοποίηση αλλά ανάγκη: το ETAK
-        // μπαίνει με πραγματικό browser και GSIS OAuth, και μία σύνδεση ανά
-        // έτος είναι ο συντομότερος δρόμος για κλείδωμα OAM-6. Οι υπόλοιπες
-        // διαδικασίες δέχονται ένα έτος τη φορά — αν σημανθούν κατά λάθος, θα
-        // τους σταλεί input που δεν καταλαβαίνουν.
+        // Η ομαδοποίηση ετών δεν είναι βελτιστοποίηση αλλά ανάγκη: η ADF
+        // εφαρμογή είναι stateful, και μία σύνδεση GSIS ανά έτος είναι ο
+        // συντομότερος δρόμος για κλείδωμα OAM-6. Οι υπόλοιπες διαδικασίες
+        // δέχονται ένα έτος τη φορά — αν σημανθούν κατά λάθος, θα τους σταλεί
+        // λίστα ετών που δεν καταλαβαίνουν.
         val batched = DocumentCatalog.ALL.filter { it.batchYears }.map { it.id }.sorted()
         assertEquals(listOf("e9", "enfia"), batched)
         for (item in DocumentCatalog.ALL.filter { it.batchYears }) {
-            assertEquals("aade-enfia", item.configId)
+            assertEquals("aade-enfia-http", item.configId)
             assertTrue("το ${item.id} πρέπει να ζητά έτος", item.needsYear)
         }
+    }
+
+    @Test
+    fun `ΕΝΦΙΑ και Ε9 είναι δύο έντυπα της ίδιας σύνδεσης`() {
+        // Το `aade-enfia-http` κατεβάζει ό,τι λέει το `docs`. Ζητημένα μαζί,
+        // ενώνονται σε `EKK,PERIOUSIAKI` και γίνονται μία εκτέλεση.
+        val enfia = DocumentCatalog.byId("enfia")!!
+        val e9 = DocumentCatalog.byId("e9")!!
+        assertEquals("EKK", enfia.inputs["docs"])
+        assertEquals("PERIOUSIAKI", e9.inputs["docs"])
+        assertEquals("docs", enfia.mergeInput)
+        assertEquals("docs", e9.mergeInput)
+        // Χωρίς browser: η διαδικασία δεν πρέπει να περιμένει ορατό WebView.
+        assertEquals(CredentialMap.Login.TAXISNET, CredentialMap.forConfig(enfia.configId)?.login)
+    }
+
+    @Test
+    fun `μόνο η καρτέλα ΚΕΑΟ διαλέγει μητρώα`() {
+        assertEquals(
+            listOf("keao"),
+            DocumentCatalog.ALL.filter { it.pickRegistries }.map { it.id },
+        )
+        // Το κλειδί είναι αυτό που διαβάζει το config (`inp.amo`).
+        assertEquals("amo", DocumentCatalog.KEAO_REGISTRIES)
+        assertEquals(
+            listOf("3143975", "9310464020"),
+            DocumentCatalog.registries(" 3143975, ,9310464020,3143975 "),
+        )
+        assertTrue(DocumentCatalog.registries("").isEmpty())
     }
 
     @Test

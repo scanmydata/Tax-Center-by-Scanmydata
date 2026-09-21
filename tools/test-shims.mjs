@@ -708,6 +708,66 @@ check('οι κρυφοί πίνακες δόσεων διαβάζονται χω
   assert(gen['0'].rows[0][1] === '2', JSON.stringify(gen['0'].rows));
 });
 
+console.log('\nkeao-debts.js — επιλογή μητρώων\n');
+
+/*
+ * Το φίλτρο κρίνεται στη γραμμή της λίστας φορέων, ΠΡΙΝ ανοίξει ο φορέας. Η
+ * γραμμή έχει ΑΜΟ στο πρώτο κελί και Αρ. Μητρώου στο τρίτο — και ο λογιστής
+ * μπορεί να δώσει οποιοδήποτε από τα δύο.
+ */
+const keaoCfg = vm.runInContext(
+  `__preload('keao-debts', ${JSON.stringify(fs.readFileSync(path.join(ASSETS, 'configs', 'keao-debts.js'), 'utf8'))}), require('keao-debts')`,
+  ctx, { filename: 'keao-debts.js' },
+);
+const keaoStrip = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const CARRIER_ROW = '<td role="gridcell"> 3143975 </td><td>Ληξιπρόθεσμο - ΕΦΚΑ</td>' +
+  '<td><span>9310464020</span></td><td>ΕΠΩΝΥΜΙΑ</td><td><button id="amoForm:dt-table:0:b"></button></td>';
+
+check('χωρίς επιλογή μητρώων κατεβαίνουν όλοι οι φορείς', () => {
+  assert(keaoCfg.carrierWanted(CARRIER_ROW, [], keaoStrip) === true, 'κενή λίστα = όλοι');
+});
+
+check('το μητρώο επιλέγεται με ΑΜΟ ή με Αρ. Μητρώου', () => {
+  assert(keaoCfg.carrierWanted(CARRIER_ROW, ['3143975'], keaoStrip), 'ΑΜΟ');
+  assert(keaoCfg.carrierWanted(CARRIER_ROW, ['9310464020'], keaoStrip), 'Αρ. Μητρώου');
+  assert(!keaoCfg.carrierWanted(CARRIER_ROW, ['5546808'], keaoStrip), 'άλλος ΑΜΟ δεν περνά');
+  // Όχι substring: ο ΑΜΟ 314397 δεν είναι ο 3143975.
+  assert(!keaoCfg.carrierWanted(CARRIER_ROW, ['314397'], keaoStrip), 'μέρος αριθμού δεν περνά');
+});
+
+console.log('\naade-enfia-http.js — ETAK χωρίς browser\n');
+
+const enfiaCfg = vm.runInContext(
+  `__preload('aade-enfia-http', ${JSON.stringify(fs.readFileSync(path.join(ASSETS, 'configs', 'aade-enfia-http.js'), 'utf8'))}), require('aade-enfia-http')`,
+  ctx, { filename: 'aade-enfia-http.js' },
+);
+
+check('η φόρμα f1 δίνει _ctrlstate και ViewState', () => {
+  const html = '<form id="f1" name="f1" method="POST" action="/etak/faces/main.jspx?_adf.ctrl-state=abc&amp;x=1">' +
+    '<input type="hidden" name="javax.faces.ViewState" value="!-42"></form>';
+  const vs = enfiaCfg.viewState(html);
+  assert(vs.ctrlstate === '/etak/faces/main.jspx?_adf.ctrl-state=abc&x=1', `ctrlstate: ${vs.ctrlstate}`);
+  assert(vs.viewState === '!-42', `ViewState: ${vs.viewState}`);
+});
+
+check('το έτος βρίσκεται μόνο μέσα στο yearSelect', () => {
+  const html = '<select id="other"><option value="9">2025</option></select>' +
+    '<select id="pt1:yearSelect::content"><option value="0" selected>2026</option>' +
+    '<option value="1">2025</option></select>';
+  const y = enfiaCfg.yearOption(html, '2025');
+  assert(y && y.value === '1' && !y.selected, JSON.stringify(y));
+  assert(enfiaCfg.yearOption(html, '2026').selected, 'το 2026 είναι επιλεγμένο');
+  assert(enfiaCfg.yearOption(html, '2019') === null, 'έτος που λείπει = δεν υπάρχει υποχρέωση');
+});
+
+check('η δήλωση Ε9 αναγνωρίζεται και με ελληνικά σε &#NNN;', () => {
+  // «Αρ. δήλωσης:» όπως το στέλνει το ADF partial-response.
+  const enc = [...'Αρ. δήλωσης:'].map((ch) => (ch.charCodeAt(0) > 127 ? `&#${ch.charCodeAt(0)};` : ch)).join('');
+  const d = enfiaCfg.e9Declaration(`<a href="#">${enc} 1234567/2025</a>`);
+  assert(d.submitted && d.declNum === '1234567/2025', JSON.stringify(d));
+  assert(!enfiaCfg.e9Declaration('<div>τίποτα</div>').submitted, 'χωρίς δήλωση');
+});
+
 
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);
