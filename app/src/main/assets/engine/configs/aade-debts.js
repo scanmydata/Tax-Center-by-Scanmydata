@@ -45,36 +45,70 @@ function parseGeneralInstallments(html, strip) {
 
 /*
  * Το κουμπί «Εκτύπωση» της σελίδας ταυτότητας: ποια φόρμα υποβάλλεται, σε ποιο
- * action και με ποιες τιμές. Και τα τρία είναι γραμμένα στη σελίδα -- doViewPdf()
- * ορίζει την αντιστοίχιση παραμέτρων -> πεδίων, το onclick δίνει τις τιμές, η
- * φόρμα τα hidden. Τα διαβάζουμε αντί να τα μαντέψουμε, γιατί η σελίδα των
- * ρυθμίσεων (ΤΡΟ) χρησιμοποιεί άλλα ονόματα από τη σελίδα των οφειλών (ΤΟ).
+ * action και με ποιες τιμές. Και τα τρία είναι γραμμένα στη σελίδα -- η
+ * συνάρτηση εκτύπωσης ορίζει την αντιστοίχιση παραμέτρων -> πεδίων, το onclick
+ * δίνει τις τιμές, η φόρμα τα hidden. Τα διαβάζουμε αντί να τα μαντέψουμε.
+ *
+ * Το [fn] είναι το όνομα της συνάρτησης, γιατί οι δύο σελίδες δεν το
+ * μοιράζονται (επαληθεύτηκε ζωντανά, 30 Σεπτεμβρίου 2026):
+ *
+ *   ΤΟ  (οφειλές)   doViewPdf(frm, mchDoy, ...)                -> debtInfoPdf.htm
+ *   ΤΡΟ (ρυθμίσεις) doViewArrPdf(frm, arnDoy, arnDept, arnYear, arrAA) -> arrDebtInfoPdf.htm
+ *
+ * Και οι δύο σελίδες έχουν **δύο** φόρμες, με ποσά και χωρίς (`withoutAmounts`).
+ * Κρατάμε αυτήν με τα ποσά: ένα σημείωμα πληρωμής χωρίς ποσό δεν λέει στον
+ * πελάτη πόσο να πληρώσει.
  */
-function printForm(html) {
-  const call = html.match(/doViewPdf\(\s*document\.([A-Za-z0-9_]+)\s*,([^)]*)\)/i);
-  if (!call) return null;
-  const args = call[2].split(',').map(a => a.trim().replace(/^['"]|['"]$/g, ''));
-  const fn = html.match(/function\s+doViewPdf\s*\(([^)]*)\)\s*\{([\s\S]*?)\n\s*\}/i);
-  const params = fn ? fn[1].split(',').map(s => s.trim()) : [];
-  const body = fn ? fn[2] : '';
-  const form = html.match(new RegExp('<form[^>]*name="' + call[1] + '"[^>]*>([\\s\\S]*?)</form>', 'i'));
-  if (!form) return null;
-  const open = form[0].slice(0, form[0].indexOf('>') + 1);
-  const inBody = body.match(/frm\.action\s*=\s*['"]([^'"]+)['"]/);
-  const action = (inBody && inBody[1]) || (open.match(/action="([^"]*)"/i) || [])[1] || '';
-  if (!action) return null;
-  const fields = {};
-  for (const inp of form[1].match(/<input[^>]*>/gi) || []) {
-    const name = (inp.match(/name="([^"]*)"/i) || [])[1];
-    if (name) fields[name] = (inp.match(/value="([^"]*)"/i) || [])[1] || '';
+function printForm(html, fn) {
+  const name = fn || 'doViewPdf';
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const def = html.match(new RegExp('function\\s+' + esc(name) + '\\s*\\(([^)]*)\\)\\s*\\{([\\s\\S]*?)\\n\\s*\\}', 'i'));
+  const params = def ? def[1].split(',').map(s => s.trim()) : [];
+  const body = def ? def[2] : '';
+
+  const build = (formName, rawArgs) => {
+    const args = rawArgs.split(',').map(a => a.trim().replace(/^['"]|['"]$/g, ''));
+    const form = html.match(new RegExp('<form[^>]*name="' + esc(formName) + '"[^>]*>([\\s\\S]*?)</form>', 'i'));
+    if (!form) return null;
+    const open = form[0].slice(0, form[0].indexOf('>') + 1);
+    const inBody = body.match(/frm\.action\s*=\s*['"]([^'"]+)['"]/);
+    const action = (inBody && inBody[1]) || (open.match(/action="([^"]*)"/i) || [])[1] || '';
+    if (!action) return null;
+    const fields = {};
+    for (const inp of form[1].match(/<input[^>]*>/gi) || []) {
+      const field = (inp.match(/name="([^"]*)"/i) || [])[1];
+      if (field) fields[field] = (inp.match(/value="([^"]*)"/i) || [])[1] || '';
+    }
+    for (const m of body.matchAll(/frm\.elements\['([^']+)'\]\.value\s*=\s*([A-Za-z0-9_]+)\s*;/g)) {
+      // params[0] είναι το frm, που ΔΕΝ βρίσκεται στα args: το όνομα της φόρμας
+      // το κατανάλωσε το πρώτο group του regex. Άρα το args[i-1].
+      const i = params.indexOf(m[2]);
+      if (i > 0 && args[i - 1] != null) fields[m[1]] = args[i - 1];
+    }
+    return { action, fields };
+  };
+
+  const found = [];
+  for (const call of html.matchAll(new RegExp(esc(name) + '\\(\\s*document\\.([A-Za-z0-9_]+)\\s*,([^)]*)\\)', 'gi'))) {
+    const pf = build(call[1], call[2]);
+    if (pf) found.push(pf);
   }
-  for (const m of body.matchAll(/frm\.elements\['([^']+)'\]\.value\s*=\s*([A-Za-z0-9_]+)\s*;/g)) {
-    // params[0] είναι το frm, που ΔΕΝ βρίσκεται στα args: το όνομα της φόρμας
-    // το κατανάλωσε το πρώτο group του regex. Άρα το args[i-1].
-    const i = params.indexOf(m[2]);
-    if (i > 0 && args[i - 1] != null) fields[m[1]] = args[i - 1];
-  }
-  return { action, fields };
+  if (!found.length) return null;
+  return found.find(pf => String(pf.fields.withoutAmounts || 'false') !== 'true') || found[0];
+}
+
+/*
+ * Ο κωδικός πληρωμής, από το **κελί δίπλα στην ετικέτα** του.
+ *
+ * Η ΤΡΟ τυπώνεται σε τρεις ομάδες ψηφίων (ΑΦΜ + 9 + 12) και δεν έχει το πρόθεμα
+ * RF των ταυτοτήτων του ΚΕΑΟ. Μια ελεύθερη αναζήτηση αριθμών κουβαλούσε μαζί και
+ * την ετικέτα.
+ */
+function paymentCode(html, strip) {
+  const m = html.match(/<td[^>]*>\s*Ταυτότητα[^<]*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i);
+  const cell = m ? strip(m[1]).trim() : '';
+  if (/\d/.test(cell)) return cell;
+  return (html.match(/RF\d{2}[A-Z0-9]{4,}/) || [])[0] || null;
 }
 
 const BASE = '/taxisnet/info/protected/';
@@ -195,7 +229,7 @@ module.exports = {
             const code = await http.getDoc(new URL(BASE + (d.to.action || 'displayDebtCode.htm') + '?' + q, L.AADE).toString());
             if (code.text) {
               if (idx === 0) http.dump('to_' + p.key + '_sample.html', code.text);
-              d.toCode = (code.text.match(/RF\d{2}[A-Z0-9]{4,}/) || code.text.match(/Ταυτότητα[\s\S]{0,160}?(\d[\d\s]{12,})/) || [])[0] || null;
+              d.toCode = paymentCode(code.text, strip);
             }
             // 2) press «Εκτύπωση» -> POST debtInfoPdf.htm (withoutAmounts=false) -> PDF
             const pdf = await http.postForPdf(new URL(BASE + 'debtInfoPdf.htm', L.AADE).toString(), { ...mch(d), withoutAmounts: 'false' });
@@ -227,6 +261,7 @@ module.exports = {
           const genMap = parseGeneralInstallments(r.text, strip);
           const arrangements = [];
           let header = [];
+          let arrangementColumns = [];
           let sampled = false;
           for (const tr of r.text.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || []) {
             const call = tr.match(/doDisplayPaymentCode\(document\.displayPaymentCodeForm\s*,([\s\S]*?)\)/i);
@@ -235,10 +270,17 @@ module.exports = {
             // «πλατιά» γραμμή πριν από τα δεδομένα. Οι δίστηλες γραμμές της
             // «Γενικής Εικόνας» δεν είναι κεφαλίδα πίνακα.
             if (!call) { if (cells.filter(c => c).length >= 4) header = cells; continue; }
-            const args = [...call[1].matchAll(/"([^"]*)"/g)].map(a => a[1]);
+            // Χωρισμός στο κόμμα και αφαίρεση εισαγωγικών, όπως στο printForm: η
+            // σελίδα των ρυθμίσεων γράφει «"9776"» μέσα σε onclick με μονά
+            // εισαγωγικά, αλλά η σελίδα των οφειλών γράφει σκέτο «9776».
+            const args = call[1].split(',').map(a => a.trim().replace(/^['"]|['"]$/g, ''));
             const to = {}; ARR_ARGS.forEach((k, i) => { to[k] = args[i]; });
             const instIdx = (tr.match(/showInstallmentInfoRadio_(\d+)/) || tr.match(/showTObut_(\d+)/) || [])[1];
             const fields = {}; header.forEach((h, i) => { if (h) fields[h] = cells[i] != null ? cells[i] : ''; });
+            // Οι επικεφαλίδες **των ρυθμίσεων**, όχι η τελευταία πλατιά γραμμή
+            // της σελίδας: μετά τις ρυθμίσεις ακολουθούν οι κρυφοί πίνακες
+            // δόσεων, και το `section.columns` κατέληγε να είναι γραμμή δόσεων.
+            if (!arrangements.length) arrangementColumns = header;
             arrangements.push({ fields, cells, to, instIdx });
           }
 
@@ -257,8 +299,12 @@ module.exports = {
             const code = await http.getDoc(codeUrl);
             if (!code.text) { http.log('[' + p.key + '] ΤΡΟ σελίδα κενή για ρύθμιση ' + a.to.arrAA); continue; }
             if (!sampled) { http.dump('tro_arrangement_sample.html', code.text); sampled = true; }
-            a.troCode = (code.text.match(/RF\d{2}[A-Z0-9]{4,}/) || code.text.match(/Ταυτότητα[\s\S]{0,160}?(\d[\d\s]{12,})/) || [])[0] || null;
-            const pf = printForm(code.text);
+            a.troCode = paymentCode(code.text, strip);
+            // Η σελίδα ΤΡΟ τυπώνει με `doViewArrPdf` -> `arrDebtInfoPdf.htm`, όχι
+            // με το `doViewPdf` των οφειλών. Με το λάθος όνομα δεν βρισκόταν
+            // κουμπί εκτύπωσης και η ρύθμιση έμενε **χωρίς ταυτότητα**, ενώ το
+            // δοσολόγιο έβγαινε κανονικά — το σφάλμα που φάνηκε ζωντανά.
+            const pf = printForm(code.text, 'doViewArrPdf') || printForm(code.text);
             if (!pf) { http.log('[' + p.key + '] δεν βρέθηκε κουμπί εκτύπωσης για ρύθμιση ' + a.to.arrAA); continue; }
             const pdf = await http.postForPdf(new URL(pf.action, codeUrl).toString(), pf.fields);
             if (!pdf) { http.log('[' + p.key + '] ΤΡΟ PDF failed (' + pf.action + ')'); continue; }
@@ -272,7 +318,7 @@ module.exports = {
           // Ίδια ονόματα με τη σελίδα των οφειλών: ο αναγνώστης του JSON
           // (εφαρμογή ή άνθρωπος) δεν έχει λόγο να μάθει δεύτερο λεξιλόγιο.
           section.debts = arrangements.map(a => ({ fields: a.fields, cells: a.cells, to: a.to, installments: a.installments, general: a.general, toCode: a.troCode, toPdf: a.troPdf }));
-          section.columns = header;
+          section.columns = arrangementColumns;
           section.counts = { total: arrangements.length, withInstallments: arrangements.filter(a => a.installments).length };
         }
 

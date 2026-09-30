@@ -684,6 +684,96 @@ check('σελίδα χωρίς κουμπί εκτύπωσης δεν εφευρ
   assert(pf === 'null', `περίμενα null, πήρα ${pf}`);
 });
 
+/*
+ * Η σελίδα **Ταυτότητας Ρυθμισμένης Οφειλής**. Η δομή είναι αυτή της
+ * πραγματικής (επαληθεύτηκε ζωντανά, 30 Σεπτεμβρίου 2026): άλλη συνάρτηση
+ * εκτύπωσης από τη σελίδα των οφειλών, άλλο endpoint, και **δύο** φόρμες — με
+ * ποσά και χωρίς. Τα νούμερα είναι συνθετικά.
+ */
+const TRO_PAGE = `<html><body>
+  <script>
+  function doViewArrPdf(frm, arnDoy, arnDept, arnYear, arrAA) {
+    frm.action = 'arrDebtInfoPdf.htm';
+    frm.target = '_blank';
+    frm.elements['arnDoy'].value = arnDoy;
+    frm.elements['arnDept'].value = arnDept;
+    frm.elements['arnYear'].value = arnYear;
+    frm.elements['arrAA'].value = arrAA;
+    frm.submit();
+  }
+  </script>
+  <table>
+    <tr><td class="wintxtB10nowrap">Τύπος Ρύθμισης</td><td>ΠΑΓΙΑ ΕΩΣ 24 ΔΟΣΕΙΣ</td></tr>
+    <tr><td class="wintxtB10nowrap">Ποσό δόσης της 30/09/2026</td><td>92,78&nbsp;&euro;</td></tr>
+    <tr><td class="wintxtB10nowrap">Ταυτότητα Ρυθμισμένης Οφειλής</td>
+        <td align="left">123456783&nbsp;900000001&nbsp;200000000001</td></tr>
+  </table>
+  <form name="viewArrPdf" method="post" action="arrDebtInfoPdf.htm" target="_blank">
+    <input type="hidden" name="arnDoy" value="" />
+    <input type="hidden" name="arnDept" value="" />
+    <input type="hidden" name="arnYear" value="" />
+    <input type="hidden" name="arrAA" value="" />
+    <input type="hidden" name="withoutAmounts" value="false">
+  </form>
+  <form name="viewNoValuesArrPdf" method="post" action="arrDebtInfoPdf.htm" target="_blank">
+    <input type="hidden" name="arnDoy" value="" />
+    <input type="hidden" name="arnDept" value="" />
+    <input type="hidden" name="arnYear" value="" />
+    <input type="hidden" name="arrAA" value="" />
+    <input type="hidden" name="withoutAmounts" value="true">
+  </form>
+  <input type="button" name="printPayment" value="Εκτύπωση"
+    onclick="doViewArrPdf(document.viewArrPdf, 9776, 1,
+    2026, 9275134);" class="navbtn" />
+  <input type="button" name="printPaymentNoAmnt" value="Εκτύπωση χωρίς Ποσά"
+    onclick="doViewArrPdf(document.viewNoValuesArrPdf, 9776, 1,
+    2026, 9275134);" class="navbtn" />
+  </body></html>`;
+
+check('η ταυτότητα ρύθμισης τυπώνεται με doViewArrPdf, όχι με doViewPdf', () => {
+  // Το πραγματικό σφάλμα, κλειδωμένο: με το όνομα των οφειλών δεν βρίσκεται
+  // κουμπί, και η ρύθμιση έμενε χωρίς ταυτότητα ενώ το δοσολόγιο έβγαινε.
+  const none = vm.runInContext(
+    `JSON.stringify(printForm(${JSON.stringify(TRO_PAGE)}) || null)`, debtsCtx);
+  assert(none === 'null', `το doViewPdf δεν έπρεπε να ταιριάξει: ${none}`);
+
+  const pf = JSON.parse(vm.runInContext(
+    `JSON.stringify(printForm(${JSON.stringify(TRO_PAGE)}, 'doViewArrPdf'))`, debtsCtx));
+  assert(pf, 'δεν βρέθηκε φόρμα εκτύπωσης ΤΡΟ');
+  assert(pf.action === 'arrDebtInfoPdf.htm', `action: ${pf.action}`);
+  assert(pf.fields.arnDoy === '9776', `arnDoy: ${pf.fields.arnDoy}`);
+  assert(pf.fields.arnDept === '1', `arnDept: ${pf.fields.arnDept}`);
+  assert(pf.fields.arnYear === '2026', `arnYear: ${pf.fields.arnYear}`);
+  assert(pf.fields.arrAA === '9275134', `arrAA: ${pf.fields.arrAA}`);
+});
+
+check('από τις δύο φόρμες κρατιέται αυτή ΜΕ τα ποσά', () => {
+  // Η «Εκτύπωση χωρίς Ποσά» δίνει σημείωμα που δεν λέει πόσα να πληρώσει ο
+  // πελάτης. Είναι η δεύτερη φόρμα της σελίδας, οπότε ένα σκέτο «βρες την
+  // πρώτη» δουλεύει σήμερα και σπάει την ημέρα που αλλάξει η σειρά.
+  const pf = JSON.parse(vm.runInContext(
+    `JSON.stringify(printForm(${JSON.stringify(TRO_PAGE)}, 'doViewArrPdf'))`, debtsCtx));
+  assert(pf.fields.withoutAmounts === 'false', `withoutAmounts: ${pf.fields.withoutAmounts}`);
+
+  const flipped = TRO_PAGE
+    .replace('name="viewArrPdf"', 'name="zzzArrPdf"')
+    .replace('document.viewArrPdf', 'document.zzzArrPdf');
+  const both = JSON.parse(vm.runInContext(
+    `JSON.stringify(printForm(${JSON.stringify(flipped)}, 'doViewArrPdf'))`, debtsCtx));
+  assert(both.fields.withoutAmounts === 'false', 'και με άλλο όνομα φόρμας, τα ποσά μένουν');
+});
+
+check('ο κωδικός πληρωμής διαβάζεται από το κελί του, χωρίς την ετικέτα', () => {
+  const code = vm.runInContext(
+    `paymentCode(${JSON.stringify(TRO_PAGE)}, strip)`, debtsCtx);
+  assert(code === '123456783 900000001 200000000001', `code: ${code}`);
+  // Ταυτότητα ΚΕΑΟ (RF…) εξακολουθεί να πιάνεται.
+  const rf = vm.runInContext(
+    `paymentCode('<div>RF09902208120000003143975</div>', strip)`, debtsCtx);
+  assert(rf === 'RF09902208120000003143975', `rf: ${rf}`);
+  assert(vm.runInContext(`paymentCode('<div>τίποτα</div>', strip)`, debtsCtx) === null, 'χωρίς κωδικό -> null');
+});
+
 const ROWS_PAGE = `<html><body>
   <table class="table" id="generalInstallmentInfo_0" style="display:none">
     <tr><td>Αριθμός δόσεων</td><td>2</td></tr>

@@ -226,6 +226,25 @@
     }
   };
 
+  // ---------------------------------------------------------------------- url
+  // Το `URL`/`URLSearchParams` είναι ήδη native στο WebView: εδώ απλώς
+  // σερβίρονται και με τη μορφή που τα ζητά ο Node (`require('url')`).
+  //
+  // Το `pathToFileURL` υπάρχει μόνο για να φορτώνουν modules που το κάνουν
+  // require στην κορυφή τους. Ο μόνος του χρήστης στον runner είναι ένα
+  // dynamic import από το `node_modules` του desktop — που στη συσκευή δεν
+  // υπάρχει. Σκάει με καθαρό μήνυμα αντί να επιστρέψει ψεύτικη διαδρομή.
+  var urlShim = {
+    URL: URL,
+    URLSearchParams: URLSearchParams,
+    pathToFileURL: function () {
+      throw new Error('Το pathToFileURL δεν ισχύει στο κινητό — δεν υπάρχει node_modules στη συσκευή.');
+    },
+    fileURLToPath: function () {
+      throw new Error('Το fileURLToPath δεν ισχύει στο κινητό — δεν υπάρχει τοπικό filesystem του Node.');
+    }
+  };
+
   // ------------------------------------------------------------------ process
   globalThis.process = {
     env: {},
@@ -262,7 +281,7 @@
   // ------------------------------------------------- CommonJS module resolver
   // Τα configs κάνουν require('fs'), require('path'), require('../lib/browser-step'),
   // require('../lib/render-pdf'). Οι δύο τελευταίες σερβίρονται από τα assets.
-  var builtins = { fs: fsShim, path: pathShim, readline: readlineShim };
+  var builtins = { fs: fsShim, path: pathShim, readline: readlineShim, url: urlShim };
   var cache = Object.create(null);
 
   function normaliseId(id) {

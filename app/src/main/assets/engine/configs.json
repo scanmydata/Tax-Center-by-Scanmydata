@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 27,
+  "count": 31,
   "configs": [
     {
       "id": "aade-debts",
@@ -567,6 +567,43 @@
       ]
     },
     {
+      "id": "aade-tekmarto-eke",
+      "file": "aade-tekmarto-eke.js",
+      "owner": "runner",
+      "title": "ΑΑΔΕ: ανάλυση ελάχιστου τεκμαρτού 28Α (E1 Εσωτ. Πίνακες + OCR + calc)",
+      "portal": "AADE E1 webtax/incomefp (GSIS OAM, browser + OCR)",
+      "subsystem": "OnLineTaxClearance / D-DLL fE1Tab6 (28Α)",
+      "actions": [
+        "fetch",
+        "ocr",
+        "calc"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος εισοδημάτων (π.χ. 2025)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
       "id": "aade-traffic-fees",
       "file": "aade-traffic-fees.js",
       "owner": "runner",
@@ -596,6 +633,42 @@
         {
           "key": "year",
           "label": "Έτος (κενό = όλα τα διαθέσιμα)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-vat-f2-amounts",
+      "file": "aade-vat-f2-amounts.js",
+      "owner": "runner",
+      "title": "ΦΠΑ Φ2: κατάσταση υποβολής + ποσά ανά τρίμηνο/μήνα",
+      "portal": "AADE taxisnet (GSIS OAM)",
+      "subsystem": "Hyper.Server (Easy_Aade + declarationState/debtCode)",
+      "actions": [
+        "check",
+        "amounts"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
           "env": "AADE_YEAR",
           "hidden": false,
           "optional": false
@@ -999,6 +1072,34 @@
       ]
     },
     {
+      "id": "gemi-login",
+      "file": "gemi-login.js",
+      "owner": "runner",
+      "title": "ΓΕΜΗ — Login / Αρχική σελίδα (services.businessportal.gr)",
+      "portal": "Γ.Ε.ΜΗ. (services.businessportal.gr)",
+      "subsystem": "Hyper.Server (WebRequestHelper.LoginGemi)",
+      "actions": [
+        "login-check"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "Username Γ.Ε.ΜΗ.",
+          "env": "GEMI_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "Password Γ.Ε.ΜΗ.",
+          "env": "GEMI_PASS",
+          "hidden": true,
+          "optional": false
+        }
+      ]
+    },
+    {
       "id": "keao-debts",
       "file": "keao-debts.js",
       "owner": "runner",
@@ -1049,6 +1150,49 @@
           "key": "amo",
           "label": "Μόνο αυτά τα μητρώα: ΑΜΟ ή Αρ. Μητρώου (κόμμα· κενό = όλα)",
           "env": "KEAO_AMO",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "kmpd-beneficial-owners",
+      "file": "kmpd-beneficial-owners.js",
+      "owner": "runner",
+      "title": "Κεντρικό Μητρώο Πραγματικών Δικαιούχων (ΚΜΠΔ) — δικαιούχοι + βεβαίωση (καθαρό HTTP)",
+      "portal": "GSIS ΚΜΠΔ webapps/dsae/boregistry (καθαρό HTTP, χωρίς browser)",
+      "subsystem": "EpsilonDocs (bMtrPragtknDikxn)",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username (νόμιμου εκπροσώπου για εταιρία)",
+          "env": "KMPD_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "KMPD_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ οντότητας/εταιρίας",
+          "env": "KMPD_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "docs",
+          "label": "Έγγραφα (dikaiouxoi,bebaiosi· κενό=και τα δύο)",
+          "env": "KMPD_DOCS",
           "hidden": false,
           "optional": true
         }

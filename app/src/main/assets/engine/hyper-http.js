@@ -503,21 +503,28 @@ async function keaoEDebtorLogin(http, { user, pass }) {
 }
 
 // ΓΕΜΗ / businessportal login == WebRequestHelper.LoginGemi (decompiled 24080). Κωδικοί Γ.Ε.ΜΗ. (F_GEMH_*).
-//   GET  {host}                              (services.businessportal.gr/)
-//   GET  {host}api/public/getGlobalMessage?lang=el
-//   POST {host}api/welcome/login?lang=el  {username,password} (form) -> session JSON (session.username == user)
-// inputs: {user,pass}. Session cookie lives in the shared jar. Returns {ok, host}.
+// Αντιστοιχεί στο μενού TaxSystem «ΓΕΜΗ - Αρχική σελίδα» (services.businessportal.gr).
+//   GET  {host}                              (services.businessportal.gr/)               (πάρε cookies)
+//   GET  {host}api/public/getGlobalMessage?lang=el                                       (πρέπει 200, αλλιώς PageError)
+//   POST {host}api/welcome/login?lang=el  {username,password} (form)                     (αποτυχία -> InvalidCredentials)
+//   GET  {host}api/authentication/checkSession?lang=el -> session JSON (session.username == user)
+// inputs: {user,pass}. Session cookie ζει στο κοινό jar. Returns {ok, host, session}.
 async function gemiLogin(http, { user, pass }) {
   const host = 'https://services.businessportal.gr/';
   http.log('[gemi-login] GET home + getGlobalMessage');
   await http.follow('GET', host);
-  await http.follow('GET', host + 'api/public/getGlobalMessage?lang=el');
+  const gm = await http.follow('GET', host + 'api/public/getGlobalMessage?lang=el');
+  if (gm.status !== 200) return { ok: false, reason: 'PageError' };
   http.log('[gemi-login] POST api/welcome/login');
   const r = await http.follow('POST', host + 'api/welcome/login?lang=el', { username: user, password: pass });
-  let sess; try { sess = JSON.parse(r.text); } catch (e) { return { ok: false, reason: 'GemiLoginParse' }; }
+  if (r.status >= 400) return { ok: false, reason: 'InvalidCredentials' };
+  // Επαλήθευση μέσω checkSession (== decompiled· η login POST απλώς ανοίγει session cookie).
+  http.log('[gemi-login] GET api/authentication/checkSession');
+  const cs = await http.follow('GET', host + 'api/authentication/checkSession?lang=el');
+  let sess; try { sess = JSON.parse(cs.text); } catch (e) { return { ok: false, reason: 'GemiLoginParse' }; }
   if (!sess || !sess.session || String(sess.session.username || '') !== String(user)) return { ok: false, reason: 'InvalidCredentials' };
   http.log('[gemi-login] OK (' + user + ')');
-  return { ok: true, host };
+  return { ok: true, host, session: sess.session };
 }
 
 // idika EfkaServices login with GSIS OAuth2 == WebRequestHelper.LoginIdikaWithAadeAuth (decompiled ~72743).

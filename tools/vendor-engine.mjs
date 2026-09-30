@@ -4,8 +4,7 @@
  * =============================================================================
  * Αντιγράφει ΑΥΤΟΥΣΙΑ (byte-για-byte) από το `recerse-engineer/runner`:
  *
- *   lib/hyper-http.js             ->  app/src/main/assets/engine/hyper-http.js
- *   lib/easycheck-obligations.js  ->  app/src/main/assets/engine/easycheck-obligations.js
+ *   lib/*.js           ->  app/src/main/assets/engine/   (εκτός των Android-owned)
  *   configs/*.js       ->  app/src/main/assets/engine/configs/
  *
  * ΔΕΝ αντιγράφει τα `lib/browser-step.js` και `lib/render-pdf.js`: αυτά είναι
@@ -68,13 +67,16 @@ function place(relFrom, relTo) {
 }
 
 // ------------------------------------------------------------------- engine
-const rows = [
-  place('lib/hyper-http.js', 'hyper-http.js'),
-  // Η μηχανή του EasyCheck (έλεγχος ολοκλήρωσης υποχρεώσεων ΑΑΔΕ). Καθαρή JS,
-  // χωρίς require· τη φορτώνουν τα `aade-obligations-check` και
-  // `easycheck-status`. Ο host τη βρίσκει με το basename, όπως το hyper-http.
-  place('lib/easycheck-obligations.js', 'easycheck-obligations.js'),
-];
+// **Όλες** οι βιβλιοθήκες του runner, όχι μια χειρόγραφη λίστα: κάθε νέο config
+// φέρνει συχνά και τη βιβλιοθήκη του (`easycheck-obligations`, `aade-vat-http`,
+// `kmpd-http`…), και μια λίστα εδώ θα ξεχνιόταν — το config θα έφτανε στα assets
+// και δεν θα φόρτωνε. Ο host τις βρίσκει με το basename, όπως το hyper-http.
+const libFiles = fs
+  .readdirSync(path.join(RUNNER, 'lib'))
+  .filter((f) => f.endsWith('.js') && !ANDROID_OWNED.has(f))
+  .sort();
+
+const rows = libFiles.map((f) => place(path.join('lib', f), f));
 
 // ------------------------------------------------------------------ configs
 const configFiles = fs
