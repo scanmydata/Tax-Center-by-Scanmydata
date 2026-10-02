@@ -257,6 +257,9 @@ fun AppShell(container: AppContainer) {
                             navController.navigate("$CLIENT_ROUTE/$id/documents")
                         },
                         onOpenFetch = { navController.navigate(Destination.Fetch.route) },
+                        onOpenRequests = { id ->
+                            navController.navigate("$CLIENT_ROUTE/$id/requests")
+                        },
                     )
                 }
                 composable(
@@ -284,6 +287,20 @@ fun AppShell(container: AppContainer) {
                         onDone = { navController.popBackStack() },
                         onFetchFor = { id -> navController.navigate("fetch/$id") },
                         initialTab = 1,
+                    )
+                }
+                // Και στην καρτέλα «Αιτήματα»: εκεί οδηγεί η λίστα πελατών όταν
+                // η παρακολούθηση βρει απάντηση της ΑΑΔΕ.
+                composable(
+                    route = "$CLIENT_ROUTE/{id}/requests",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                ) { entry ->
+                    ClientCardScreen(
+                        container = container,
+                        clientId = entry.arguments?.getLong("id") ?: 0L,
+                        onDone = { navController.popBackStack() },
+                        onFetchFor = { id -> navController.navigate("fetch/$id") },
+                        initialTab = 4,
                     )
                 }
                 composable(Destination.NewClient.route) {

@@ -34,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -70,6 +71,8 @@ fun ClientsScreen(
     onOpenDocuments: (Long) -> Unit = {},
     /** Πού πάει η οθόνη όταν ξεκινήσει μαζική ενημέρωση. */
     onOpenFetch: () -> Unit = {},
+    /** Η καρτέλα «Αιτήματα» ενός πελάτη με απάντηση της ΑΑΔΕ που δεν έχει ανοιχτεί. */
+    onOpenRequests: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var confirmRefresh by remember { mutableStateOf(false) }
@@ -85,6 +88,12 @@ fun ClientsScreen(
 
     var query by remember { mutableStateOf("") }
     val picked = remember { mutableStateListOf<Long>() }
+
+    // Η λίστα των «αδιάβαστων» ζει στις προτιμήσεις, όχι σε ροή: ξαναδιαβάζεται
+    // όταν τελειώσει μια λήψη (και ο χρονοπρογραμματιστής περνά από την ίδια ουρά).
+    val fetchRunning by remember { container.fetch.state }.collectAsState()
+    var freshTick by remember { mutableStateOf(0) }
+    LaunchedEffect(fetchRunning.running) { if (!fetchRunning.running) freshTick++ }
 
     var actionsFor by remember { mutableStateOf<ClientEntity?>(null) }
     var sendDetailsFor by remember { mutableStateOf<ClientEntity?>(null) }
@@ -154,6 +163,42 @@ fun ClientsScreen(
         if (status.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
             Text(status, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        // Απαντήσεις της ΑΑΔΕ που δεν έχει ανοίξει κανείς. Η ειδοποίηση του
+        // Android γράφει μόνο πλήθη· το **ποιοι** φαίνεται εδώ, πίσω από το
+        // κλείδωμα της εφαρμογής, και με ένα πάτημα ανοίγει η απάντηση.
+        val answered = remember(clients, freshTick) {
+            val ids = container.settings.requestWatchFresh
+            if (ids.isEmpty()) emptyList() else clients.filter { it.id in ids }
+        }
+        if (answered.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        if (answered.size == 1) "Νέα απάντηση της ΑΑΔΕ σε αίτημα"
+                        else "Νέες απαντήσεις της ΑΑΔΕ σε αιτήματα — ${answered.size} πελάτες",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    answered.take(8).forEach { client ->
+                        TextButton(onClick = { onOpenRequests(client.id) }) {
+                            Text(client.displayName + " — άνοιγμα")
+                        }
+                    }
+                    if (answered.size > 8) {
+                        Text(
+                            "και άλλοι ${answered.size - 8}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(8.dp))

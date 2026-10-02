@@ -6,6 +6,7 @@ import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ClientRepository
 import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
+import gr.scanmydata.taxcenter.debts.Debts
 import gr.scanmydata.taxcenter.debts.DebtsStore
 import gr.scanmydata.taxcenter.mail.MailService
 import kotlinx.coroutines.CoroutineScope
@@ -464,12 +465,12 @@ class FetchController(
      */
     private suspend fun unprintedDebts(job: ProcessRunner.Job): FetchOutcome.Explained? {
         val source = when (job.configId) {
-            DebtsStore.CONFIG_AADE -> "ΑΑΔΕ"
-            DebtsStore.CONFIG_KEAO -> "ΚΕΑΟ"
+            DebtsStore.CONFIG_AADE -> Debts.Source.AADE
+            DebtsStore.CONFIG_KEAO -> Debts.Source.KEAO
             else -> return null
         }
         val found = withContext(Dispatchers.IO) {
-            DebtsStore.load(context.filesDir, job.client.afm).lines.count { it.group.source == source }
+            DebtsStore.load(context.filesDir, job.client.afm).inSource(source).size
         }
         if (found == 0) return null
         return FetchOutcome.Explained(

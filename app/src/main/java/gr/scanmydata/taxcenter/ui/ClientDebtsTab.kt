@@ -77,6 +77,14 @@ import java.time.LocalDate
  *
  * Η οθόνη δείχνει πάντα **πότε** ήταν η τελευταία ενημέρωση: ένα ποσό οφειλής
  * χωρίς ημερομηνία είναι χειρότερο από κανένα ποσό.
+ *
+ * ## ΑΑΔΕ και ΚΕΑΟ, χωριστά
+ *
+ * Οι δύο πύλες έχουν δική τους όψη, με δικό της σύνολο, δική της ώρα και δική
+ * της ενημέρωση. Ήταν μία λίστα με τέσσερις ομάδες, και ο πελάτης που ρωτούσε
+ * «τι χρωστάω στην εφορία» έπαιρνε απάντηση ανακατεμένη με τον ΕΦΚΑ. Η επιλογή
+ * οφειλών για μήνυμα **διασχίζει** τις δύο όψεις: ένα μήνυμα μπορεί να έχει
+ * και τα δύο.
  */
 @Composable
 internal fun ClientDebtsTab(
@@ -99,6 +107,7 @@ internal fun ClientDebtsTab(
     var refreshing by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     val picked = remember(client.id) { mutableStateListOf<String>() }
+    var source by remember(client.id) { mutableStateOf(Debts.Source.AADE) }
     var composing by remember { mutableStateOf(false) }
     var watched by remember(client.id) { mutableStateOf(client.id in settings.debtWatchClients) }
     val today = remember { LocalDate.now(AthensDates.ZONE) }
@@ -116,34 +125,62 @@ internal fun ClientDebtsTab(
     val busy = refreshing || fetchState.running
     val frequency = DebtWatch.Frequency.of(settings.debtWatchFrequency)
 
+    // `null` = και οι δύο πύλες.
+    fun refresh(only: Debts.Source?) {
+        scope.launch {
+            refreshing = true
+            status = if (only == null) "Σύνδεση στις πύλες…" else "Σύνδεση: ${only.label}…"
+            try {
+                val plans = withContext(Dispatchers.IO) {
+                    DebtsRefresh.plans(container.repository, client, only)
+                }
+                val items = DebtsRefresh.run(container.fetch, plans)
+                status = DebtsRefresh.describe(items, only).ifBlank {
+                    if (only == null) "Ενημερώθηκαν ΑΑΔΕ και ΚΕΑΟ." else "Ενημερώθηκε: ${only.label}."
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status = "Απέτυχε: ${e.message}"
+            } finally {
+                refreshing = false
+                reload++
+            }
+        }
+    }
+
     Column(Modifier.padding(horizontal = 16.dp)) {
+        // Έξω από τη λίστα: η πύλη που βλέπεις μένει στην οθόνη όσο κυλάς.
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Debts.Source.entries.forEach { option ->
+                val known = snapshot?.at(option) ?: 0L
+                FilterChip(
+                    selected = option == source,
+                    onClick = { source = option },
+                    label = {
+                        Text(
+                            // Χωρίς λήψη δεν γράφεται ποσό: το «0,00 €» θα ήταν ψέμα.
+                            if (known == 0L) option.label
+                            else option.label + " · " + snapshot?.total(option).orEmpty() + " €",
+                        )
+                    },
+                )
+            }
+        }
+
         LazyColumn(Modifier.weight(1f)) {
             item {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
                 SummaryCard(
                     snapshot = snapshot,
+                    source = source,
                     busy = busy,
                     status = status,
-                    onRefresh = {
-                        scope.launch {
-                            refreshing = true
-                            status = "Σύνδεση στις πύλες…"
-                            try {
-                                val plans = withContext(Dispatchers.IO) {
-                                    DebtsRefresh.plans(container.repository, client)
-                                }
-                                val items = DebtsRefresh.run(container.fetch, plans)
-                                status = DebtsRefresh.describe(items).ifBlank { "Ενημερώθηκε." }
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                status = "Απέτυχε: ${e.message}"
-                            } finally {
-                                refreshing = false
-                                reload++
-                            }
-                        }
-                    },
+                    onRefresh = { refresh(source) },
+                    onRefreshAll = { refresh(null) },
                     onFetch = onFetch,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -179,20 +216,21 @@ internal fun ClientDebtsTab(
             }
 
             val current = snapshot
-            if (current != null && current.keaoPartial.isNotEmpty()) {
+            if (current != null && source == Debts.Source.KEAO && current.keaoPartial.isNotEmpty()) {
                 item {
                     Text(
                         "Η τελευταία λήψη ΚΕΑΟ έγινε μόνο για τα μητρώα " +
                             current.keaoPartial.joinToString(", ") + ". Οι υπόλοιποι φορείς " +
-                            "δεν φαίνονται εδώ — πάτα «Ενημέρωση τώρα» για πλήρη εικόνα.",
+                            "δεν φαίνονται εδώ — πάτα «Ενημέρωση ΚΕΑΟ» για πλήρη εικόνα.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
             }
-            if (current != null && !current.empty) {
+            if (current != null && current.inSource(source).isNotEmpty()) {
                 for (group in Debts.Group.entries) {
+                    if (group.source != source) continue
                     val lines = current.inGroup(group)
                     if (lines.isEmpty()) continue
                     item {
@@ -201,7 +239,7 @@ internal fun ClientDebtsTab(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                group.label,
+                                group.short,
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.weight(1f),
@@ -230,7 +268,9 @@ internal fun ClientDebtsTab(
                 }
                 item {
                     Text(
-                        "Πάτησε μία ή περισσότερες οφειλές για να στείλεις μήνυμα στον πελάτη.",
+                        "Πάτησε μία ή περισσότερες οφειλές για να στείλεις μήνυμα στον πελάτη. " +
+                            "Η επιλογή μένει όταν αλλάζεις πύλη, οπότε ένα μήνυμα μπορεί να " +
+                            "έχει οφειλές και από τις δύο.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         modifier = Modifier.padding(top = 6.dp),
@@ -272,7 +312,7 @@ internal fun ClientDebtsTab(
 }
 
 /**
- * Η σύνοψη στην κορυφή: πόσα, από ποια πύλη, και **πότε** διαβάστηκαν.
+ * Η σύνοψη της πύλης που βλέπεις: πόσα, και **πότε** διαβάστηκαν.
  *
  * Η ώρα ενημέρωσης δεν είναι λεπτομέρεια: οι οφειλές αλλάζουν με κάθε καταβολή
  * και με τις προσαυξήσεις, και ένα ποσό τριών εβδομάδων δεν πρέπει να
@@ -281,9 +321,11 @@ internal fun ClientDebtsTab(
 @Composable
 private fun SummaryCard(
     snapshot: Debts.Snapshot?,
+    source: Debts.Source,
     busy: Boolean,
     status: String,
     onRefresh: () -> Unit,
+    onRefreshAll: () -> Unit,
     onFetch: () -> Unit,
 ) {
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
@@ -295,13 +337,20 @@ private fun SummaryCard(
             when {
                 snapshot == null -> Text("Φόρτωση…", style = MaterialTheme.typography.bodyMedium)
 
-                snapshot.aadeAt == 0L && snapshot.keaoAt == 0L -> Text(
-                    "Δεν έχουν ληφθεί ακόμη οφειλές για αυτόν τον πελάτη. Πάτα «Ενημέρωση " +
-                        "τώρα» για να διαβαστούν από την ΑΑΔΕ και το ΚΕΑΟ.",
+                snapshot.at(source) == 0L -> Text(
+                    when (source) {
+                        Debts.Source.AADE ->
+                            "Δεν έχουν διαβαστεί ακόμη οφειλές από την ΑΑΔΕ για αυτόν τον " +
+                                "πελάτη. Πάτα «Ενημέρωση ΑΑΔΕ»."
+                        Debts.Source.KEAO ->
+                            "Δεν έχουν διαβαστεί ακόμη οφειλές από το ΚΕΑΟ για αυτόν τον " +
+                                "πελάτη. Πάτα «Ενημέρωση ΚΕΑΟ» — θέλει ΑΜΚΑ στην καρτέλα, " +
+                                "άρα γίνεται μόνο για φυσικά πρόσωπα."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
-                else -> {
+                source == Debts.Source.AADE -> {
                     SourceSummary(
                         name = "ΑΑΔΕ",
                         at = snapshot.aadeAt,
@@ -320,7 +369,9 @@ private fun SummaryCard(
                             if (open.isEmpty() && arranged.isEmpty()) add("Καμία οφειλή.")
                         },
                     )
-                    Spacer(Modifier.height(8.dp))
+                }
+
+                else -> {
                     SourceSummary(
                         name = "ΚΕΑΟ",
                         at = snapshot.keaoAt,
@@ -341,9 +392,12 @@ private fun SummaryCard(
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(enabled = !busy, onClick = onRefresh) {
-                    Text(if (busy) "Ενημέρωση…" else "Ενημέρωση τώρα")
+                    Text(if (busy) "Ενημέρωση…" else "Ενημέρωση " + source.label)
                 }
                 OutlinedButton(onClick = onFetch) { Text("Λήψη εντύπων") }
+            }
+            TextButton(enabled = !busy, onClick = onRefreshAll) {
+                Text("Ενημέρωση και των δύο (ΑΑΔΕ και ΚΕΑΟ)")
             }
             Text(
                 "Η ενημέρωση διαβάζει ποσά, δόσεις και ταυτότητες — χωρίς να κατεβάσει PDF. " +

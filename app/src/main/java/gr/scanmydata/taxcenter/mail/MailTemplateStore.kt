@@ -39,6 +39,7 @@ class MailTemplateStore(context: Context) {
     /** Τα δυναμικά πεδία του μηνύματος με τα έντυπα. */
     enum class DocumentField(val key: String, val label: String) {
         FILE_LIST("file_list", "Λίστα ονομάτων αρχείων"),
+        DEBT_DETAILS("debt_details", "Στοιχεία κάθε οφειλής: υπόλοιπο, δόση και λήξη, ταυτότητα πληρωμής"),
         COUNT("count", "Πλήθος εντύπων στο θέμα"),
         AFM_IN_SUBJECT("afm_subject", "ΑΦΜ στο θέμα"),
         NOTE("note", "Σημείωμα της αποστολής"),
@@ -133,11 +134,19 @@ class MailTemplateStore(context: Context) {
         return try {
             val json = JSONObject(raw)
             val array = json.optJSONArray("fields") ?: JSONArray()
+            val stored = (0 until array.length()).map { array.getString(it) }.toSet()
+            // Πεδία που **δεν υπήρχαν** όταν αποθηκεύτηκε το πρότυπο παίρνουν την
+            // προεπιλογή τους. Αλλιώς κάθε νέος διακόπτης θα ήταν κλειστός για
+            // όποιον είχε πειράξει έστω μία λέξη του κειμένου — και δεν θα το
+            // μάθαινε ποτέ, γιατί τίποτα δεν θα έμοιαζε χαλασμένο.
+            val known = json.optJSONArray("known")
+                ?.let { k -> (0 until k.length()).map { k.getString(it) }.toSet() }
+                ?: (ALL_KEYS - ADDED_LATER)
             Template(
                 subject = json.optString("subject", fallback.subject),
                 intro = json.optString("intro", fallback.intro),
                 closing = json.optString("closing", fallback.closing),
-                fields = (0 until array.length()).map { array.getString(it) }.toSet(),
+                fields = stored + (fallback.fields - known),
             )
         } catch (e: Exception) {
             // Χαλασμένη ρύθμιση δεν πρέπει να μπλοκάρει την αποστολή· γυρνάμε
@@ -152,6 +161,8 @@ class MailTemplateStore(context: Context) {
             .put("intro", template.intro)
             .put("closing", template.closing)
             .put("fields", JSONArray().apply { template.fields.forEach { put(it) } })
+            // Ποια πεδία υπήρχαν τη στιγμή της αποθήκευσης — βλ. το [read].
+            .put("known", JSONArray().apply { ALL_KEYS.forEach { put(it) } })
         prefs.edit().putString(key, json.toString()).apply()
     }
 
@@ -161,6 +172,19 @@ class MailTemplateStore(context: Context) {
         private const val KEY_VIBER = "template_viber"
         private const val KEY_VIBER_OWN = "template_viber_own"
         private const val KEY_DEBT = "template_debt"
+
+        /** Κάθε διακόπτης που ξέρει αυτή η έκδοση. */
+        private val ALL_KEYS: Set<String> =
+            CredentialField.entries.map { it.key }.toSet() +
+                DocumentField.entries.map { it.key } +
+                DebtField.entries.map { it.key }
+
+        /**
+         * Διακόπτες που προστέθηκαν **αφού** κυκλοφόρησε η εφαρμογή, πριν
+         * αρχίσει να γράφεται το `known`. Ένα πρότυπο χωρίς `known` είναι
+         * παλαιότερο από αυτούς.
+         */
+        private val ADDED_LATER: Set<String> = setOf(DocumentField.DEBT_DETAILS.key)
 
         /** Διαθέσιμα placeholders, για την οθόνη επεξεργασίας. */
         const val PLACEHOLDER_NAME = "{{επωνυμία}}"
@@ -186,6 +210,7 @@ class MailTemplateStore(context: Context) {
             closing = "Είμαστε στη διάθεσή σας για οποιαδήποτε διευκρίνιση.",
             fields = setOf(
                 DocumentField.FILE_LIST.key,
+                DocumentField.DEBT_DETAILS.key,
                 DocumentField.COUNT.key,
                 DocumentField.AFM_IN_SUBJECT.key,
                 DocumentField.NOTE.key,
@@ -226,6 +251,7 @@ class MailTemplateStore(context: Context) {
             closing = "Στη διάθεσή σας για οποιαδήποτε διευκρίνιση.",
             fields = setOf(
                 DocumentField.FILE_LIST.key,
+                DocumentField.DEBT_DETAILS.key,
                 DocumentField.COUNT.key,
                 DocumentField.NOTE.key,
             ),

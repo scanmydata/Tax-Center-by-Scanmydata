@@ -272,7 +272,62 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_DEBT_WATCH_LAST_SUMMARY, "").orEmpty()
         set(v) = prefs.edit().putString(KEY_DEBT_WATCH_LAST_SUMMARY, v).apply()
 
+    // ------------------------------------- παρακολούθηση αιτημάτων ΑΑΔΕ
+
+    /**
+     * Καθημερινός έλεγχος για απαντήσεις στα «Αιτήματά μου» της ΑΑΔΕ.
+     * **Κλειστό εξ ορισμού**, για τον ίδιο λόγο με τις οφειλές: είναι σύνδεση
+     * στο TAXISnet με κωδικούς πελάτη, χωρίς άνθρωπο μπροστά.
+     */
+    var requestWatchDaily: Boolean
+        get() = prefs.getBoolean(KEY_REQUEST_WATCH_DAILY, false)
+        set(v) = prefs.edit().putBoolean(KEY_REQUEST_WATCH_DAILY, v).apply()
+
+    /**
+     * Ώρα Αθηνών. Μία ώρα μετά τις οφειλές εξ ορισμού: οι δύο εργασίες
+     * μοιράζονται την ίδια ουρά, και όποια βρει την άλλη να τρέχει περιμένει.
+     */
+    var requestWatchHour: Int
+        get() = prefs.getInt(KEY_REQUEST_WATCH_HOUR, 9).coerceIn(0, 23)
+        set(v) = prefs.edit().putInt(KEY_REQUEST_WATCH_HOUR, v.coerceIn(0, 23)).apply()
+
+    /** Ποιοι πελάτες παρακολουθούνται, ως `id` της βάσης — βλ. [debtWatchClients]. */
+    var requestWatchClients: Set<Long>
+        get() = longs(KEY_REQUEST_WATCH_CLIENTS)
+        set(v) = putLongs(KEY_REQUEST_WATCH_CLIENTS, v)
+
+    /**
+     * Πελάτες με απάντηση που δεν έχει ανοίξει ακόμη κανείς.
+     *
+     * Από εδώ ξέρει η λίστα πελατών ποιους να δείξει μετά την ειδοποίηση. Και
+     * εδώ μόνο `id`: η ίδια η ειδοποίηση του Android δεν γράφει ονόματα.
+     */
+    var requestWatchFresh: Set<Long>
+        get() = longs(KEY_REQUEST_WATCH_FRESH)
+        set(v) = putLongs(KEY_REQUEST_WATCH_FRESH, v)
+
+    var requestWatchLastRun: Long
+        get() = prefs.getLong(KEY_REQUEST_WATCH_LAST_RUN, 0L)
+        set(v) = prefs.edit().putLong(KEY_REQUEST_WATCH_LAST_RUN, v).apply()
+
+    /** Πλήθη μόνο, ποτέ ονόματα πελατών. */
+    var requestWatchLastSummary: String
+        get() = prefs.getString(KEY_REQUEST_WATCH_LAST_SUMMARY, "").orEmpty()
+        set(v) = prefs.edit().putString(KEY_REQUEST_WATCH_LAST_SUMMARY, v).apply()
+
+    private fun longs(key: String): Set<Long> =
+        prefs.getStringSet(key, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+
+    private fun putLongs(key: String, value: Set<Long>) =
+        prefs.edit().putStringSet(key, value.map { it.toString() }.toHashSet()).apply()
+
     private companion object {
+        const val KEY_REQUEST_WATCH_DAILY = "request_watch_daily"
+        const val KEY_REQUEST_WATCH_HOUR = "request_watch_hour"
+        const val KEY_REQUEST_WATCH_CLIENTS = "request_watch_clients"
+        const val KEY_REQUEST_WATCH_FRESH = "request_watch_fresh"
+        const val KEY_REQUEST_WATCH_LAST_RUN = "request_watch_last_run"
+        const val KEY_REQUEST_WATCH_LAST_SUMMARY = "request_watch_last_summary"
         const val KEY_DEBT_WATCH_FREQUENCY = "debt_watch_frequency"
         const val KEY_DEBT_WATCH_HOUR = "debt_watch_hour"
         const val KEY_DEBT_WATCH_CLIENTS = "debt_watch_clients"

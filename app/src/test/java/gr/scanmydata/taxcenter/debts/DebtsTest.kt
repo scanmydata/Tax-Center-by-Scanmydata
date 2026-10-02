@@ -80,6 +80,7 @@ class DebtsTest {
                 "Α/Α": "500001", "Ημ/νία Ρύθμισης": "23/07/2026",
                 "Συνολικό Ρυθμιζόμενο Ποσό": "1.113,37 €", "Συνολικό Υπόλοιπο": "835,03 €"
               },
+              "to": { "returnView": "displayArrangementInfo.htm", "arnDoy": "1101", "arnDept": "1", "arnYear": "2026", "arrAA": "7000001" },
               "toCode": "123456783 900000003 200000000003",
               "installments": {
                 "headers": ["Α/Α δόσης", "Ημ/νία λήξης δόσης", "Υπόλοιπο Ποσό Δόσης",
@@ -240,6 +241,52 @@ class DebtsTest {
         assertEquals("835,03", snapshot.total(Debts.Group.AADE_ARRANGED))
         assertEquals("1.042,05", snapshot.aadeOverdue)
         assertEquals("3.000,00", snapshot.total(Debts.Group.KEAO_CARRIER))
+    }
+
+    /**
+     * ΑΑΔΕ και ΚΕΑΟ είναι άλλος πιστωτής: χωριστό σύνολο, χωριστή όψη.
+     *
+     * Στο ΚΕΑΟ το σύνολο είναι **μόνο** τα υπόλοιπα των φορέων — οι ρυθμίσεις
+     * είναι μέρος τους, και το άθροισμα και των δύο θα έδειχνε τη ρυθμισμένη
+     * οφειλή δύο φορές.
+     */
+    @Test
+    fun `οι οφειλές χωρίζονται ανά πύλη, με δικό τους σύνολο`() {
+        val snapshot = Debts.Snapshot(lines = lines(), aadeAt = 10L, keaoAt = 20L)
+        assertEquals(4, snapshot.inSource(Debts.Source.AADE).size)
+        assertEquals(2, snapshot.inSource(Debts.Source.KEAO).size)
+        assertEquals("3.614,93", snapshot.total(Debts.Source.AADE))
+        assertEquals("3.000,00", snapshot.total(Debts.Source.KEAO))
+        assertEquals(10L, snapshot.at(Debts.Source.AADE))
+        assertEquals(20L, snapshot.at(Debts.Source.KEAO))
+        assertTrue(Debts.Group.entries.all { it.label.startsWith(it.source.label) })
+    }
+
+    /**
+     * Με αυτά τα ονόματα το email βρίσκει ποια οφειλή είναι κάθε συνημμένο.
+     * Πρέπει να βγαίνουν **όπως τα γράφει το config** — και όταν το JSON δεν
+     * έχει `toPdf`, δηλαδή μετά από ενημέρωση καρτέλας χωρίς έντυπα.
+     */
+    @Test
+    fun `κάθε οφειλή ξέρει πώς λέγεται το έντυπό της`() {
+        val all = lines()
+        assertTrue(all[0].files.toString(), "OFEILI_123456783_ΔΗΛ.ΦΟΡΟΥ_ΕΙΣΟΔ._Ν.Π._1.973,32.pdf" in all[0].files)
+        assertTrue(all[3].files.toString(), "RYTHMISI_123456783_2026_7000001.pdf" in all[3].files)
+        assertEquals(listOf("KEAO_KARTELA_123456783_1000001.pdf"), all[4].files)
+        assertEquals(listOf("KEAO_RYTHMISI_123456783_1000001_500001.pdf"), all[5].files)
+
+        // Το όνομα που έγραψε το ίδιο το config προηγείται, όταν υπάρχει.
+        val named = Debts.aade(aade.replace("\"toCode\": null", "\"toCode\": null, \"toPdf\": \"OFEILI_x.pdf\""))
+        assertEquals("OFEILI_x.pdf", named[2].files.first())
+    }
+
+    /** Το `san` του `aade-debts.js`: κενά και «€» σε `_`, η κάθετος φεύγει. */
+    @Test
+    fun `το όνομα αρχείου χτίζεται όπως στο config`() {
+        assertEquals("ΕΝ.Φ.Ι.Α._Ν.42232013", Debts.san("ΕΝ.Φ.Ι.Α. Ν.4223/2013"))
+        assertEquals("211,10", Debts.san("211,10 €"))
+        assertEquals("ΧΡΕΩΣΤΙΚΕΣ_ΔΗΛΩΣΕΙΣ_ΦΠΑ", Debts.san("  ΧΡΕΩΣΤΙΚΕΣ   ΔΗΛΩΣΕΙΣ ΦΠΑ "))
+        assertEquals(70, Debts.san("Α".repeat(90)).length)
     }
 
     @Test

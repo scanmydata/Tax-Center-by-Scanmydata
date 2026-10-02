@@ -22,6 +22,21 @@ object MailTemplates {
 
     data class Body(val subject: String, val text: String, val html: String)
 
+    /**
+     * Ένα συνημμένο, όπως γράφεται στο μήνυμα.
+     *
+     * @param title η γραμμή που το ονομάζει
+     * @param details γραμμές κάτω από τον τίτλο — για τις οφειλές: υπόλοιπο,
+     *   δόση, λήξη, ταυτότητα πληρωμής
+     * @param group επικεφαλίδα κάτω από την οποία μπαίνει· κενό = καμία. Τα
+     *   στοιχεία της ίδιας ομάδας πρέπει να έρχονται συνεχόμενα.
+     */
+    data class Item(
+        val title: String,
+        val details: List<String> = emptyList(),
+        val group: String = "",
+    )
+
     private fun esc(s: String) =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -140,33 +155,51 @@ object MailTemplates {
         return Body(subject, text, html)
     }
 
-    /** Συνοδευτικό κείμενο για φορολογικά έντυπα. */
+    /**
+     * Συνοδευτικό κείμενο για φορολογικά έντυπα.
+     *
+     * Η λίστα χωρίζεται σε ομάδες όπου τα [items] δηλώνουν ομάδα (σήμερα: οι
+     * οφειλές ανά πύλη — βλ. [DocumentLines]). Χωρίς ομάδες βγαίνει η απλή
+     * λίστα, όπως πάντα.
+     */
     fun documents(
         client: ClientEntity,
-        fileNames: List<String>,
+        items: List<Item>,
         note: String,
         officeName: String,
         signature: String,
         template: Template = MailTemplateStore.DEFAULT_DOCUMENTS,
     ): Body {
-        var subject = fill(template.subject, client, fileNames.size)
+        var subject = fill(template.subject, client, items.size)
         if (!template.has(DocumentField.AFM_IN_SUBJECT)) {
             subject = subject.replace(client.afm, "").trim().trimEnd('—', '-', '·', ' ')
         }
         if (!template.has(DocumentField.COUNT)) {
-            subject = subject.replace("(${fileNames.size})", "").replace("  ", " ").trim()
+            subject = subject.replace("(${items.size})", "").replace("  ", " ").trim()
         }
 
-        val intro = fill(template.intro, client, fileNames.size)
-        val closing = fill(template.closing, client, fileNames.size)
+        val intro = fill(template.intro, client, items.size)
+        val closing = fill(template.closing, client, items.size)
         val showList = template.has(DocumentField.FILE_LIST)
         val showNote = template.has(DocumentField.NOTE) && note.isNotBlank()
 
         val text = buildString {
             append(intro).append("\n\n")
             if (showList) {
-                fileNames.forEach { append("  • $it\n") }
-                append("\n")
+                var group = ""
+                items.forEachIndexed { index, item ->
+                    if (item.group != group) {
+                        group = item.group
+                        if (index > 0 && !endsWith("\n\n")) append("\n")
+                        if (group.isNotBlank()) append(group).append("\n\n")
+                    }
+                    append("  • ").append(item.title).append("\n")
+                    item.details.forEach { append("    ").append(it).append("\n") }
+                    // Μια οφειλή με τέσσερις γραμμές από κάτω θέλει αέρα πριν
+                    // την επόμενη· μια σκέτη γραμμή όχι.
+                    if (item.details.size > 1) append("\n")
+                }
+                if (!endsWith("\n\n")) append("\n")
             }
             if (showNote) append(note).append("\n\n")
             if (closing.isNotBlank()) append(closing)
@@ -177,9 +210,31 @@ object MailTemplates {
             append("<div style=\"font-family:system-ui,Arial,sans-serif;font-size:14px;color:#0B1B2B\">")
             append(htmlBlock(esc(intro)))
             if (showList) {
-                append("<ul>")
-                fileNames.forEach { append("<li>").append(esc(it)).append("</li>") }
-                append("</ul>")
+                var group = ""
+                var open = false
+                items.forEach { item ->
+                    if (!open || item.group != group) {
+                        if (open) append("</ul>")
+                        group = item.group
+                        if (group.isNotBlank()) {
+                            append("<p style=\"margin:16px 0 4px 0;font-weight:700\">")
+                            append(esc(group)).append("</p>")
+                        }
+                        append("<ul style=\"margin-top:4px\">")
+                        open = true
+                    }
+                    append("<li style=\"margin-bottom:8px\">")
+                    if (item.details.isEmpty()) {
+                        append(esc(item.title))
+                    } else {
+                        append("<span style=\"font-weight:600\">").append(esc(item.title)).append("</span>")
+                        item.details.forEach {
+                            append("<br><span style=\"color:#41546b\">").append(esc(it)).append("</span>")
+                        }
+                    }
+                    append("</li>")
+                }
+                if (open) append("</ul>")
             }
             if (showNote) append(htmlBlock(esc(note)))
             append(htmlBlock(esc(closing)))

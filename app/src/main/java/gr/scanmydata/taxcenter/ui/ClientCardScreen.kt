@@ -31,7 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,12 +61,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Η καρτέλα ενός πελάτη, σε τέσσερις όψεις.
+ * Η καρτέλα ενός πελάτη, σε πέντε όψεις.
  *
  * **Στοιχεία** — η φόρμα με τα διαπιστευτήρια και την άντληση από το Μητρώο.
  * **Έγγραφα** — τι έχει κατέβει, με άνοιγμα, αποστολή και διαγραφή.
  * **Αποστολές** — τι στάλθηκε, πότε και τι ακριβώς περιείχε.
  * **Οφειλές** — τι χρωστά σε ΑΑΔΕ και ΚΕΑΟ, με τις δόσεις και τις ταυτότητες.
+ * **Αιτήματα** — τι έχει ζητήσει από την ΑΑΔΕ και τι του απάντησαν.
  *
  * Ήταν τρεις διαφορετικές οθόνες. Όταν ο πελάτης τηλεφωνεί και ρωτά «μου
  * στείλατε το Ε1;», η απάντηση χρειάζεται και τα τρία — και το να ψάχνεται σε
@@ -91,7 +92,9 @@ fun ClientCardScreen(
     }
 
     Column(modifier) {
-        TabRow(selectedTabIndex = tab) {
+        // Κυλιόμενη: πέντε ετικέτες δεν χωρούν σε πλάτος τηλεφώνου, και μια
+        // σταθερή σειρά θα έκοβε το «Αποστολές» στη μέση.
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Στοιχεία") })
             Tab(
                 selected = tab == 1,
@@ -109,6 +112,11 @@ fun ClientCardScreen(
                 onClick = { UnsavedGuard.guard { tab = 3 } },
                 text = { Text("Οφειλές") },
             )
+            Tab(
+                selected = tab == 4,
+                onClick = { UnsavedGuard.guard { tab = 4 } },
+                text = { Text("Αιτήματα") },
+            )
         }
         when (tab) {
             0 -> ClientEditScreen(
@@ -123,11 +131,12 @@ fun ClientCardScreen(
                 onFetch = { onFetchFor(clientId) },
             )
             2 -> ClientSendsTab(container = container, clientId = clientId)
-            else -> ClientDebtsTab(
+            3 -> ClientDebtsTab(
                 container = container,
                 client = client,
                 onFetch = { onFetchFor(clientId) },
             )
+            else -> ClientRequestsTab(container = container, client = client)
         }
     }
 }

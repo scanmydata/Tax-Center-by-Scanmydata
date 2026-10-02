@@ -18,7 +18,6 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.SendEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
-import gr.scanmydata.taxcenter.engine.DocumentNaming
 import java.io.File
 
 /**
@@ -116,7 +115,12 @@ class ViberSender(
 
         val body = MailTemplates.documents(
             client = client,
-            fileNames = documents.map { DocumentNaming.line(it) },
+            items = DocumentLines.items(
+                filesDir = context.filesDir,
+                afm = client.afm,
+                documents = documents,
+                detailed = templates.viberEffective.has(MailTemplateStore.DocumentField.DEBT_DETAILS),
+            ),
             note = note,
             officeName = settings.officeName,
             signature = settings.signatureFor(SendEntity.KIND_DOCUMENTS),

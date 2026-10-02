@@ -52,6 +52,9 @@ object CredentialMap {
         // EasyCheck: έλεγχος ολοκλήρωσης υποχρεώσεων. Δεν προσφέρεται ακόμη στην
         // οθόνη λήψης — η αντιστοίχιση μπαίνει τώρα για να μη χρειαστεί μετά.
         "aade-obligations-check" to TAXIS,
+        // «Τα Αιτήματά μου» (which=REQUESTS). Τα υπόλοιπα είδη μηνυμάτων του
+        // config έχουν δικά τους logins και δεν ζητούνται από την εφαρμογή.
+        "easynotify" to TAXIS,
         "aade-email" to TAXIS,
         "aade-profile" to TAXIS,
 

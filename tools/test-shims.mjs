@@ -871,6 +871,79 @@ check('η δήλωση Ε9 αναγνωρίζεται και με ελληνικ
   assert(!enfiaCfg.e9Declaration('<div>τίποτα</div>').submitted, 'χωρίς δήλωση');
 });
 
+console.log('\neasynotify — «Τα Αιτήματά μου» της ΑΑΔΕ\n');
+
+// Το σχήμα του eticketaade όπως επαληθεύτηκε ζωντανά (2 Οκτωβρίου 2026): φάκελος
+// { entityModels, pageCount }, messageId ως αριθμός, ημερομηνίες «yyyy-MM-dd HH:mm:ss».
+// Αριθμοί υποθέσεων και κείμενα είναι συνθετικά.
+function requestRow(id, status, code, answer) {
+  return {
+    messageId: id, caseNumber: `100000${id}/20260901/0001`,
+    submittedDate: '2026-09-01 09:15:00', updatedDate: '2026-09-30 10:00:00',
+    messageStatus: code, messageStatusText: status,
+    orgGroupText: 'Δ.Ο.Υ. ΔΟΚΙΜΗΣ', thematicalGroupText: 'Εισόδημα', diadikasiaText: 'Τροποποιητική δήλωση Ε1',
+    messageText: 'Παρακαλώ για την εκκαθάριση.', answerText: answer, transactorVat: '123456783', rejected: false,
+  };
+}
+
+async function runRequests(pages) {
+  const base = aadeScenario({ goodCredentials: true });
+  const posts = [];
+  const json = (o) => ({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(o), 'utf8') });
+  const m = makeBridge((req) => {
+    if (req.url.includes('/api/amsmsg/getUser')) return json({ userData: { userVat: '123456783' } });
+    if (req.url.includes('/api/amsmsg/filterMessages')) {
+      const body = JSON.parse(req.body);
+      posts.push({ body, contentType: req.headers['Content-Type'] });
+      return pages(body, json);
+    }
+    return base(req);
+  });
+  const c = makeContext(m);
+  vm.runInContext(fs.readFileSync(path.join(ASSETS, 'runner.js'), 'utf8'), c, { filename: 'runner.js' });
+  const waiter = m.awaitFinish('run');
+  // Τα inputs όπως τα στέλνει η εφαρμογή: το `vat` είναι το ΑΦΜ του πελάτη.
+  const inputs = { user: 'testuser', pass: 'testpass', vat: '123456783', which: 'REQUESTS', dataOnly: '1' };
+  vm.runInContext(
+    `__runConfig('run', 'easynotify', ${JSON.stringify(JSON.stringify(inputs))}, '.')`,
+    c, { filename: 'invoke' },
+  );
+  return { result: await waiter, mock: m, posts };
+}
+
+await checkAsync('which=REQUESTS διαβάζει όλες τις σελίδες και γράφει EASYNOTIFY_<ΑΦΜ>.json', async () => {
+  const { result, mock, posts } = await runRequests((body, json) => json({
+    pageCount: 2,
+    entityModels: body.pageIndex === 0
+      ? [requestRow(1, 'Απαντημένο', 3, 'Η δήλωσή σας εκκαθαρίστηκε.')]
+      : [requestRow(2, 'Σε επεξεργασία', 2, null)],
+  }));
+  assert(result.ok === true, `ok=${result.ok} reason=${result.reason}`);
+  assert(result.files.includes('EASYNOTIFY_123456783.json'), `files: ${JSON.stringify(result.files)}`);
+
+  // Σώμα JSON, σελίδα από το μηδέν, και το ΑΦΜ του πελάτη ως υποβάλλων.
+  assert(posts.length === 2, `κλήσεις: ${posts.length}`);
+  assert(posts[0].body.pageIndex === 0 && posts[1].body.pageIndex === 1, 'pageIndex 0-based');
+  assert(posts[0].body.transactorVat === '123456783', `transactorVat: ${posts[0].body.transactorVat}`);
+  assert(/application\/json/.test(posts[0].contentType || ''), `Content-Type: ${posts[0].contentType}`);
+
+  const out = JSON.parse(mock.files.get('EASYNOTIFY_123456783.json').toString('utf8'));
+  assert(out.aadeRequests.count === 2, `count: ${out.aadeRequests.count}`);
+  assert(out.aadeRequests.items[0].messageId === 1, 'messageId αριθμός, όπως το δίνει η πύλη');
+  assert(out.aadeRequests.items[1].answerText === null, 'αναπάντητο = null');
+  // Μόνο τα αιτήματα: τα «Μηνύματά μου» και το myPROPERTY δεν ζητήθηκαν.
+  assert(!('aadeMessages' in out) && !('myProperty' in out), 'ζητήθηκαν μόνο τα αιτήματα');
+  assert(!mock.requests.some((r) => r.url.includes('mymessages') || r.url.includes('myPROPERTY')),
+    'δεν έπρεπε να ανοίξει άλλη υπηρεσία');
+});
+
+await checkAsync('όταν το τμήμα των αιτημάτων σκάσει, το JSON γράφει «ERR:» και όχι κενή λίστα', async () => {
+  const { result, mock } = await runRequests(() => ({ error: 'σύνδεση διακόπηκε' }));
+  // Το config επιστρέφει ok — γι' αυτό η εφαρμογή διαβάζει το «ERR:» ως αποτυχία.
+  assert(result.ok === true, `ok=${result.ok}`);
+  const out = JSON.parse(mock.files.get('EASYNOTIFY_123456783.json').toString('utf8'));
+  assert(typeof out.aadeRequests === 'string' && out.aadeRequests.startsWith('ERR:'), JSON.stringify(out.aadeRequests));
+});
 
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);

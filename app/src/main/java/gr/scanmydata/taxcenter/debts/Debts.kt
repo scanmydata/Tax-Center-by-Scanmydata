@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.debts
 
+import gr.scanmydata.taxcenter.aade.DebtSchedule
 import gr.scanmydata.taxcenter.doc.Money
 import gr.scanmydata.taxcenter.keao.KeaoCard
 import org.json.JSONArray
@@ -30,11 +31,28 @@ import java.time.format.DateTimeFormatter
  */
 object Debts {
 
-    enum class Group(val label: String, val source: String) {
-        AADE_OPEN("ΑΑΔΕ — εκτός ρύθμισης", "ΑΑΔΕ"),
-        AADE_ARRANGED("ΑΑΔΕ — σε ρύθμιση", "ΑΑΔΕ"),
-        KEAO_CARRIER("ΚΕΑΟ — υπόλοιπο ανά φορέα", "ΚΕΑΟ"),
-        KEAO_ARRANGED("ΚΕΑΟ — ενεργές ρυθμίσεις", "ΚΕΑΟ"),
+    /**
+     * Η πύλη από την οποία έρχεται μια οφειλή.
+     *
+     * Δεν είναι ετικέτα εμφάνισης: είναι **άλλος πιστωτής**. Οι οφειλές στην
+     * ΑΑΔΕ και στο ΚΕΑΟ έχουν άλλους κωδικούς πληρωμής, άλλες ρυθμίσεις και
+     * άλλη ώρα ενημέρωσης, και ο πελάτης ρωτά πάντα για το ένα ή για το άλλο.
+     * Γι' αυτό η καρτέλα, το email και η ενημέρωση χωρίζονται πρώτα εδώ.
+     */
+    enum class Source(val label: String) {
+        AADE("ΑΑΔΕ"),
+        KEAO("ΚΕΑΟ"),
+    }
+
+    /**
+     * @param label η ομάδα με την πύλη της, για όπου φαίνονται όλες μαζί
+     * @param short η ομάδα μόνη της, για όπου η πύλη είναι ήδη γνωστή
+     */
+    enum class Group(val label: String, val source: Source, val short: String) {
+        AADE_OPEN("ΑΑΔΕ — εκτός ρύθμισης", Source.AADE, "Εκτός ρύθμισης"),
+        AADE_ARRANGED("ΑΑΔΕ — σε ρύθμιση", Source.AADE, "Σε ρύθμιση"),
+        KEAO_CARRIER("ΚΕΑΟ — υπόλοιπο ανά φορέα", Source.KEAO, "Υπόλοιπο ανά φορέα"),
+        KEAO_ARRANGED("ΚΕΑΟ — ενεργές ρυθμίσεις", Source.KEAO, "Ενεργές ρυθμίσεις"),
     }
 
     /** Μία **απλήρωτη** δόση. Το [amount] είναι ό,τι μένει να πληρωθεί γι' αυτήν. */
@@ -62,7 +80,19 @@ object Debts {
         val unpaid: List<Instalment> = emptyList(),
         /** Πόσες δόσεις έχει συνολικά το δοσολόγιο (πληρωμένες και μη). */
         val instalments: Int = 0,
+        /**
+         * Τα ονόματα με τα οποία μπορεί να έχει γραφτεί το **έντυπο** αυτής της
+         * οφειλής. Με αυτά το email βρίσκει ποια οφειλή είναι κάθε συνημμένο.
+         *
+         * Πολλά και όχι ένα: το όνομα που έγραψε το config μένει στο JSON μόνο
+         * όταν κατέβηκαν PDF, ενώ μια «ενημέρωση καρτέλας» ξαναγράφει το JSON
+         * χωρίς αυτό. Γι' αυτό μπαίνει και το όνομα όπως **θα** το έχτιζε το
+         * config από την ίδια γραμμή.
+         */
+        val files: List<String> = emptyList(),
     ) {
+        val source: Source get() = group.source
+
         /**
          * Η δόση που πρέπει να πληρωθεί **τώρα**: η παλαιότερη απλήρωτη.
          *
@@ -98,6 +128,23 @@ object Debts {
 
         fun inGroup(group: Group): List<Line> = lines.filter { it.group == group }
 
+        fun inSource(source: Source): List<Line> = lines.filter { it.source == source }
+
+        /** Πότε διαβάστηκε η πύλη. `0` = ποτέ. */
+        fun at(source: Source): Long = if (source == Source.AADE) aadeAt else keaoAt
+
+        /**
+         * Τι χρωστά συνολικά σε μια πύλη.
+         *
+         * Στο ΚΕΑΟ μετρούν **μόνο** τα υπόλοιπα των φορέων: οι ρυθμίσεις είναι
+         * μέρος τους, και το άθροισμα και των δύο θα έδειχνε τη ρυθμισμένη
+         * οφειλή δύο φορές.
+         */
+        fun total(source: Source): String = when (source) {
+            Source.AADE -> Money.money(Money.sum(inSource(Source.AADE).map { it.total }))
+            Source.KEAO -> total(Group.KEAO_CARRIER)
+        }
+
         /** Άθροισμα υπολοίπων μιας ομάδας, σε ελληνική μορφή. */
         fun total(group: Group): String = Money.money(Money.sum(inGroup(group).map { it.total }))
 
@@ -128,8 +175,9 @@ object Debts {
      * που στέλνεται σε πελάτη.
      */
     fun aade(json: String): List<Line> {
-        val sections = runCatching { JSONObject(json) }.getOrNull()?.optJSONObject("sections")
-            ?: return emptyList()
+        val root = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
+        val sections = root.optJSONObject("sections") ?: return emptyList()
+        val afm = root.optString("afm").trim()
         val out = ArrayList<Line>()
 
         val open = sections.optJSONObject("debts_unregulated")?.optJSONArray("debts")
@@ -137,6 +185,10 @@ object Debts {
             val debt = open?.optJSONObject(i) ?: continue
             val fields = fields(debt.optJSONObject("fields"))
             val schedule = schedule(debt.optJSONObject("installments"))
+            val kind = pick(fields, "Είδος φόρου", "Είδος")
+            // Το ποσό όπως το βάζει το config στο όνομα: σύνολο, αλλιώς ό,τι υπάρχει.
+            val named = listOf("total", "overdueBalance", "nonOverdue")
+                .map { text(debt, it) }.firstOrNull { it.isNotBlank() }.orEmpty()
             out += Line(
                 id = "aade-open-$i",
                 group = Group.AADE_OPEN,
@@ -151,6 +203,11 @@ object Debts {
                 code = code(debt),
                 unpaid = schedule.first,
                 instalments = schedule.second,
+                files = listOf(
+                    text(debt, "toPdf"),
+                    "OFEILI_" + afm + "_" + san(kind.ifBlank { "debts_unregulated" }) + "_" + san(named) + ".pdf",
+                    DebtSchedule.fallbackName(afm, kind, named),
+                ).filter { it.isNotBlank() }.distinct(),
             )
         }
 
@@ -159,6 +216,8 @@ object Debts {
             val debt = arranged?.optJSONObject(i) ?: continue
             val fields = fields(debt.optJSONObject("fields"))
             val schedule = schedule(debt.optJSONObject("installments"))
+            val to = debt.optJSONObject("to")
+            val number = to?.optString("arrAA").orEmpty().trim()
             out += Line(
                 id = "aade-arranged-$i",
                 group = Group.AADE_ARRANGED,
@@ -173,13 +232,36 @@ object Debts {
                 code = code(debt),
                 unpaid = schedule.first,
                 instalments = schedule.second,
+                files = listOf(
+                    text(debt, "toPdf"),
+                    if (number.isBlank()) "" else
+                        "RYTHMISI_" + afm + "_" + san(to?.optString("arnYear").orEmpty()) + "_" + san(number) + ".pdf",
+                ).filter { it.isNotBlank() }.distinct(),
             )
         }
         return out
     }
 
-    private fun code(debt: JSONObject): String =
-        if (debt.isNull("toCode")) "" else debt.optString("toCode").trim()
+    private fun code(debt: JSONObject): String = text(debt, "toCode")
+
+    /** Το `optString` γυρίζει τη λέξη «null» για JSON null· εδώ θέλουμε κενό. */
+    private fun text(o: JSONObject, key: String): String =
+        if (o.isNull(key)) "" else o.optString(key).trim()
+
+    /**
+     * Το `san` του `aade-debts.js`, γραμμή προς γραμμή: έτσι χτίζει το config
+     * το όνομα του PDF από την κατηγορία και το ποσό της οφειλής.
+     *
+     * Αντίγραφο και όχι «κάτι παρόμοιο»: το αποτέλεσμα συγκρίνεται με όνομα
+     * αρχείου, και μια διαφορά σε έναν χαρακτήρα σημαίνει ότι το email δεν θα
+     * αναγνωρίσει το συνημμένο.
+     */
+    internal fun san(raw: String): String = raw.trim()
+        .replace(Regex("[€\\s]+"), "_")
+        .replace(Regex("[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋΐΰ.,_\\-]"), "")
+        .replace(Regex("_+"), "_")
+        .trim('_')
+        .take(70)
 
     /**
      * Οι απλήρωτες δόσεις ενός πίνακα της πύλης, και το πλήθος όλων.
@@ -221,6 +303,8 @@ object Debts {
      */
     fun keao(json: String): List<Line> {
         val carriers = runCatching { KeaoCard.parse(json) }.getOrDefault(emptyList())
+        // Το ΑΦΜ μπαίνει στο όνομα των εντύπων· χωρίς αυτό δεν μαντεύουμε όνομα.
+        val afm = runCatching { JSONObject(json) }.getOrNull()?.optString("afm").orEmpty().trim()
         val out = ArrayList<Line>()
         carriers.forEachIndexed { index, c ->
             val name = KeaoCard.carrierName(c.description)
@@ -228,6 +312,9 @@ object Debts {
                 name.title,
                 if (c.amo.isBlank()) "" else "ΑΜΟ ${c.amo}",
             ).filter { it.isNotBlank() }.joinToString(" · ")
+            // Ίδιος κανόνας με το `KeaoCard.reports`: ο ΑΜΟ πρώτος.
+            val tag = listOf(c.amo, c.carrierAm, (index + 1).toString())
+                .firstOrNull { it.isNotBlank() }.orEmpty()
             out += Line(
                 id = "keao-$index",
                 group = Group.KEAO_CARRIER,
@@ -239,6 +326,7 @@ object Debts {
                 total = euro(c.totals.balance),
                 codeLabel = "Ταυτότητα Οφειλέτη",
                 code = c.debtorId,
+                files = if (afm.isBlank()) emptyList() else listOf(KeaoCard.fileName(afm, tag)),
             )
             c.regulated.filter { it.active }.forEachIndexed { n, r ->
                 val pending = r.pending.map { i ->
@@ -256,6 +344,13 @@ object Debts {
                     code = c.debtorId,
                     unpaid = pending,
                     instalments = r.installments,
+                    files = if (afm.isBlank()) emptyList() else listOf(
+                        KeaoCard.regulationFileName(
+                            afm,
+                            tag,
+                            r.info.trim().split(Regex("\\s+")).firstOrNull().orEmpty().ifBlank { (n + 1).toString() },
+                        ),
+                    ),
                 )
             }
         }

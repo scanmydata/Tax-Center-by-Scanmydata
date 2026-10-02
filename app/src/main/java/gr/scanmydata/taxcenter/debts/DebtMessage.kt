@@ -43,7 +43,7 @@ object DebtMessage {
 
     private fun block(line: Debts.Line, template: Template, today: LocalDate): String {
         val rows = ArrayList<String>()
-        if (template.has(DebtField.NAME)) rows += line.title + " (" + line.group.source + ")"
+        if (template.has(DebtField.NAME)) rows += line.title + " (" + line.source.label + ")"
 
         val next = line.next
         if (template.has(DebtField.AMOUNT) && line.payable.isNotBlank()) {
@@ -83,7 +83,7 @@ object DebtMessage {
 
     /** Τι καταγράφεται ως περιεχόμενο της αποστολής: οι οφειλές, μία ανά γραμμή. */
     fun items(lines: List<Debts.Line>): List<String> = lines.map { line ->
-        line.title + " (" + line.group.source + ")" +
+        line.title + " (" + line.source.label + ")" +
             if (line.payable.isBlank()) "" else " — " + line.payable + " €"
     }
 

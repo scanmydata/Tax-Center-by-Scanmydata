@@ -108,6 +108,7 @@ fun SettingsScreen(
     var theme by remember { mutableStateOf(settings.themeVariant) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var debtSummary by remember { mutableStateOf(debtWatchSummary(settings)) }
+    var requestSummary by remember { mutableStateOf(requestWatchSummary(settings)) }
     var diagnosticsStatus by remember { mutableStateOf("") }
 
     // Ο σύνδεσμος που δείχνει ο κώδικας QR. Ξεκινά από τη σελίδα των εκδόσεων
@@ -311,6 +312,18 @@ fun SettingsScreen(
                 container = container,
                 onEditTemplate = { editingTemplate = TemplateKind.DEBT },
                 onChanged = { debtSummary = debtWatchSummary(settings) },
+            )
+        }
+
+        SettingsSection(
+            title = "Αιτήματα ΑΑΔΕ",
+            summary = requestSummary,
+            open = openSection,
+            onOpen = { openSection = it },
+        ) {
+            RequestWatchSettings(
+                container = container,
+                onChanged = { requestSummary = requestWatchSummary(settings) },
             )
         }
 

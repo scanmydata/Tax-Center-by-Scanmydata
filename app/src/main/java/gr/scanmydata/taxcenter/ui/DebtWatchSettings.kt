@@ -201,14 +201,14 @@ fun DebtWatchSettings(
 }
 
 /**
- * Ποιοι πελάτες μπαίνουν στο πρόγραμμα.
+ * Ποιοι πελάτες μπαίνουν στο πρόγραμμα — των οφειλών ή των αιτημάτων ΑΑΔΕ.
  *
  * Λίστα με ονόματα, όχι «όλοι» με έναν διακόπτη: κάθε τσεκ είναι ένας
  * λογαριασμός TAXISnet που θα ανοίγεται χωρίς επίβλεψη, και αυτό αξίζει να το
  * αποφασίζει κανείς πελάτη-πελάτη.
  */
 @Composable
-private fun WatchedClientsDialog(
+internal fun WatchedClientsDialog(
     container: AppContainer,
     initial: Set<Long>,
     onDismiss: () -> Unit,

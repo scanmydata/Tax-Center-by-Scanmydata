@@ -44,10 +44,20 @@ object DebtsRefresh {
      * ότι λείπουν οι κωδικοί — δεν ανοίγουμε σύνδεση που ξέρουμε ότι θα αποτύχει.
      *
      * Το ΚΕΑΟ μπαίνει μόνο όπου έχει νόημα: θέλει ΑΜΚΑ, άρα φυσικό πρόσωπο.
+     *
+     * @param only μία πύλη, ή `null` για όλες. Η καρτέλα ρωτά ξεχωριστά: το
+     *   ΚΕΑΟ είναι άλλη σύνδεση, πιο αργή, και όποιος θέλει μόνο το ποσό της
+     *   εφορίας δεν έχει λόγο να την περιμένει.
      */
-    suspend fun plans(repository: ClientRepository, client: ClientEntity): List<FetchController.Plan> {
+    suspend fun plans(
+        repository: ClientRepository,
+        client: ClientEntity,
+        only: Debts.Source? = null,
+    ): List<FetchController.Plan> {
         val out = ArrayList<FetchController.Plan>()
-        if (FetchController.missingCredentials(repository, client, DebtsStore.CONFIG_AADE).isEmpty()) {
+        if (only != Debts.Source.KEAO &&
+            FetchController.missingCredentials(repository, client, DebtsStore.CONFIG_AADE).isEmpty()
+        ) {
             out += FetchController.Plan(
                 job = ProcessRunner.Job(
                     client = client,
@@ -59,7 +69,7 @@ object DebtsRefresh {
             )
         }
         val keao = DocumentCatalog.ALL.firstOrNull { it.configId == DebtsStore.CONFIG_KEAO }
-        if (keao != null && keao.matches(client.kind) &&
+        if (only != Debts.Source.AADE && keao != null && keao.matches(client.kind) &&
             FetchController.missingCredentials(repository, client, DebtsStore.CONFIG_KEAO).isEmpty()
         ) {
             out += FetchController.Plan(
@@ -116,15 +126,23 @@ object DebtsRefresh {
     }
 
     /** Τι λέμε στον χρήστη όταν τελειώσει — μία γραμμή ανά πύλη που δεν πήγε καλά. */
-    fun describe(items: List<FetchController.Item>?): String = when {
-        items == null -> "Τρέχει ήδη λήψη, ή περιμένουν ενημερώσεις για έγκριση στη " +
-            "Λήψη εντύπων. Δοκίμασε όταν τελειώσει."
+    fun describe(items: List<FetchController.Item>?, only: Debts.Source? = null): String = when {
+        items == null -> BUSY
+        // Το ΚΕΑΟ δεν είναι για όλους, και το «λείπουν οι κωδικοί» θα έστελνε
+        // τον λογιστή να ψάχνει κωδικούς που υπάρχουν.
+        items.isEmpty() && only == Debts.Source.KEAO ->
+            "Η ενημέρωση από το ΚΕΑΟ θέλει κωδικούς TAXISnet και ΑΜΚΑ στην καρτέλα — " +
+                "γίνεται μόνο για φυσικά πρόσωπα."
         items.isEmpty() -> "Λείπουν οι κωδικοί TAXISnet του πελάτη."
         items.all { it.status == FetchController.Status.OK } -> ""
         else -> items.filter { it.status != FetchController.Status.OK }.joinToString("\n") { item ->
             source(item.configId) + ": " + item.detail.ifBlank { "δεν ολοκληρώθηκε" }
         }
     }
+
+    /** Η ουρά είναι πιασμένη — ίδιο μήνυμα για κάθε ενημέρωση που περνά από εδώ. */
+    const val BUSY = "Τρέχει ήδη λήψη, ή περιμένουν ενημερώσεις για έγκριση στη " +
+        "Λήψη εντύπων. Δοκίμασε όταν τελειώσει."
 
     fun source(configId: String): String = when (configId) {
         DebtsStore.CONFIG_AADE -> "ΑΑΔΕ"
