@@ -109,6 +109,14 @@ fun ClientEditScreen(
     val credentials = remember { mutableStateMapOf<Field, String>() }
     var revealSecrets by remember { mutableStateOf(false) }
 
+    // Το συνθηματικό TAXISnet έχει δικό του διακόπτη, και στη **δημιουργία**
+    // πελάτη ξεκινά ορατό. Εκεί ο λογιστής το πληκτρολογεί από χαρτί ή από
+    // μήνυμα, και αμέσως μετά το δοκιμάζει στο GSIS με την «Άντληση στοιχείων»:
+    // ένα αόρατο λάθος πλήκτρο είναι αποτυχημένη σύνδεση, και οι αποτυχημένες
+    // συνδέσεις κλειδώνουν τον λογαριασμό. Σε υπάρχουσα καρτέλα μένει κρυφό —
+    // εκεί δεν πληκτρολογείται, απλώς υπάρχει.
+    var revealTaxisPass by remember { mutableStateOf(isNew) }
+
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -318,10 +326,10 @@ fun ClientEditScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 SecretField("Όνομα χρήστη", credentials, Field.TAXIS_USER, reveal = true)
-                SecretField("Συνθηματικό", credentials, Field.TAXIS_PASS, revealSecrets)
+                SecretField("Συνθηματικό", credentials, Field.TAXIS_PASS, revealTaxisPass)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { revealSecrets = !revealSecrets }) {
-                        Text(if (revealSecrets) "Απόκρυψη" else "Εμφάνιση")
+                    TextButton(onClick = { revealTaxisPass = !revealTaxisPass }) {
+                        Text(if (revealTaxisPass) "Απόκρυψη" else "Εμφάνιση")
                     }
                     Spacer(Modifier.weight(1f))
                     if (busy) {

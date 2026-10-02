@@ -1362,8 +1362,22 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
     val openRow: (FetchController.Item) -> Unit = { row ->
         scope.launch {
             when {
+                // Χωρίς αρχείο να ανοίξει, το πάτημα λέει **γιατί** δεν υπάρχει —
+                // όχι ένα γενικό «δεν παρήγαγε έντυπο» που ισχύει εξίσου για
+                // λάθος κωδικό και για πελάτη χωρίς δήλωση.
                 row.files.isEmpty() ->
-                    message = "Αυτή η γραμμή δεν παρήγαγε έντυπο."
+                    message = when (row.status) {
+                        FetchController.Status.PENDING, FetchController.Status.RUNNING ->
+                            "Η γραμμή δεν έχει ολοκληρωθεί ακόμη."
+                        FetchController.Status.OK ->
+                            "Η γραμμή ολοκληρώθηκε· δεν παράγει έντυπο προς άνοιγμα."
+                        FetchController.Status.EMPTY ->
+                            "Δεν βρέθηκε έντυπο. " + row.detail
+                        FetchController.Status.FAILED ->
+                            (row.failure?.title ?: "Δεν ολοκληρώθηκε") + ". " + row.detail
+                        FetchController.Status.CANCELLED ->
+                            "Η γραμμή διακόπηκε πριν ολοκληρωθεί — δεν ξέρουμε αν υπάρχει έντυπο."
+                    }
                 else -> {
                     val documents = withContext(Dispatchers.IO) {
                         container.db.documents().byClientAndNames(row.clientId, row.files)
@@ -1391,12 +1405,17 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
             } else {
                 // Οι κενές δεν μετριούνται ούτε στις επιτυχίες ούτε στις
                 // αποτυχίες: ένα «40/40 επιτυχίες» με 12 άδεια είναι ψέμα.
+                //
+                // Και οι αποτυχίες χωρίζονται στα δύο: «δεν έγινε σύνδεση» και
+                // «κάτι χάλασε» θέλουν άλλη ενέργεια — έλεγχο κωδικών το ένα,
+                // επανάληψη το άλλο.
                 buildString {
                     append("Τέλος — ")
                     append(state.total - state.failed - state.empty)
-                    append("/").append(state.total).append(" με έντυπα")
-                    if (state.empty > 0) append("  ·  ${state.empty} χωρίς")
-                    if (state.failed > 0) append("  ·  ${state.failed} απέτυχαν")
+                    append("/").append(state.total).append(" ολοκληρώθηκαν")
+                    if (state.empty > 0) append("  ·  ${state.empty} χωρίς έντυπο")
+                    if (state.noLogin > 0) append("  ·  ${state.noLogin} χωρίς σύνδεση")
+                    if (state.broken > 0) append("  ·  ${state.broken} με σφάλμα")
                 }
             },
             style = MaterialTheme.typography.titleMedium,
@@ -1454,10 +1473,10 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "Η σύνδεση πέτυχε και η πύλη απάντησε — απλώς δεν υπάρχει " +
-                            "υποβεβλημένο έντυπο για αυτόν τον συνδυασμό πελάτη και " +
-                            "έτους. Συνήθως φταίει το έτος, ή ότι το έντυπο δεν " +
-                            "αφορά αυτόν τον υπόχρεο. Δεν στάλθηκε τίποτα γι' αυτές " +
-                            "τις γραμμές.",
+                            "αυτό που ζητήθηκε. Κάθε γραμμή γράφει τι ακριβώς: άλλοτε " +
+                            "φταίει το έτος, άλλοτε το έντυπο δεν αφορά τον υπόχρεο, " +
+                            "και στις οφειλές σημαίνει απλώς ότι δεν χρωστά. Δεν " +
+                            "στάλθηκε τίποτα γι' αυτές τις γραμμές.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     val names = state.emptyClients
@@ -1469,6 +1488,70 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                }
+            }
+        }
+
+        // Χωρίς σύνδεση: το αποτέλεσμα είναι **άγνωστο**, όχι αρνητικό. Αυτό
+        // πρέπει να φαίνεται χωριστά από το «δεν βρέθηκε έντυπο», γιατί ο
+        // λογιστής που θα τα μπερδέψει θα πει στον πελάτη ότι δεν υπάρχει
+        // εκκαθαριστικό, ενώ απλώς άλλαξε ο κωδικός του.
+        if (!state.running && state.noLogin > 0) {
+            Spacer(Modifier.height(12.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Δεν έγινε σύνδεση σε ${state.noLogin} από ${state.total} εκτελέσεις",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Για αυτές τις γραμμές δεν ξέρουμε αν υπάρχει έντυπο: η πύλη δεν " +
+                            "δέχτηκε τους κωδικούς, ή λείπουν στοιχεία από την καρτέλα. " +
+                            "Διόρθωσε πρώτα την καρτέλα — η «Επανάληψη» δεν τις " +
+                            "ξαναδοκιμάζει, γιατί οι επανειλημμένες αποτυχίες κλειδώνουν " +
+                            "τον λογαριασμό στο GSIS.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    val names = state.noLoginClients
+                    if (names.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            names.take(6).joinToString(", ") +
+                                if (names.size > 6) " και άλλοι ${names.size - 6}" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!state.running && state.broken > 0) {
+            Spacer(Modifier.height(12.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Κάτι δεν λειτούργησε σε ${state.broken} από ${state.total} εκτελέσεις",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Δίκτυο, καθυστέρηση της πύλης, ή σελίδα που δεν ήταν η " +
+                            "αναμενόμενη. Ούτε εδώ ξέρουμε αν υπάρχει έντυπο. Η " +
+                            "«Επανάληψη» συνήθως αρκεί· ο ακριβής λόγος είναι γραμμένος " +
+                            "σε κάθε γραμμή.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
@@ -1627,9 +1710,10 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                     enabled = state.pending.isEmpty(),
                     onClick = { controller.clear() },
                 ) { Text("Νέα λήψη") }
-                if (state.failed > 0) {
+                // Μόνο όσα έχει νόημα να ξανατρέξουν — όχι οι λάθος κωδικοί.
+                if (state.retryable > 0) {
                     OutlinedButton(onClick = { controller.retryFailed() }) {
-                        Text("Επανάληψη ${state.failed} αποτυχιών")
+                        Text("Επανάληψη ${state.retryable}")
                     }
                 }
             }
@@ -1761,6 +1845,7 @@ private fun ClientProgressCard(
     val ok = rows.count { it.status == FetchController.Status.OK }
     val empty = rows.count { it.status == FetchController.Status.EMPTY }
     val failed = rows.count { it.status == FetchController.Status.FAILED }
+    val noLogin = rows.count { it.noLogin }
     val files = rows.sumOf { it.fileCount }
 
     Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
@@ -1779,8 +1864,9 @@ private fun ClientProgressCard(
                     Text(
                         buildString {
                             append(files).append(" έντυπα από ").append(rows.size).append(" εκτελέσεις")
-                            if (empty > 0) append("  ·  ").append(empty).append(" χωρίς")
-                            if (failed > 0) append("  ·  ").append(failed).append(" απέτυχαν")
+                            if (empty > 0) append("  ·  ").append(empty).append(" χωρίς έντυπο")
+                            if (noLogin > 0) append("  ·  ").append(noLogin).append(" χωρίς σύνδεση")
+                            if (failed > noLogin) append("  ·  ").append(failed - noLogin).append(" με σφάλμα")
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = when {
@@ -1816,28 +1902,47 @@ private fun ClientProgressCard(
     }
 }
 
-/** Η μία γραμμή κατάστασης, κοινή στις δύο όψεις. */
+/**
+ * Η κατάσταση μιας γραμμής, κοινή στις δύο όψεις: **τι συνέβη**, και από κάτω
+ * γιατί και τι κάνεις τώρα.
+ *
+ * Η πρώτη γραμμή απαντά μόνη της στο «βρέθηκε ή όχι;»: βρέθηκαν έντυπα · δεν
+ * βρέθηκε έντυπο · δεν έγινε σύνδεση · κάτι δεν λειτούργησε. Ήταν μία γραμμή
+ * με ένα σύμβολο μπροστά, και το «✗ LandPage» δίπλα στο «— δεν βρέθηκε» δεν
+ * έλεγε σε κανέναν αν ο πελάτης έχει εκκαθαριστικό.
+ */
 @Composable
 private fun ProgressLine(row: FetchController.Item) {
-    Text(
-        when (row.status) {
-            FetchController.Status.PENDING -> "σε αναμονή"
-            FetchController.Status.RUNNING -> "εκτελείται…"
-            FetchController.Status.OK ->
-                "✓ ${row.fileCount} έντυπα" +
-                    if (row.detail.isNotBlank()) " · ${row.detail}" else ""
-            FetchController.Status.EMPTY -> "— ${row.detail}"
-            FetchController.Status.FAILED -> "✗ ${row.detail}"
-            FetchController.Status.CANCELLED -> "διακόπηκε"
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = when {
-            row.status == FetchController.Status.FAILED || row.sendFailed ->
-                MaterialTheme.colorScheme.error
-            row.status == FetchController.Status.EMPTY -> MaterialTheme.colorScheme.tertiary
-            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-        },
-    )
+    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    val headline = when (row.status) {
+        FetchController.Status.PENDING -> "Σε αναμονή"
+        FetchController.Status.RUNNING -> "Εκτελείται…"
+        FetchController.Status.OK -> when {
+            !row.producesDocuments -> "✓ Ολοκληρώθηκε"
+            row.fileCount == 1 -> "✓ Βρέθηκε 1 έντυπο"
+            else -> "✓ Βρέθηκαν ${row.fileCount} έντυπα"
+        }
+        FetchController.Status.EMPTY ->
+            if (row.producesDocuments) "— Δεν βρέθηκε έντυπο" else "— Δεν βρέθηκε"
+        FetchController.Status.FAILED -> "✗ " + (row.failure?.title ?: "Δεν ολοκληρώθηκε")
+        FetchController.Status.CANCELLED -> "Διακόπηκε πριν ολοκληρωθεί"
+    }
+    val tone = when {
+        row.status == FetchController.Status.FAILED -> MaterialTheme.colorScheme.error
+        row.status == FetchController.Status.EMPTY -> MaterialTheme.colorScheme.tertiary
+        row.status == FetchController.Status.OK -> MaterialTheme.colorScheme.primary
+        else -> dim
+    }
+    Text(headline, style = MaterialTheme.typography.bodyMedium, color = tone)
+    if (row.detail.isNotBlank()) {
+        Text(
+            row.detail,
+            style = MaterialTheme.typography.bodySmall,
+            // Η αποτυχία της αυτόματης αποστολής φαίνεται κόκκινη ακόμη κι όταν
+            // η λήψη πέτυχε: τα έντυπα κατέβηκαν, ο πελάτης δεν τα έλαβε.
+            color = if (row.sendFailed) MaterialTheme.colorScheme.error else dim,
+        )
+    }
 }
 
 /**

@@ -6,6 +6,7 @@ import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ClientRepository
 import gr.scanmydata.taxcenter.data.Normalize
 import gr.scanmydata.taxcenter.data.db.ClientEntity
+import gr.scanmydata.taxcenter.debts.DebtsStore
 import gr.scanmydata.taxcenter.mail.MailService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -81,8 +82,28 @@ class FetchController(
          * πρέπει να ξεχωρίζει τους λάθος κωδικούς από ένα timeout της πύλης.
          */
         val reason: String = "",
+        /**
+         * Γιατί απέτυχε, ως **κατηγορία** — βλ. [FetchOutcome]. Με αυτήν η οθόνη
+         * ξεχωρίζει το «δεν έγινε σύνδεση» από το «κάτι χάλασε», που θέλουν
+         * άλλη ενέργεια από τον χρήστη.
+         */
+        val failure: FetchOutcome.Kind? = null,
+        /** Η γραμμή φέρνει έντυπα, ή ενημερώνει την καρτέλα; Αλλάζει το πώς λέγεται η επιτυχία. */
+        val producesDocuments: Boolean = true,
     ) {
         val key: String get() = "$afm/$configId/$configTitle"
+
+        /** Δεν έγινε καν σύνδεση: λάθος κωδικοί, ή λείπουν στοιχεία από την καρτέλα. */
+        val noLogin: Boolean
+            get() = status == Status.FAILED &&
+                (failure == FetchOutcome.Kind.LOGIN || failure == FetchOutcome.Kind.MISSING)
+
+        /**
+         * Έχει νόημα να ξανατρέξει όπως είναι; Όχι όταν απορρίφθηκαν οι κωδικοί:
+         * η επανάληψη με τους ίδιους κωδικούς φέρνει το κλείδωμα του λογαριασμού.
+         */
+        val retryable: Boolean
+            get() = status == Status.CANCELLED || (status == Status.FAILED && !noLogin)
     }
 
     /** Ποιο πεδίο της καρτέλας προτείνεται να αλλάξει. */
@@ -162,6 +183,19 @@ class FetchController(
     ) {
         val done: Int get() = items.count { it.status != Status.PENDING && it.status != Status.RUNNING }
         val failed: Int get() = items.count { it.status == Status.FAILED }
+
+        /** Από τις αποτυχίες, όσες δεν έφτασαν καν να συνδεθούν. */
+        val noLogin: Int get() = items.count { it.noLogin }
+
+        /** Οι υπόλοιπες: συνδέθηκαν ή πήγαν να συνδεθούν, και κάτι χάλασε. */
+        val broken: Int get() = failed - noLogin
+
+        /** Πόσες θα ξανάτρεχε η «επανάληψη» — βλ. [Item.retryable]. */
+        val retryable: Int get() = items.count { it.retryable }
+
+        /** Ποιοι πελάτες έμειναν χωρίς σύνδεση, χωρίς επαναλήψεις ονόματος. */
+        val noLoginClients: List<String>
+            get() = items.filter { it.noLogin }.map { it.clientName }.distinct()
 
         /** Πέτυχαν αλλά δεν βρήκαν έντυπο. Χωριστός αριθμός από τις αποτυχίες. */
         val empty: Int get() = items.count { it.status == Status.EMPTY }
@@ -261,6 +295,7 @@ class FetchController(
                     configId = it.job.configId,
                     configTitle = it.label,
                     clientId = it.job.client.id,
+                    producesDocuments = it.producesDocuments,
                 )
             },
         )
@@ -300,22 +335,36 @@ class FetchController(
                     val pdfs = outcome.files.count { it.endsWith(".pdf", ignoreCase = true) }
                     // Μια διαδικασία που **δεν** παράγει έγγραφα (άντληση
                     // στοιχείων, email, ΑΜΚΑ) δεν κρίνεται από τα PDF της.
+                    //
+                    // Τέσσερις απαντήσεις, και η οθόνη πρέπει να τις ξεχωρίζει:
+                    // βρέθηκε · η πύλη απάντησε και δεν υπάρχει · δεν έγινε
+                    // σύνδεση · κάτι χάλασε. Το «δεν υπάρχει» μετρά ως κενό
+                    // ακόμη κι όταν το config το επέστρεψε ως αποτυχία
+                    // (π.χ. «δεν υπάρχει δήλωση για το έτος»): δεν είναι βλάβη.
+                    val explained = when {
+                        !outcome.ok -> FetchOutcome.explain(outcome.reason)
+                        // Στις οφειλές, «κανένα PDF» δεν σημαίνει πάντα «δεν
+                        // χρωστά»: η πύλη μπορεί να έδειξε οφειλές και να μην
+                        // έδωσε τα έντυπά τους. Το κρίνουν τα ίδια τα δεδομένα.
+                        plan.producesDocuments && pdfs == 0 -> unprintedDebts(item)
+                        else -> null
+                    }
                     val status = when {
-                        !outcome.ok -> Status.FAILED
-                        plan.producesDocuments && pdfs == 0 -> Status.EMPTY
-                        else -> Status.OK
+                        outcome.ok && explained != null -> Status.FAILED
+                        outcome.ok && plan.producesDocuments && pdfs == 0 -> Status.EMPTY
+                        outcome.ok -> Status.OK
+                        explained?.kind == FetchOutcome.Kind.NOT_FOUND -> Status.EMPTY
+                        else -> Status.FAILED
                     }
                     mark(
                         index = index,
                         status = status,
-                        detail = when (status) {
-                            Status.FAILED -> describe(outcome.reason)
-                            Status.EMPTY -> "δεν βρέθηκε έντυπο για αυτόν τον πελάτη"
-                            else -> ""
-                        },
+                        detail = explained?.text
+                            ?: if (status == Status.EMPTY) FetchOutcome.empty(item.configId) else "",
                         fileCount = pdfs,
                         files = outcome.files.filter { it.endsWith(".pdf", ignoreCase = true) },
-                        reason = if (status == Status.FAILED) outcome.reason else "",
+                        reason = if (outcome.ok) "" else outcome.reason,
+                        failure = if (status == Status.FAILED) explained?.kind else null,
                     )
                 }
                 if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt, autoSendTo)
@@ -407,6 +456,29 @@ class FetchController(
         }
     }
 
+    /**
+     * Οφειλές που **βρέθηκαν** αλλά έμειναν χωρίς έντυπο.
+     *
+     * Επιστρέφει `null` όταν πράγματι δεν υπάρχει οφειλή — τότε το κενό
+     * αποτέλεσμα είναι αληθινό («δεν χρωστά») και όχι αστοχία.
+     */
+    private suspend fun unprintedDebts(job: ProcessRunner.Job): FetchOutcome.Explained? {
+        val source = when (job.configId) {
+            DebtsStore.CONFIG_AADE -> "ΑΑΔΕ"
+            DebtsStore.CONFIG_KEAO -> "ΚΕΑΟ"
+            else -> return null
+        }
+        val found = withContext(Dispatchers.IO) {
+            DebtsStore.load(context.filesDir, job.client.afm).lines.count { it.group.source == source }
+        }
+        if (found == 0) return null
+        return FetchOutcome.Explained(
+            FetchOutcome.Kind.PORTAL,
+            "Η σύνδεση έγινε και βρέθηκαν οφειλές ($found), αλλά δεν βγήκαν τα έντυπά τους. " +
+                "Τα ποσά φαίνονται στην καρτέλα «Οφειλές» του πελάτη· για τα PDF δοκίμασε ξανά.",
+        )
+    }
+
     /** Σημειώνει το αποτέλεσμα της αυτόματης αποστολής στις γραμμές του πελάτη. */
     private fun markSend(clientId: Long, count: Int, error: String) {
         val plansById = lastPlans.withIndex().filter { it.value.job.client.id == clientId }
@@ -427,21 +499,22 @@ class FetchController(
     }
 
     /**
-     * Ξανατρέχει **μόνο** όσα απέτυχαν ή διακόπηκαν.
+     * Ξανατρέχει **μόνο** όσα απέτυχαν ή διακόπηκαν — και από αυτά, μόνο όσα
+     * έχει νόημα να ξανατρέξουν.
      *
      * Είναι η συνηθισμένη περίπτωση: σε παρτίδα 40 πελατών θα πέσουν δύο-τρεις
      * σε timeout της πύλης. Το να ξανακατέβουν τα υπόλοιπα 37 είναι σπατάλη
      * χρόνου και, χειρότερα, άλλες 37 συνεδρίες στο GSIS.
+     *
+     * Οι γραμμές όπου **απορρίφθηκαν οι κωδικοί** μένουν έξω: με τους ίδιους
+     * κωδικούς το αποτέλεσμα θα ήταν το ίδιο, και κάθε επιπλέον αποτυχημένη
+     * σύνδεση φέρνει πιο κοντά το κλείδωμα του λογαριασμού από το GSIS.
      */
     fun retryFailed() {
         if (_state.value.running) return
         val retry = _state.value.items
             .mapIndexedNotNull { index, item ->
-                if (item.status == Status.FAILED || item.status == Status.CANCELLED) {
-                    lastPlans.getOrNull(index)
-                } else {
-                    null
-                }
+                if (item.retryable) lastPlans.getOrNull(index) else null
             }
         if (retry.isNotEmpty()) start(retry)
     }
@@ -674,6 +747,7 @@ class FetchController(
         fileCount: Int = 0,
         files: List<String> = emptyList(),
         reason: String = "",
+        failure: FetchOutcome.Kind? = null,
     ) {
         val items = _state.value.items.toMutableList()
         if (index !in items.indices) return
@@ -683,6 +757,7 @@ class FetchController(
             fileCount = fileCount,
             files = files,
             reason = reason,
+            failure = failure,
         )
         _state.value = _state.value.copy(items = items)
     }
@@ -914,24 +989,7 @@ class FetchController(
          * πληκτρολόγησε κωδικούς — και το `InvalidCredentials` πρέπει να λέει
          * «λάθος κωδικοί», όχι να μοιάζει με βλάβη της εφαρμογής.
          */
-        fun describe(reason: String): String = when (reason) {
-            "InvalidCredentials" ->
-                "Λάθος όνομα χρήστη ή συνθηματικό TAXISnet. Πρόσεξε: το GSIS " +
-                    "κλειδώνει τον λογαριασμό μετά από αλλεπάλληλες αποτυχίες."
-            "NoAfm" -> "Ο λογαριασμός δεν επέστρεψε ΑΦΜ."
-            "NoRegistry" -> "Ο ΑΦΜ δεν έχει μητρώο φυσικού προσώπου ούτε επιχείρησης."
-            "NoEmail" -> "Δεν βρέθηκε διεύθυνση στο Μητρώο Επικοινωνίας."
-            "NotFound" -> "Δεν βρέθηκε εγγραφή."
-            "NotLoggedIn" -> "Η σύνδεση δεν ολοκληρώθηκε — δοκίμασε ξανά."
-            "NoSuchRegistry" ->
-                "Κανένα από τα μητρώα που διάλεξες δεν υπάρχει πια στο ΚΕΑΟ για αυτόν " +
-                    "τον πελάτη. Δοκίμασε με «Όλα τα μητρώα»."
-            "NoYear" -> "Δεν επιλέχθηκε έτος."
-            "NoKeaoLink" ->
-                "Ο λογαριασμός e-ΕΦΚΑ του πελάτη δεν δείχνει την Ηλεκτρονική " +
-                    "Πλατφόρμα Οφειλετών ΚΕΑΟ."
-            else -> reason
-        }
+        fun describe(reason: String): String = FetchOutcome.explain(reason).text
 
         /** Ποιες διαδικασίες δέχονται έτος ως είσοδο — καθορίζει το πεδίο στην οθόνη. */
         fun acceptsYear(config: ConfigInfo): Boolean =
