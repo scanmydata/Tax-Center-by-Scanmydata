@@ -81,10 +81,20 @@ object Exports {
                         send.clientName,
                         send.afm,
                         send.toEmail,
-                        if (send.kind == SendEntity.KIND_CREDENTIALS) "Στοιχεία πελάτη" else "Φορολογικά έντυπα",
+                        when {
+                            send.kind == SendEntity.KIND_CREDENTIALS -> "Στοιχεία πελάτη"
+                            send.aboutDebts -> "Μήνυμα οφειλής (" + send.channel + ")"
+                            send.viaViber -> "Φορολογικά έντυπα (Viber)"
+                            else -> "Φορολογικά έντυπα"
+                        },
                         send.subject,
                         send.itemCount.toString(),
-                        if (send.failed) "ΑΠΕΤΥΧΕ" else "Στάλθηκε",
+                        when {
+                            send.failed -> "ΑΠΕΤΥΧΕ"
+                            // Παράδοση σε άλλη εφαρμογή δεν είναι «στάλθηκε».
+                            send.handed -> "Παραδόθηκε στο " + send.channel
+                            else -> "Στάλθηκε"
+                        },
                         send.error,
                         send.items.replace('\n', '|'),
                     ).joinToString(";") { csv(it) },

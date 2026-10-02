@@ -68,7 +68,7 @@ class DebtScheduleTest {
               "fields": { "Τύπος Ρύθμισης": "ΠΑΓΙΑ ΡΥΘΜΙΣΗ 12 ΔΟΣΕΩΝ", "Οικ. έτος": "2026" },
               "total": "600,00 €",
               "toCode": "RF45000000000000000000123",
-              "toPdf": "RYTHMISI_123456783_2026_137612.pdf",
+              "toPdf": "RYTHMISI_123456783_2026_500001.pdf",
               "installments": {
                 "headers": ["Α/Α δόσης", "Ημ/νία λήξης δόσης", "Υπόλοιπο Ποσό Δόσης",
                             "Ποσό Επιβάρυνσης", "Συνολικό Υπόλοιπο Δόσης"],
@@ -98,7 +98,7 @@ class DebtScheduleTest {
         val all = attachments()
         assertEquals("η οφειλή χωρίς δόσεις δεν παράγει σελίδα", 2, all.size)
         assertEquals("OFEILI_123456783_ΧΡΕΩΣΤΙΚΕΣ_ΔΗΛΩΣΕΙΣ_ΦΠΑ_1.005,50.pdf", all[0].target)
-        assertEquals("RYTHMISI_123456783_2026_137612.pdf", all[1].target)
+        assertEquals("RYTHMISI_123456783_2026_500001.pdf", all[1].target)
         assertEquals("Ανάλυση δόσεων οφειλής", all[0].report.title)
         assertEquals("Δοσολόγιο ρύθμισης", all[1].report.title)
     }
@@ -153,7 +153,7 @@ class DebtScheduleTest {
         val attachment = attachments()[1]
         // Η ταυτότητα της ρύθμισης (ΤΡΟ) είναι έντυπο της πύλης: το δοσολόγιο
         // προσαρτάται **μέσα** σε αυτό και δεν φεύγει χωριστό αρχείο.
-        assertEquals("RYTHMISI_123456783_2026_137612.pdf", attachment.target)
+        assertEquals("RYTHMISI_123456783_2026_500001.pdf", attachment.target)
         val table = attachment.report.sections.single().table!!
         assertEquals(5, table.headers.size)
         assertEquals("Ποσό Επιβάρυνσης", table.headers[3])

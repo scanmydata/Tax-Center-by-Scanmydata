@@ -232,7 +232,52 @@ class Settings(context: Context) {
         // για set που τροποποιείται αφού του δοθεί.
         set(v) = prefs.edit().putStringSet(KEY_FAVORITE_DOCUMENTS, HashSet(v)).apply()
 
+    // ------------------------------------------- αυτόματη ενημέρωση οφειλών
+
+    /**
+     * Κάθε πότε ενημερώνονται μόνες τους οι καρτέλες οφειλών: `OFF`, `DAILY`,
+     * `WEEKLY` ή `MONTHLY` — βλ. `DebtWatch.Frequency`. **Κλειστό εξ ορισμού**:
+     * κάθε εκτέλεση είναι πραγματική σύνδεση στο TAXISnet με τους κωδικούς του
+     * πελάτη, και αυτό δεν ξεκινά χωρίς να το ζητήσει κάποιος.
+     */
+    var debtWatchFrequency: String
+        get() = prefs.getString(KEY_DEBT_WATCH_FREQUENCY, "OFF").orEmpty()
+        set(v) = prefs.edit().putString(KEY_DEBT_WATCH_FREQUENCY, v).apply()
+
+    /** Η ώρα (0-23, ώρα Αθηνών) γύρω από την οποία ξεκινά η ενημέρωση. */
+    var debtWatchHour: Int
+        get() = prefs.getInt(KEY_DEBT_WATCH_HOUR, 8).coerceIn(0, 23)
+        set(v) = prefs.edit().putInt(KEY_DEBT_WATCH_HOUR, v.coerceIn(0, 23)).apply()
+
+    /**
+     * Ποιοι πελάτες παρακολουθούνται, ως `id` της βάσης.
+     *
+     * Μόνο αριθμοί γραμμών — ούτε ΑΦΜ ούτε ονόματα — γι' αυτό ζουν εδώ και όχι
+     * στην κρυπτογραφημένη βάση. Ένα `id` πελάτη που διαγράφηκε απλώς αγνοείται.
+     */
+    var debtWatchClients: Set<Long>
+        get() = prefs.getStringSet(KEY_DEBT_WATCH_CLIENTS, emptySet()).orEmpty()
+            .mapNotNull { it.toLongOrNull() }.toSet()
+        set(v) = prefs.edit()
+            .putStringSet(KEY_DEBT_WATCH_CLIENTS, v.map { it.toString() }.toHashSet())
+            .apply()
+
+    /** Πότε τελείωσε η τελευταία αυτόματη ενημέρωση. `0` = ποτέ. */
+    var debtWatchLastRun: Long
+        get() = prefs.getLong(KEY_DEBT_WATCH_LAST_RUN, 0L)
+        set(v) = prefs.edit().putLong(KEY_DEBT_WATCH_LAST_RUN, v).apply()
+
+    /** Μία γραμμή για το πώς πήγε — πλήθη μόνο, ποτέ ονόματα πελατών. */
+    var debtWatchLastSummary: String
+        get() = prefs.getString(KEY_DEBT_WATCH_LAST_SUMMARY, "").orEmpty()
+        set(v) = prefs.edit().putString(KEY_DEBT_WATCH_LAST_SUMMARY, v).apply()
+
     private companion object {
+        const val KEY_DEBT_WATCH_FREQUENCY = "debt_watch_frequency"
+        const val KEY_DEBT_WATCH_HOUR = "debt_watch_hour"
+        const val KEY_DEBT_WATCH_CLIENTS = "debt_watch_clients"
+        const val KEY_DEBT_WATCH_LAST_RUN = "debt_watch_last_run"
+        const val KEY_DEBT_WATCH_LAST_SUMMARY = "debt_watch_last_summary"
         const val KEY_FAVORITE_DOCUMENTS = "favorite_documents"
         const val KEY_THEME = "theme_variant"
         const val KEY_GROUP_FETCH = "group_fetch_by_client"

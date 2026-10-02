@@ -29,7 +29,8 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : FragmentActivity() {
 
-    private val container by lazy { AppContainer(applicationContext) }
+    // Το container της διεργασίας, όχι δικό μας — βλ. [TaxCenterApp.container].
+    private val container: AppContainer by lazy { (application as TaxCenterApp).container }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()

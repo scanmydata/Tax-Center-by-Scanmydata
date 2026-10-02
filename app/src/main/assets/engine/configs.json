@@ -35,6 +35,13 @@
           "env": "AADE_DOSEIS",
           "hidden": false,
           "optional": false
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF ταυτοτήτων; (ναι/όχι· όχι = μόνο δεδομένα στο JSON)",
+          "env": "AADE_PDF",
+          "hidden": false,
+          "optional": true
         }
       ]
     },

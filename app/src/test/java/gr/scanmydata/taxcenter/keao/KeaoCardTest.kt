@@ -28,12 +28,12 @@ class KeaoCardTest {
       "retrievedAt": "2026-09-17T08:00:00.000Z",
       "carriers": [
         {
-          "Amo": "3143975",
+          "Amo": "1000001",
           "CarrierDescr": "Ληξιπρόθεσμο - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ",
-          "CarrierAm": "9310464020",
+          "CarrierAm": "9000000001",
           "CompanyName": "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ",
           "DeptorTransactions": {
-            "DeptorID": "RF09902208120000003143975",
+            "DeptorID": "RF00000000000000001000001",
             "BranchName": "ΚΕΑΟ ΑΘΗΝΩΝ",
             "Debits": {
               "Debit": "4.200,00", "Credit": "1.200,00", "Deleted": "0,00",
@@ -44,7 +44,7 @@ class KeaoCardTest {
             "Regulated": {
               "RegulatedData": [
                 {
-                  "Branch": "3000000444", "ResolutionInfo": "137612 07/02/2026",
+                  "Branch": "3000000444", "ResolutionInfo": "500001 07/02/2026",
                   "RegulatePrimary": "2.500,00", "Additional": "300,00", "Interest": "200,00",
                   "Total": "3.000,00",
                   "ResolutionType": "66 Ν.4152/13 ΠΑΡ.ΙΑ.ΙΑ1 ΠΑΓΙΑ ΡΥΘΜΙΣΗ",
@@ -81,12 +81,12 @@ class KeaoCardTest {
           }
         },
         {
-          "Amo": "5546808",
+          "Amo": "1000002",
           "CarrierDescr": "Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ",
-          "CarrierAm": "9310464020",
+          "CarrierAm": "9000000001",
           "CompanyName": "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ",
           "DeptorTransactions": {
-            "DeptorID": "RF28902208120000005546808",
+            "DeptorID": "RF00000000000000001000002",
             "BranchName": "ΚΕΑΟ ΠΕΙΡΑΙΑ",
             "Debits": { "Debit": "800,00", "Credit": "800,00", "Balance": "0,00",
                         "Reduction": "", "Deleted": "", "DebitData": [] },
@@ -122,10 +122,10 @@ class KeaoCardTest {
     fun `διαβάζονται όλοι οι φορείς με την ταυτότητα οφειλέτη τους`() {
         val carriers = KeaoCard.parse(sample)
         assertEquals(2, carriers.size)
-        assertEquals("RF09902208120000003143975", carriers[0].debtorId)
+        assertEquals("RF00000000000000001000001", carriers[0].debtorId)
         assertEquals("ΚΕΑΟ ΑΘΗΝΩΝ", carriers[0].branch)
         assertEquals("3.000,00", carriers[0].totals.balance)
-        assertEquals("RF28902208120000005546808", carriers[1].debtorId)
+        assertEquals("RF00000000000000001000002", carriers[1].debtorId)
     }
 
     /**
@@ -165,10 +165,10 @@ class KeaoCardTest {
         val reports = reports(KeaoCard.SCOPE_REGULATED)
         assertEquals(2, reports.size)
         // Με τον ΑΜΟ και όχι με τον ΑΜ: οι δύο φορείς μοιράζονται τον ίδιο ΑΜ.
-        assertEquals("KEAO_KARTELA_123456783_3143975.pdf", reports[0].fileName)
-        assertEquals("KEAO_KARTELA_123456783_5546808.pdf", reports[1].fileName)
-        assertEquals("RF09902208120000003143975", reports[0].debtorId)
-        assertEquals("RF28902208120000005546808", reports[1].debtorId)
+        assertEquals("KEAO_KARTELA_123456783_1000001.pdf", reports[0].fileName)
+        assertEquals("KEAO_KARTELA_123456783_1000002.pdf", reports[1].fileName)
+        assertEquals("RF00000000000000001000001", reports[0].debtorId)
+        assertEquals("RF00000000000000001000002", reports[1].debtorId)
         // Και ο ΑΜ όντως συμπίπτει: αυτό ακριβώς εξαφάνιζε την καρτέλα ΤΕΚΑ.
         assertEquals(
             reports[0].identity.toMap()["Αριθμός Μητρώου"],
@@ -182,7 +182,7 @@ class KeaoCardTest {
         val facts = report.identity.toMap()
         assertEquals("ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ", facts["Φορέας"])
         assertEquals("Ληξιπρόθεσμο", facts["Κατηγορία"])
-        assertEquals("3143975", facts["ΑΜΟ"])
+        assertEquals("1000001", facts["ΑΜΟ"])
         assertTrue(report.summary.any { it.first == "Υπόλοιπο" && it.second == "3.000,00" })
         assertTrue(report.footer.any { it.contains("17/09/2026") })
     }
@@ -231,17 +231,17 @@ class KeaoCardTest {
         )
 
         val regulation = regulations().single()
-        assertEquals("KEAO_RYTHMISI_123456783_3143975_137612.pdf", regulation.fileName)
+        assertEquals("KEAO_RYTHMISI_123456783_1000001_500001.pdf", regulation.fileName)
         assertEquals("Δοσολόγιο ρύθμισης ΚΕΑΟ", regulation.title)
         // Πληρώνεται με την ταυτότητα του φορέα της — ίδια με της καρτέλας.
-        assertEquals("RF09902208120000003143975", regulation.debtorId)
-        assertEquals("3143975", regulation.identity.toMap()["ΑΜΟ"])
+        assertEquals("RF00000000000000001000001", regulation.debtorId)
+        assertEquals("1000001", regulation.identity.toMap()["ΑΜΟ"])
         assertEquals("1.500,00", regulation.summary.toMap()["Υπόλοιπο"])
         assertEquals("250,00", regulation.summary.toMap()["Καταβλήθηκαν"])
 
         val facts = regulation.sections.first { it.caption == "Στοιχεία ρύθμισης" }.facts.toMap()
         assertTrue(facts["Ρύθμιση"]!!.contains("ΠΑΓΙΑ ΡΥΘΜΙΣΗ"))
-        assertEquals("137612 07/02/2026", facts["Αρ. / ημ. απόφασης"])
+        assertEquals("500001 07/02/2026", facts["Αρ. / ημ. απόφασης"])
         assertEquals("31/03/2026", facts["Τελευταία δόση"])
         assertEquals("1 πληρωμένες από 3", facts["Δόσεις"])
         assertEquals("28/02/2026 · 250,00", facts["Επόμενη δόση"])
@@ -293,7 +293,7 @@ class KeaoCardTest {
     fun `φορέας χωρίς ρυθμίσεις δεν βγάζει κενές ενότητες`() {
         val teka = reports(KeaoCard.SCOPE_ALL)[1]
         assertTrue(teka.sections.isEmpty())
-        assertEquals("RF28902208120000005546808", teka.debtorId)
+        assertEquals("RF00000000000000001000002", teka.debtorId)
     }
 
     // ------------------------------------------------------------ μητρώα
@@ -301,17 +301,17 @@ class KeaoCardTest {
     @Test
     fun `τα μητρώα της προηγούμενης λήψης προσφέρονται για επιλογή`() {
         val registries = KeaoCard.registries(KeaoCard.parse(sample))
-        assertEquals(listOf("3143975", "5546808"), registries.map { it.key })
+        assertEquals(listOf("1000001", "1000002"), registries.map { it.key })
         assertEquals("ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΤΕΚΑ", registries[1].title)
     }
 
     @Test
     fun `με επιλογή μητρώου βγαίνουν μόνο τα έντυπά του`() {
-        val only = all(KeaoCard.SCOPE_REGULATED, only = listOf("5546808"))
-        assertEquals(listOf("KEAO_KARTELA_123456783_5546808.pdf"), only.map { it.fileName })
+        val only = all(KeaoCard.SCOPE_REGULATED, only = listOf("1000002"))
+        assertEquals(listOf("KEAO_KARTELA_123456783_1000002.pdf"), only.map { it.fileName })
 
         // Ο Αρ. Μητρώου είναι κοινός στους δύο φορείς — και τους φέρνει και τους δύο.
-        val byAm = all(KeaoCard.SCOPE_REGULATED, only = listOf("9310464020"))
+        val byAm = all(KeaoCard.SCOPE_REGULATED, only = listOf("9000000001"))
         assertEquals(3, byAm.size)
 
         // Χωρίς επιλογή: όλα, καρτέλες και ρυθμίσεις.

@@ -137,7 +137,7 @@ object DocumentCatalog {
      */
     const val KEAO_REGISTRIES = "amo"
 
-    /** «3143975, 5546808» -> λίστα, χωρίς κενά και διπλά. */
+    /** «1000001, 1000002» -> λίστα, χωρίς κενά και διπλά. */
     fun registries(raw: String): List<String> =
         raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 

@@ -41,6 +41,9 @@ enum class TemplateKind(val title: String) {
      * του email και αυτό εδώ δεν χρησιμοποιείται καθόλου.
      */
     VIBER("Πρότυπο — αποστολή με Viber"),
+
+    /** Το μήνυμα οφειλής της καρτέλας «Οφειλές» — ίδιο για SMS και Viber. */
+    DEBT("Πρότυπο — μήνυμα οφειλής"),
 }
 
 /**
@@ -64,6 +67,7 @@ fun TemplateEditorDialog(
             TemplateKind.CREDENTIALS -> store.credentials
             TemplateKind.DOCUMENTS -> store.documents
             TemplateKind.VIBER -> store.viber
+            TemplateKind.DEBT -> store.debt
         }
     }
 
@@ -113,14 +117,26 @@ fun TemplateEditorDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = subject,
-                    onValueChange = { subject = it },
-                    label = { Text("Θέμα") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
+                if (kind == TemplateKind.DEBT) {
+                    Text(
+                        "Ένα μήνυμα για SMS και Viber. Κάθε γραμμή που ανοίγεις μεγαλώνει " +
+                            "το μήνυμα: ένα SMS με ελληνικά χωρά 70 χαρακτήρες ανά τμήμα.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                } else {
+                    // Το μήνυμα οφειλής δεν έχει θέμα: ούτε το SMS ούτε το Viber
+                    // το δείχνουν πουθενά.
+                    OutlinedTextField(
+                        value = subject,
+                        onValueChange = { subject = it },
+                        label = { Text("Θέμα") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = intro,
                     onValueChange = { intro = it },
@@ -150,7 +166,7 @@ fun TemplateEditorDialog(
                         Text(
                             "${MailTemplateStore.PLACEHOLDER_NAME} — η επωνυμία του πελάτη\n" +
                                 "${MailTemplateStore.PLACEHOLDER_AFM} — το ΑΦΜ του" +
-                                if (kind != TemplateKind.CREDENTIALS) {
+                                if (kind == TemplateKind.DOCUMENTS || kind == TemplateKind.VIBER) {
                                     "\n${MailTemplateStore.PLACEHOLDER_COUNT} — πλήθος συνημμένων"
                                 } else {
                                     ""
@@ -185,6 +201,24 @@ fun TemplateEditorDialog(
                             "Η προειδοποίηση ασφαλείας στα μηνύματα με κωδικούς δεν " +
                                 "απενεργοποιείται: είναι η μόνη ένδειξη που παίρνει ο " +
                                 "πελάτης ότι κρατά κάτι που πρέπει να σβήσει.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        )
+                    }
+
+                    TemplateKind.DEBT -> {
+                        MailTemplateStore.DebtField.entries.forEach { field ->
+                            FieldSwitch(
+                                label = field.label,
+                                checked = field.key in fields,
+                                warning = "",
+                                onToggle = { toggle(field.key) },
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Η δόση που γράφεται είναι η παλαιότερη απλήρωτη. Όπου η " +
+                                "οφειλή δεν έχει δόσεις, γράφεται ολόκληρο το υπόλοιπο.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                         )
@@ -225,6 +259,7 @@ fun TemplateEditorDialog(
                         store.viberOwnText = ownText
                         if (ownText) store.viber = updated
                     }
+                    TemplateKind.DEBT -> store.debt = updated
                 }
                 onDismiss()
             }) { Text("Αποθήκευση") }
@@ -240,6 +275,7 @@ fun TemplateEditorDialog(
                             store.resetViber()
                             store.viberOwnText = false
                         }
+                        TemplateKind.DEBT -> store.resetDebt()
                     }
                     onDismiss()
                 }) { Text("Επαναφορά") }

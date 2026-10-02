@@ -107,6 +107,7 @@ fun SettingsScreen(
     var groupFetch by remember { mutableStateOf(settings.groupFetchByClient) }
     var theme by remember { mutableStateOf(settings.themeVariant) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var debtSummary by remember { mutableStateOf(debtWatchSummary(settings)) }
     var diagnosticsStatus by remember { mutableStateOf("") }
 
     // Ο σύνδεσμος που δείχνει ο κώδικας QR. Ξεκινά από τη σελίδα των εκδόσεων
@@ -297,6 +298,19 @@ fun SettingsScreen(
                     "Άνοιξέ το μόνο αν θέλεις να διαφέρει.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
+        }
+
+        SettingsSection(
+            title = "Οφειλές",
+            summary = debtSummary,
+            open = openSection,
+            onOpen = { openSection = it },
+        ) {
+            DebtWatchSettings(
+                container = container,
+                onEditTemplate = { editingTemplate = TemplateKind.DEBT },
+                onChanged = { debtSummary = debtWatchSummary(settings) },
             )
         }
 

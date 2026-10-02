@@ -10,6 +10,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.RunLogEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import gr.scanmydata.taxcenter.aade.DebtSchedule
+import gr.scanmydata.taxcenter.debts.DebtsRefresh
 import gr.scanmydata.taxcenter.doc.Fonts
 import gr.scanmydata.taxcenter.doc.PdfFile
 import gr.scanmydata.taxcenter.keao.KeaoCard
@@ -270,19 +271,30 @@ class ProcessRunner(
      * JSON είναι γραμμένο· ο καλών τυλίγει την κλήση σε `runCatching`.
      */
     private fun renderReports(job: Job, outDir: File) {
+        // Ενημέρωση καρτέλας οφειλών: θέλει τα δεδομένα, όχι έντυπα. Τα μητρώα
+        // του ΚΕΑΟ τα σημειώνουμε ούτως ή άλλως — είναι γνώση, όχι έγγραφο.
+        if (job.extraInputs.containsKey(DebtsRefresh.DATA_ONLY)) {
+            if (job.configId == "keao-debts") rememberRegistries(outDir)
+            return
+        }
         when (job.configId) {
             "keao-debts" -> keaoCards(job, outDir)
             "aade-debts" -> debtSchedules(job, outDir)
         }
     }
 
-    private fun keaoCards(job: Job, outDir: File) {
+    private fun rememberRegistries(outDir: File): List<KeaoCard.Carrier> {
         val source = outDir.listFiles()
             ?.firstOrNull { it.name.startsWith("KEAO_ofeiles_") && it.name.endsWith(".json") }
-            ?: return
+            ?: return emptyList()
         val carriers = KeaoCard.parse(source.readText(Charsets.UTF_8))
+        if (carriers.isNotEmpty()) KeaoHistory.remember(outDir, KeaoCard.registries(carriers))
+        return carriers
+    }
+
+    private fun keaoCards(job: Job, outDir: File) {
+        val carriers = rememberRegistries(outDir)
         if (carriers.isEmpty()) return
-        KeaoHistory.remember(outDir, KeaoCard.registries(carriers))
         val reports = KeaoCard.reports(
             carriers = carriers,
             clientName = job.client.displayName,

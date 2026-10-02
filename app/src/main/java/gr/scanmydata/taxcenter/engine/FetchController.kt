@@ -73,6 +73,14 @@ class FetchController(
         val files: List<String> = emptyList(),
         /** Η λήψη πέτυχε αλλά η αυτόματη αποστολή όχι — άλλο πράγμα από αποτυχία. */
         val sendFailed: Boolean = false,
+        /**
+         * Ο λόγος αποτυχίας **όπως τον έδωσε ο engine** (`InvalidCredentials`…).
+         *
+         * Το [detail] είναι κείμενο για άνθρωπο και αλλάζει διατύπωση· αυτό
+         * είναι για κώδικα. Το χρειάζεται η αυτόματη ενημέρωση οφειλών, που
+         * πρέπει να ξεχωρίζει τους λάθος κωδικούς από ένα timeout της πύλης.
+         */
+        val reason: String = "",
     ) {
         val key: String get() = "$afm/$configId/$configTitle"
     }
@@ -307,6 +315,7 @@ class FetchController(
                         },
                         fileCount = pdfs,
                         files = outcome.files.filter { it.endsWith(".pdf", ignoreCase = true) },
+                        reason = if (status == Status.FAILED) outcome.reason else "",
                     )
                 }
                 if (autoSendToken != null) autoSend(autoSendToken, plans, startedAt, autoSendTo)
@@ -664,6 +673,7 @@ class FetchController(
         detail: String,
         fileCount: Int = 0,
         files: List<String> = emptyList(),
+        reason: String = "",
     ) {
         val items = _state.value.items.toMutableList()
         if (index !in items.indices) return
@@ -672,6 +682,7 @@ class FetchController(
             detail = detail,
             fileCount = fileCount,
             files = files,
+            reason = reason,
         )
         _state.value = _state.value.copy(items = items)
     }
@@ -916,6 +927,9 @@ class FetchController(
                 "Κανένα από τα μητρώα που διάλεξες δεν υπάρχει πια στο ΚΕΑΟ για αυτόν " +
                     "τον πελάτη. Δοκίμασε με «Όλα τα μητρώα»."
             "NoYear" -> "Δεν επιλέχθηκε έτος."
+            "NoKeaoLink" ->
+                "Ο λογαριασμός e-ΕΦΚΑ του πελάτη δεν δείχνει την Ηλεκτρονική " +
+                    "Πλατφόρμα Οφειλετών ΚΕΑΟ."
             else -> reason
         }
 

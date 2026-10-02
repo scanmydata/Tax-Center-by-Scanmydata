@@ -724,10 +724,10 @@ const TRO_PAGE = `<html><body>
   </form>
   <input type="button" name="printPayment" value="Εκτύπωση"
     onclick="doViewArrPdf(document.viewArrPdf, 9776, 1,
-    2026, 9275134);" class="navbtn" />
+    2026, 7000001);" class="navbtn" />
   <input type="button" name="printPaymentNoAmnt" value="Εκτύπωση χωρίς Ποσά"
     onclick="doViewArrPdf(document.viewNoValuesArrPdf, 9776, 1,
-    2026, 9275134);" class="navbtn" />
+    2026, 7000001);" class="navbtn" />
   </body></html>`;
 
 check('η ταυτότητα ρύθμισης τυπώνεται με doViewArrPdf, όχι με doViewPdf', () => {
@@ -744,7 +744,7 @@ check('η ταυτότητα ρύθμισης τυπώνεται με doViewArrP
   assert(pf.fields.arnDoy === '9776', `arnDoy: ${pf.fields.arnDoy}`);
   assert(pf.fields.arnDept === '1', `arnDept: ${pf.fields.arnDept}`);
   assert(pf.fields.arnYear === '2026', `arnYear: ${pf.fields.arnYear}`);
-  assert(pf.fields.arrAA === '9275134', `arrAA: ${pf.fields.arrAA}`);
+  assert(pf.fields.arrAA === '7000001', `arrAA: ${pf.fields.arrAA}`);
 });
 
 check('από τις δύο φόρμες κρατιέται αυτή ΜΕ τα ποσά', () => {
@@ -769,8 +769,8 @@ check('ο κωδικός πληρωμής διαβάζεται από το κε�
   assert(code === '123456783 900000001 200000000001', `code: ${code}`);
   // Ταυτότητα ΚΕΑΟ (RF…) εξακολουθεί να πιάνεται.
   const rf = vm.runInContext(
-    `paymentCode('<div>RF09902208120000003143975</div>', strip)`, debtsCtx);
-  assert(rf === 'RF09902208120000003143975', `rf: ${rf}`);
+    `paymentCode('<div>RF00000000000000001000001</div>', strip)`, debtsCtx);
+  assert(rf === 'RF00000000000000001000001', `rf: ${rf}`);
   assert(vm.runInContext(`paymentCode('<div>τίποτα</div>', strip)`, debtsCtx) === null, 'χωρίς κωδικό -> null');
 });
 
@@ -798,6 +798,19 @@ check('οι κρυφοί πίνακες δόσεων διαβάζονται χω
   assert(gen['0'].rows[0][1] === '2', JSON.stringify(gen['0'].rows));
 });
 
+check('το aade-debts δηλώνει τη λειτουργία «μόνο δεδομένα»', () => {
+  // Η καρτέλα οφειλών ενημερώνεται με `pdf=όχι`. Αν το input χαθεί από το
+  // config, η εφαρμογή θα συνεχίσει να το στέλνει και ο runner να το αγνοεί —
+  // και κάθε αυτόματη ενημέρωση θα κατέβαζε ξανά όλα τα PDF.
+  const cfg = vm.runInContext(
+    `__preload('aade-debts', ${JSON.stringify(debtsSrc)}), require('aade-debts')`,
+    ctx, { filename: 'aade-debts.js' },
+  );
+  const pdf = cfg.inputs.find((i) => i.key === 'pdf');
+  assert(pdf && pdf.optional, 'λείπει το προαιρετικό input pdf');
+  assert(/wantPdf/.test(debtsSrc) && /if \(!wantPdf\)/.test(debtsSrc), 'το pdf δεν ελέγχεται στη ροή');
+});
+
 console.log('\nkeao-debts.js — επιλογή μητρώων\n');
 
 /*
@@ -810,19 +823,19 @@ const keaoCfg = vm.runInContext(
   ctx, { filename: 'keao-debts.js' },
 );
 const keaoStrip = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-const CARRIER_ROW = '<td role="gridcell"> 3143975 </td><td>Ληξιπρόθεσμο - ΕΦΚΑ</td>' +
-  '<td><span>9310464020</span></td><td>ΕΠΩΝΥΜΙΑ</td><td><button id="amoForm:dt-table:0:b"></button></td>';
+const CARRIER_ROW = '<td role="gridcell"> 1000001 </td><td>Ληξιπρόθεσμο - ΕΦΚΑ</td>' +
+  '<td><span>9000000001</span></td><td>ΕΠΩΝΥΜΙΑ</td><td><button id="amoForm:dt-table:0:b"></button></td>';
 
 check('χωρίς επιλογή μητρώων κατεβαίνουν όλοι οι φορείς', () => {
   assert(keaoCfg.carrierWanted(CARRIER_ROW, [], keaoStrip) === true, 'κενή λίστα = όλοι');
 });
 
 check('το μητρώο επιλέγεται με ΑΜΟ ή με Αρ. Μητρώου', () => {
-  assert(keaoCfg.carrierWanted(CARRIER_ROW, ['3143975'], keaoStrip), 'ΑΜΟ');
-  assert(keaoCfg.carrierWanted(CARRIER_ROW, ['9310464020'], keaoStrip), 'Αρ. Μητρώου');
-  assert(!keaoCfg.carrierWanted(CARRIER_ROW, ['5546808'], keaoStrip), 'άλλος ΑΜΟ δεν περνά');
-  // Όχι substring: ο ΑΜΟ 314397 δεν είναι ο 3143975.
-  assert(!keaoCfg.carrierWanted(CARRIER_ROW, ['314397'], keaoStrip), 'μέρος αριθμού δεν περνά');
+  assert(keaoCfg.carrierWanted(CARRIER_ROW, ['1000001'], keaoStrip), 'ΑΜΟ');
+  assert(keaoCfg.carrierWanted(CARRIER_ROW, ['9000000001'], keaoStrip), 'Αρ. Μητρώου');
+  assert(!keaoCfg.carrierWanted(CARRIER_ROW, ['1000002'], keaoStrip), 'άλλος ΑΜΟ δεν περνά');
+  // Όχι substring: ο ΑΜΟ 100000 δεν είναι ο 1000001.
+  assert(!keaoCfg.carrierWanted(CARRIER_ROW, ['100000'], keaoStrip), 'μέρος αριθμού δεν περνά');
 });
 
 console.log('\naade-enfia-http.js — ETAK χωρίς browser\n');

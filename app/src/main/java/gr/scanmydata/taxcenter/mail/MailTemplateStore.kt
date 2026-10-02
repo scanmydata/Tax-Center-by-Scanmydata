@@ -44,6 +44,23 @@ class MailTemplateStore(context: Context) {
         NOTE("note", "Σημείωμα της αποστολής"),
     }
 
+    /**
+     * Τι μπαίνει στο μήνυμα οφειλής (SMS ή Viber).
+     *
+     * Διακόπτες, όπως και στα υπόλοιπα πρότυπα — και εδώ με πρακτικό λόγο: ένα
+     * SMS με ελληνικά χωρά 70 χαρακτήρες ανά τμήμα, και κάθε γραμμή που δεν
+     * χρειάζεται ο πελάτης είναι τμήμα που χρεώνεται.
+     */
+    enum class DebtField(val key: String, val label: String) {
+        NAME("debt_name", "Ονομασία οφειλής"),
+        AMOUNT("debt_amount", "Ποσό δόσης"),
+        DUE("debt_due", "Ημερομηνία λήξης δόσης"),
+        CODE("debt_code", "Ταυτότητα οφειλής (κωδικός πληρωμής)"),
+        LATE("debt_late", "Ληξιπρόθεσμες δόσεις, όταν υπάρχουν"),
+        TOTAL("debt_total", "Συνολικό υπόλοιπο οφειλής"),
+        OFFICE("debt_office", "Όνομα γραφείου στο τέλος"),
+    }
+
     data class Template(
         val subject: String,
         val intro: String,
@@ -52,6 +69,7 @@ class MailTemplateStore(context: Context) {
     ) {
         fun has(field: CredentialField) = field.key in fields
         fun has(field: DocumentField) = field.key in fields
+        fun has(field: DebtField) = field.key in fields
     }
 
     var credentials: Template
@@ -89,6 +107,18 @@ class MailTemplateStore(context: Context) {
      */
     val viberEffective: Template
         get() = if (viberOwnText) viber else documents
+
+    /**
+     * Το μήνυμα οφειλής — ένα κείμενο για SMS **και** Viber.
+     *
+     * Δεν χωρίζεται ανά κανάλι: είναι το ίδιο σύντομο μήνυμα σε οθόνη
+     * τηλεφώνου, και δύο πρότυπα θα απέκλιναν χωρίς λόγο.
+     */
+    var debt: Template
+        get() = read(KEY_DEBT, DEFAULT_DEBT)
+        set(value) = write(KEY_DEBT, value)
+
+    fun resetDebt() = prefs.edit().remove(KEY_DEBT).apply()
 
     fun resetCredentials() = prefs.edit().remove(KEY_CREDENTIALS).apply()
 
@@ -130,6 +160,7 @@ class MailTemplateStore(context: Context) {
         private const val KEY_DOCUMENTS = "template_documents"
         private const val KEY_VIBER = "template_viber"
         private const val KEY_VIBER_OWN = "template_viber_own"
+        private const val KEY_DEBT = "template_debt"
 
         /** Διαθέσιμα placeholders, για την οθόνη επεξεργασίας. */
         const val PLACEHOLDER_NAME = "{{επωνυμία}}"
@@ -158,6 +189,26 @@ class MailTemplateStore(context: Context) {
                 DocumentField.COUNT.key,
                 DocumentField.AFM_IN_SUBJECT.key,
                 DocumentField.NOTE.key,
+            ),
+        )
+
+        /**
+         * Το προεπιλεγμένο μήνυμα οφειλής: ό,τι χρειάζεται ο πελάτης για να
+         * πληρώσει — τι, πόσο, μέχρι πότε, με ποιον κωδικό — και τίποτα άλλο.
+         *
+         * Το `subject` δεν φαίνεται στο μήνυμα· κρατιέται για το ημερολόγιο.
+         */
+        val DEFAULT_DEBT = Template(
+            subject = "Ενημέρωση οφειλών — ΑΦΜ $PLACEHOLDER_AFM",
+            intro = "$PLACEHOLDER_NAME, σας ενημερώνουμε για την πληρωμή:",
+            closing = "",
+            fields = setOf(
+                DebtField.NAME.key,
+                DebtField.AMOUNT.key,
+                DebtField.DUE.key,
+                DebtField.CODE.key,
+                DebtField.LATE.key,
+                DebtField.OFFICE.key,
             ),
         )
 

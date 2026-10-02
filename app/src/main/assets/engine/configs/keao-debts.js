@@ -121,6 +121,9 @@ module.exports = {
     let totalPages = 1, totalRows = 0, rowCounter = 0;
     const only = String(inp.amo || '').split(',').map(s => s.trim()).filter(Boolean);
     if (only.length) http.log('[keao] μόνο τα μητρώα: ' + only.join(', '));
+    // Το JSON λέει ΟΤΙ φιλτραρίστηκε: όποιος το διαβάσει αργότερα (καρτέλα οφειλών)
+    // πρέπει να ξέρει ότι δεν είναι η πλήρης εικόνα του οφειλέτη.
+    if (only.length) result.only = only;
 
     for (let inStep = 1; inStep <= totalPages; inStep++) {
       let page = await this.carrierPage(http, lib, KeaolandUrl, inStep, rowsPerPage);

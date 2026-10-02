@@ -139,6 +139,7 @@ module.exports = {
     { key: 'user', label: 'TAXISnet username', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
     { key: 'doseis', label: 'Να συμπεριληφθούν οι δόσεις; (ναι/όχι)', env: 'AADE_DOSEIS' },
+    { key: 'pdf', label: 'Λήψη PDF ταυτοτήτων; (ναι/όχι· όχι = μόνο δεδομένα στο JSON)', env: 'AADE_PDF', optional: true },
   ],
 
   async run(http, inp, lib) {
@@ -146,6 +147,10 @@ module.exports = {
     if (!L.ok) { http.log('AADE LOGIN FAILED: ' + L.reason); return { ok: false, reason: L.reason }; }
     const strip = lib.stripTags;
     const wantDoseis = /^(y|yes|ν|ναι|1|true)$/i.test((inp.doseis || '').trim()); // δόσεις optional
+    // «Μόνο δεδομένα»: η ταυτότητα (κωδικός πληρωμής) διαβάζεται από τη σελίδα της,
+    // αλλά ΔΕΝ κατεβαίνει PDF. Για ενημέρωση καρτέλας οφειλών που τρέχει συχνά: τα
+    // ονόματα των PDF κουβαλούν το ποσό, οπότε κάθε αλλαγή ποσού θα άφηνε νέο αρχείο.
+    const wantPdf = !/^(n|no|ο|οχι|όχι|0|false)$/i.test((inp.pdf || '').trim());
     const afm = (strip(L.page.text || '').match(/Α\.?Φ\.?Μ\.?\s*[:\-]?\s*(\d{9})/) || [])[1] || inp.user; // ΑΦΜ υπόχρεου
     const san = (s) => strip(String(s || '')).replace(/[€\s]+/g, '_').replace(/[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋΐΰ.,_\-]/g, '').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 70);
     const result = { portal: this.portal, afm, retrievedAt: new Date().toISOString(), sections: {} };
@@ -231,6 +236,7 @@ module.exports = {
               if (idx === 0) http.dump('to_' + p.key + '_sample.html', code.text);
               d.toCode = paymentCode(code.text, strip);
             }
+            if (!wantPdf) { idx++; continue; }
             // 2) press «Εκτύπωση» -> POST debtInfoPdf.htm (withoutAmounts=false) -> PDF
             const pdf = await http.postForPdf(new URL(BASE + 'debtInfoPdf.htm', L.AADE).toString(), { ...mch(d), withoutAmounts: 'false' });
             if (pdf) {
@@ -300,6 +306,7 @@ module.exports = {
             if (!code.text) { http.log('[' + p.key + '] ΤΡΟ σελίδα κενή για ρύθμιση ' + a.to.arrAA); continue; }
             if (!sampled) { http.dump('tro_arrangement_sample.html', code.text); sampled = true; }
             a.troCode = paymentCode(code.text, strip);
+            if (!wantPdf) continue;
             // Η σελίδα ΤΡΟ τυπώνει με `doViewArrPdf` -> `arrDebtInfoPdf.htm`, όχι
             // με το `doViewPdf` των οφειλών. Με το λάθος όνομα δεν βρισκόταν
             // κουμπί εκτύπωσης και η ρύθμιση έμενε **χωρίς ταυτότητα**, ενώ το

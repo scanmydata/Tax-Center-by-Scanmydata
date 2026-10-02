@@ -206,8 +206,8 @@ class DocumentCatalogTest {
         // Το κλειδί είναι αυτό που διαβάζει το config (`inp.amo`).
         assertEquals("amo", DocumentCatalog.KEAO_REGISTRIES)
         assertEquals(
-            listOf("3143975", "9310464020"),
-            DocumentCatalog.registries(" 3143975, ,9310464020,3143975 "),
+            listOf("1000001", "9000000001"),
+            DocumentCatalog.registries(" 1000001, ,9000000001,1000001 "),
         )
         assertTrue(DocumentCatalog.registries("").isEmpty())
     }

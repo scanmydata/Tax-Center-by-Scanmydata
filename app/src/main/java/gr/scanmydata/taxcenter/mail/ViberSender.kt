@@ -193,6 +193,68 @@ class ViberSender(
     }
 
     /**
+     * Παραδίδει **σκέτο κείμενο** στο Viber — το μήνυμα οφειλής.
+     *
+     * Ίδιος δρόμος με τα έντυπα και ίδιος περιορισμός: το Viber ανοίγει στην
+     * οθόνη «κοινή χρήση με…», ο αριθμός είναι στο πρόχειρο, και την επαφή τη
+     * διαλέγει άνθρωπος. Γι' αυτό καταγράφεται ως «παραδόθηκε».
+     *
+     * @param items τι αφορούσε το μήνυμα, μία γραμμή ανά οφειλή — για το ημερολόγιο.
+     */
+    suspend fun sendText(
+        client: ClientEntity,
+        to: String,
+        text: String,
+        subject: String,
+        items: List<String>,
+    ): SendEntity {
+        val now = System.currentTimeMillis()
+        val mobile = Normalize.mobile(to)
+        var status = SendEntity.STATUS_HANDED
+        var error = ""
+        try {
+            if (mobile.isBlank()) throw NoMobile(client.afm)
+            if (!installed()) throw NotInstalled()
+            copyToClipboard(Normalize.mobileE164(mobile))
+            context.startActivity(
+                shareIntent(Draft(mobile, text, subject, emptyList(), emptyList())),
+            )
+        } catch (e: ActivityNotFoundException) {
+            status = SendEntity.STATUS_FAILED
+            error = "Το Viber δεν δέχτηκε το μήνυμα."
+        } catch (e: Exception) {
+            status = SendEntity.STATUS_FAILED
+            error = e.message ?: e.toString()
+        }
+
+        val entry = SendEntity(
+            clientId = client.id,
+            afm = client.afm,
+            clientName = client.displayName,
+            toEmail = mobile,
+            subject = subject,
+            kind = SendEntity.KIND_VIBER_DEBTS,
+            items = items.joinToString("\n"),
+            itemCount = items.size,
+            sentAt = now,
+            status = status,
+            error = error,
+        )
+        val id = db.sends().log(entry)
+        db.audit().log(
+            AuditEntity(
+                ts = now,
+                action = if (status == SendEntity.STATUS_FAILED) "VIBER_FAILED" else "VIBER_HANDED",
+                afm = client.afm,
+                // Πλήθος και κανάλι — ποτέ ποσά ή κωδικοί πληρωμής στο αρχείο ενεργειών.
+                detail = "μήνυμα για ${items.size} οφειλές -> Viber $mobile" +
+                    if (error.isNotBlank()) " ($error)" else "",
+            ),
+        )
+        return entry.copy(id = id)
+    }
+
+    /**
      * Ανοίγει τη συνομιλία με **αυτόν** τον αριθμό, χωρίς να στείλει τίποτα.
      *
      * Χρησιμεύει για επαλήθευση πριν την αποστολή: ο διάλογος κοινοποίησης του

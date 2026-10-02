@@ -12,6 +12,7 @@ import gr.scanmydata.taxcenter.engine.ProcessRunner
 import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.google.DriveSync
 import gr.scanmydata.taxcenter.mail.MailService
+import gr.scanmydata.taxcenter.mail.SmsSender
 import gr.scanmydata.taxcenter.mail.ViberSender
 
 /**
@@ -38,6 +39,9 @@ class AppContainer(context: Context) {
      * το email φεύγει μόνο του, το Viber περνά υποχρεωτικά από άνθρωπο.
      */
     val viber: ViberSender by lazy { ViberSender(app, db, settings) }
+
+    /** Το τρίτο: μήνυμα οφειλής μέσα από την εφαρμογή μηνυμάτων της συσκευής. */
+    val sms: SmsSender by lazy { SmsSender(app, db) }
     val processRunner: ProcessRunner by lazy { ProcessRunner(app, db, crypto, assets, settings) }
 
     /**

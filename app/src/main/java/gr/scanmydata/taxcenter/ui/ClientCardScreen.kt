@@ -61,11 +61,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Η καρτέλα ενός πελάτη, σε τρεις όψεις.
+ * Η καρτέλα ενός πελάτη, σε τέσσερις όψεις.
  *
  * **Στοιχεία** — η φόρμα με τα διαπιστευτήρια και την άντληση από το Μητρώο.
  * **Έγγραφα** — τι έχει κατέβει, με άνοιγμα, αποστολή και διαγραφή.
  * **Αποστολές** — τι στάλθηκε, πότε και τι ακριβώς περιείχε.
+ * **Οφειλές** — τι χρωστά σε ΑΑΔΕ και ΚΕΑΟ, με τις δόσεις και τις ταυτότητες.
  *
  * Ήταν τρεις διαφορετικές οθόνες. Όταν ο πελάτης τηλεφωνεί και ρωτά «μου
  * στείλατε το Ε1;», η απάντηση χρειάζεται και τα τρία — και το να ψάχνεται σε
@@ -103,6 +104,11 @@ fun ClientCardScreen(
                 onClick = { UnsavedGuard.guard { tab = 2 } },
                 text = { Text("Αποστολές") },
             )
+            Tab(
+                selected = tab == 3,
+                onClick = { UnsavedGuard.guard { tab = 3 } },
+                text = { Text("Οφειλές") },
+            )
         }
         when (tab) {
             0 -> ClientEditScreen(
@@ -116,7 +122,12 @@ fun ClientCardScreen(
                 client = client,
                 onFetch = { onFetchFor(clientId) },
             )
-            else -> ClientSendsTab(container = container, clientId = clientId)
+            2 -> ClientSendsTab(container = container, clientId = clientId)
+            else -> ClientDebtsTab(
+                container = container,
+                client = client,
+                onFetch = { onFetchFor(clientId) },
+            )
         }
     }
 }
@@ -494,7 +505,7 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                                 if (send.failed) Icons.Filled.Error else Icons.Filled.CheckCircle,
                                 contentDescription = when {
                                     send.failed -> "Απέτυχε"
-                                    send.handed -> "Παραδόθηκε στο Viber"
+                                    send.handed -> "Παραδόθηκε στο " + send.channel
                                     else -> "Στάλθηκε"
                                 },
                                 tint = when {
@@ -506,9 +517,10 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                             )
                             Spacer(Modifier.size(8.dp))
                             Text(
-                                when (send.kind) {
-                                    SendEntity.KIND_CREDENTIALS -> "Στοιχεία & κωδικοί"
-                                    SendEntity.KIND_VIBER_DOCUMENTS -> "Φορολογικά έντυπα · Viber"
+                                when {
+                                    send.kind == SendEntity.KIND_CREDENTIALS -> "Στοιχεία & κωδικοί"
+                                    send.aboutDebts -> "Μήνυμα οφειλής · " + send.channel
+                                    send.viaViber -> "Φορολογικά έντυπα · Viber"
                                     else -> "Φορολογικά έντυπα"
                                 },
                                 style = MaterialTheme.typography.titleSmall,
@@ -521,13 +533,14 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                             )
                         }
                         Text(
-                            if (send.viaViber) "Κινητό " + send.toEmail else send.toEmail,
+                            if (send.toPhone) "Κινητό " + send.toEmail else send.toEmail,
                             style = MaterialTheme.typography.bodySmall,
                         )
                         if (send.handed) {
                             Text(
-                                "Παραδόθηκε στο Viber — η ίδια η αποστολή γίνεται " +
-                                    "από εκεί και δεν επιβεβαιώνεται εδώ.",
+                                (if (send.viaSms) "Παραδόθηκε στα Μηνύματα" else "Παραδόθηκε στο Viber") +
+                                    " — η ίδια η αποστολή γίνεται από εκεί και δεν " +
+                                    "επιβεβαιώνεται εδώ.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = WarnAmber,
                             )
@@ -537,8 +550,14 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                             Text(
                                 // Ίδια ονόματα με αυτά που είδε ο πελάτης στο
                                 // μήνυμα — αλλιώς οι δύο λίστες δεν συγκρίνονται.
+                                // Οι γραμμές ενός μηνύματος οφειλής είναι ήδη
+                                // κείμενο για άνθρωπο, όχι ονόματα αρχείων: μια
+                                // οφειλή που αρχίζει με «ΦΜΥ» θα «μεταφραζόταν»
+                                // σε όνομα εντύπου.
                                 send.items.lines().filter { it.isNotBlank() }
-                                    .joinToString("\n") { "• " + DocumentNaming.line(it) },
+                                    .joinToString("\n") {
+                                        "• " + if (send.aboutDebts) it else DocumentNaming.line(it)
+                                    },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                             )

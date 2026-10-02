@@ -141,7 +141,7 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
     val sends = remember(all, kindFilter, failedOnly, query) {
         val q = query.trim().lowercase()
         all.filter { send ->
-            (kindFilter.isBlank() || send.kind == kindFilter) &&
+            (kindFilter.isBlank() || matchesKind(send, kindFilter)) &&
                 (!failedOnly || send.failed) &&
                 (q.isBlank() || send.afm.contains(q) || send.clientName.lowercase().contains(q))
         }
@@ -222,9 +222,19 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     label = { Text("Στοιχεία") },
                 )
                 FilterChip(
-                    selected = kindFilter == SendEntity.KIND_VIBER_DOCUMENTS,
-                    onClick = { kindFilter = SendEntity.KIND_VIBER_DOCUMENTS },
+                    selected = kindFilter == FILTER_DEBTS,
+                    onClick = { kindFilter = FILTER_DEBTS },
+                    label = { Text("Οφειλές") },
+                )
+                FilterChip(
+                    selected = kindFilter == FILTER_VIBER,
+                    onClick = { kindFilter = FILTER_VIBER },
                     label = { Text("Viber") },
+                )
+                FilterChip(
+                    selected = kindFilter == FILTER_SMS,
+                    onClick = { kindFilter = FILTER_SMS },
+                    label = { Text("SMS") },
                 )
                 FilterChip(
                     selected = failedOnly,
@@ -389,6 +399,10 @@ private suspend fun retrySend(
         // επειδή ο πελάτης δεν διαβάζει email — και θα έβλεπε «στάλθηκε» για
         // μήνυμα που πήγε αλλού. Η επανάληψη γίνεται από την καρτέλα, όπου
         // φαίνεται ρητά το κανάλι.
+        send.aboutDebts ->
+            "Το μήνυμα οφειλής ξαναστέλνεται από την καρτέλα του πελάτη, στις " +
+                "Οφειλές — τα ποσά μπορεί να έχουν αλλάξει από τότε."
+
         send.viaViber ->
             "Η αποστολή με Viber επαναλαμβάνεται από την καρτέλα του πελάτη, " +
                 "στα Έγγραφα — χρειάζεται την ίδια τη συσκευή."
@@ -532,8 +546,10 @@ private fun SendRow(send: SendEntity, onRetry: (() -> Unit)? = null) {
             Text(
                 buildString {
                     append(
-                        when (send.kind) {
-                            SendEntity.KIND_CREDENTIALS -> "Στοιχεία πελάτη"
+                        when {
+                            send.kind == SendEntity.KIND_CREDENTIALS -> "Στοιχεία πελάτη"
+                            send.aboutDebts -> "Μήνυμα οφειλής · " + send.channel
+                            send.viaViber -> "Φορολογικά έντυπα · Viber"
                             else -> "Φορολογικά έντυπα"
                         },
                     )
@@ -592,4 +608,17 @@ private fun calendarDays(anchor: LocalDate, weekView: Boolean): List<LocalDate> 
     val last = month.atEndOfMonth().with(DayOfWeek.SUNDAY)
     val count = java.time.temporal.ChronoUnit.DAYS.between(first, last)
     return (0L..count).map(first::plusDays)
+}
+
+// Τα φίλτρα καναλιού δεν είναι τιμές του `kind`: το Viber και το SMS κόβουν
+// **κάθετα** τα είδη (έντυπα με Viber, μήνυμα οφειλής με Viber…).
+private const val FILTER_VIBER = "#viber"
+private const val FILTER_SMS = "#sms"
+private const val FILTER_DEBTS = "#debts"
+
+private fun matchesKind(send: SendEntity, filter: String): Boolean = when (filter) {
+    FILTER_VIBER -> send.viaViber
+    FILTER_SMS -> send.viaSms
+    FILTER_DEBTS -> send.aboutDebts
+    else -> send.kind == filter
 }

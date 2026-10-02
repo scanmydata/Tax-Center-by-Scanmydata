@@ -215,7 +215,9 @@ data class SendEntity(
     val subject: String,
     /**
      * DOCUMENTS = φορολογικά έντυπα με email · CREDENTIALS = οι κωδικοί του
-     * ίδιου του πελάτη · VIBER_DOCUMENTS = έντυπα που παραδόθηκαν στο Viber.
+     * ίδιου του πελάτη · VIBER_DOCUMENTS = έντυπα που παραδόθηκαν στο Viber ·
+     * VIBER_DEBTS / SMS_DEBTS = μήνυμα οφειλής που παραδόθηκε στο Viber ή
+     * στην εφαρμογή μηνυμάτων της συσκευής.
      */
     val kind: String,
     /** Ονόματα συνημμένων ή περιγραφή περιεχομένου, ένα ανά γραμμή. */
@@ -238,7 +240,23 @@ data class SendEntity(
      */
     val handed: Boolean get() = status == STATUS_HANDED
 
-    val viaViber: Boolean get() = kind == KIND_VIBER_DOCUMENTS
+    val viaViber: Boolean get() = kind == KIND_VIBER_DOCUMENTS || kind == KIND_VIBER_DEBTS
+
+    val viaSms: Boolean get() = kind == KIND_SMS_DEBTS
+
+    /** Ο παραλήπτης είναι **κινητό**, όχι διεύθυνση — βλ. [toEmail]. */
+    val toPhone: Boolean get() = viaViber || viaSms
+
+    /** Μήνυμα οφειλής και όχι έντυπα. */
+    val aboutDebts: Boolean get() = kind == KIND_VIBER_DEBTS || kind == KIND_SMS_DEBTS
+
+    /** Το κανάλι, όπως το λέμε στον χρήστη. */
+    val channel: String
+        get() = when {
+            viaViber -> "Viber"
+            viaSms -> "SMS"
+            else -> "email"
+        }
 
     companion object {
         const val STATUS_SENT = "SENT"
@@ -247,6 +265,8 @@ data class SendEntity(
         const val KIND_DOCUMENTS = "DOCUMENTS"
         const val KIND_VIBER_DOCUMENTS = "VIBER_DOCUMENTS"
         const val KIND_CREDENTIALS = "CREDENTIALS"
+        const val KIND_VIBER_DEBTS = "VIBER_DEBTS"
+        const val KIND_SMS_DEBTS = "SMS_DEBTS"
     }
 }
 

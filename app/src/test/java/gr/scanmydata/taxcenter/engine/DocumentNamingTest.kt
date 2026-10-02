@@ -32,18 +32,18 @@ class DocumentNamingTest {
     fun `η ρύθμιση ΚΕΑΟ δεν μπερδεύεται με την καρτέλα ούτε με τη ρύθμιση ΑΑΔΕ`() {
         assertEquals(
             "ΚΕΑΟ — δοσολόγιο ρύθμισης",
-            DocumentNaming.label("KEAO_RYTHMISI_999999999_3143975_137612.pdf"),
+            DocumentNaming.label("KEAO_RYTHMISI_999999999_1000001_500001.pdf"),
         )
         assertEquals(
             "ΚΕΑΟ — καρτέλα οφειλέτη ανά φορέα",
-            DocumentNaming.label("KEAO_KARTELA_999999999_3143975.pdf"),
+            DocumentNaming.label("KEAO_KARTELA_999999999_1000001.pdf"),
         )
         assertEquals(
             "Ταυτότητα ρυθμισμένης οφειλής",
             DocumentNaming.label("RYTHMISI_999999999_2025_12.pdf"),
         )
         // Ο αριθμός απόφασης δεν είναι έτος, ακόμη κι αν μοιάζει.
-        assertEquals("", DocumentNaming.yearIn("KEAO_RYTHMISI_999999999_3143975_2024.pdf"))
+        assertEquals("", DocumentNaming.yearIn("KEAO_RYTHMISI_999999999_1000001_2024.pdf"))
     }
 
     @Test
