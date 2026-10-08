@@ -31,3 +31,14 @@ captures/
 
 # --- Node (tools/) -----------------------------------------------------------
 node_modules/
+
+# --- iOS ---------------------------------------------------------------------
+# Το Xcode project και το Info.plist παράγονται από το ios/project.yml (XcodeGen).
+ios/*.xcodeproj/
+ios/TaxCenter/Info.plist
+ios/build/
+*.xcarchive/
+*.ipa
+*.mobileprovision
+*.cer
+xcuserdata/

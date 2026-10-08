@@ -1,0 +1,78 @@
+# Το Xcode project ΔΕΝ είναι στο git: το παράγει το XcodeGen από αυτό το αρχείο
+# (`xcodegen generate` μέσα στο ios/). Ένα .pbxproj γραμμένο με το χέρι, χωρίς
+# Mac για να ανοίξει, θα έσπαγε με τον πρώτο νέο φάκελο.
+name: TaxCenter
+
+options:
+  bundleIdPrefix: gr.scanmydata
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: el
+
+settings:
+  base:
+    # Swift 5 language mode: ο κώδικας γράφεται χωρίς Mac, και η αυστηρή
+    # ταυτόχρονη εκτέλεση της Swift 6 θέλει compiler μπροστά σου.
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  TaxCenter:
+    type: application
+    platform: iOS
+    sources:
+      - path: TaxCenter
+      # Ο ίδιος φάκελος που πακετάρει και το Android — ένα source of truth για
+      # τον engine. Μπαίνει στο bundle ως φάκελος «engine», αυτούσιος.
+      - path: ../app/src/main/assets/engine
+        type: folder
+        buildPhase: resources
+    info:
+      path: TaxCenter/Info.plist
+      properties:
+        CFBundleDisplayName: Tax Center
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: el
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSFaceIDUsageDescription: Το Face ID ξεκλειδώνει την εφαρμογή, ώστε τα στοιχεία των πελατών να μη φαίνονται σε όποιον πιάσει τη συσκευή.
+        # Μόνο η κρυπτογράφηση του ίδιου του συστήματος (HTTPS, Keychain).
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: gr.scanmydata.taxcenter
+        PRODUCT_NAME: TaxCenter
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+
+  TaxCenterTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TaxCenterTests
+    dependencies:
+      - target: TaxCenter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: gr.scanmydata.taxcenter.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  TaxCenter:
+    build:
+      targets:
+        TaxCenter: all
+        TaxCenterTests: [test]
+    test:
+      targets:
+        - TaxCenterTests

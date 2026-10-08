@@ -1,0 +1,144 @@
+name: iOS build
+
+# Η εφαρμογή iOS χτίζεται σε κάθε push, δίπλα στο APK: το `release.yml` καλεί
+# αυτό το workflow αφού βγει η έκδοση του Android και ανεβάζει το .ipa στο ίδιο
+# release.
+#
+# Το .ipa είναι **ανυπόγραφο**. Η Apple δεν επιτρέπει εγκατάσταση σε iPhone χωρίς
+# υπογραφή από λογαριασμό Apple Developer — δεν υπάρχει αντίστοιχο του «άγνωστες
+# πηγές» του Android. Όταν υπάρξει λογαριασμός, εδώ προστίθενται το πιστοποιητικό
+# και το provisioning profile ως secrets, και το build βγαίνει υπογεγραμμένο
+# (ή ανεβαίνει στο TestFlight).
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Το release στο οποίο ανεβαίνει το .ipa (κενό = δεν ανεβαίνει)
+        type: string
+        default: ''
+      version:
+        type: string
+        default: '0.2.0'
+      build:
+        type: string
+        default: '1'
+  # Κλαδί δοκιμών: χτίζει και τρέχει τα τεστ, χωρίς να αγγίζει releases.
+  push:
+    branches: [ios-wip]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ inputs.version || '0.2.0' }}
+      APP_BUILD: ${{ inputs.build || '1' }}
+      RELEASE_TAG: ${{ inputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: xcodebuild -version
+
+      # Το Xcode project δεν είναι στο git· παράγεται από το ios/project.yml.
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+
+      - name: Pick a simulator
+        run: |
+          UDID=$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"]))
+          best = None
+          for runtime, devices in data["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      key = (runtime, device["name"])
+                      if best is None or key > best[0]:
+                          best = (key, device["udid"])
+          print(best[1] if best else "")
+          PY
+          )
+          test -n "$UDID" || { echo "Δεν βρέθηκε προσομοιωτής iPhone"; exit 1; }
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl list devices available | grep "$UDID" || true
+
+      # Το ουσιώδες τεστ: ο ίδιος JS engine που τρέχει στο Android φορτώνεται
+      # στο κρυφό WKWebView και εκτελεί ένα ολόκληρο config από τη σύνδεση ώς
+      # το αρχείο, απέναντι σε ψεύτικη πύλη.
+      - name: Unit tests (engine on iOS simulator)
+        run: |
+          mkdir -p build
+          set -o pipefail
+          xcodebuild test \
+            -project ios/TaxCenter.xcodeproj \
+            -scheme TaxCenter \
+            -destination "platform=iOS Simulator,id=$SIM_UDID" \
+            -derivedDataPath build/DerivedData \
+            2>&1 | tee build/xcodebuild-test.log | { command -v xcbeautify >/dev/null && xcbeautify --quiet || cat; }
+
+      - name: Build unsigned archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project ios/TaxCenter.xcodeproj \
+            -scheme TaxCenter \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/TaxCenter.xcarchive \
+            -derivedDataPath build/DerivedData \
+            MARKETING_VERSION="$APP_VERSION" \
+            CURRENT_PROJECT_VERSION="$APP_BUILD" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build/xcodebuild-archive.log | { command -v xcbeautify >/dev/null && xcbeautify --quiet || cat; }
+
+      - name: Show compiler errors
+        if: failure()
+        run: |
+          for f in build/xcodebuild-test.log build/xcodebuild-archive.log; do
+            [ -f "$f" ] || continue
+            echo "=== $f"
+            grep -nE "error:|✗|failed|Executed [0-9]+ tests" "$f" | head -150 || true
+          done
+
+      - name: Package .ipa
+        run: |
+          APP=build/TaxCenter.xcarchive/Products/Applications/TaxCenter.app
+          # Χωρίς τον engine η εφαρμογή ανοίγει και δεν κατεβάζει τίποτα.
+          test -f "$APP/engine/shims.js"
+          test -f "$APP/engine/configs/aade-income.js"
+          mkdir -p build/Payload dist
+          cp -R "$APP" build/Payload/
+          NAME="TaxCenter-${RELEASE_TAG:-dev}-iOS-unsigned.ipa"
+          (cd build && zip -qry "../dist/$NAME" Payload)
+          ls -lh dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taxcenter-ios-${{ inputs.tag || 'dev' }}
+          path: dist/*.ipa
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-logs
+          path: build/*.log
+          if-no-files-found: ignore
+
+      - name: Attach to GitHub Release
+        if: ${{ inputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" dist/*.ipa --clobber
