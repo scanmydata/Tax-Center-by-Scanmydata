@@ -76,7 +76,12 @@ jobs:
       # Το ουσιώδες τεστ: ο ίδιος JS engine που τρέχει στο Android φορτώνεται
       # στο κρυφό WKWebView και εκτελεί ένα ολόκληρο config από τη σύνδεση ώς
       # το αρχείο, απέναντι σε ψεύτικη πύλη.
+      #
+      # Στην ίδια εκτέλεση γίνεται και ένας ζωντανός έλεγχος της μεταφοράς HTTP
+      # (LIVE_PORTAL_PROBE): η δημόσια πρώτη σελίδα κάθε πύλης, χωρίς σύνδεση.
       - name: Unit tests (engine on iOS simulator)
+        env:
+          TEST_RUNNER_LIVE_PORTAL_PROBE: '1'
         run: |
           mkdir -p build
           set -o pipefail
@@ -87,24 +92,15 @@ jobs:
             -derivedDataPath build/DerivedData \
             2>&1 | tee build/xcodebuild-test.log | { command -v xcbeautify >/dev/null && xcbeautify --quiet || cat; }
 
-      # Η πραγματική μεταφορά (URLSession) απέναντι στις πραγματικές πύλες: μόνο η
-      # δημόσια πρώτη σελίδα, χωρίς σύνδεση. Δείχνει αν το iOS δέχεται το TLS τους
-      # και αν η ανακατεύθυνση μένει στα χέρια του engine. Δεν ρίχνει το build —
-      # μια πύλη εκτός λειτουργίας δεν πρέπει να μπλοκάρει μια έκδοση.
+      # Δείχνει αν το iOS δέχεται το TLS των πυλών και αν η ανακατεύθυνση μένει
+      # στα χέρια του engine. Προειδοποίηση, ποτέ αποτυχία: μια πύλη εκτός
+      # λειτουργίας δεν πρέπει να μπλοκάρει μια έκδοση.
       - name: Live transport probe (public pages, no login)
-        continue-on-error: true
-        env:
-          TEST_RUNNER_LIVE_PORTAL_PROBE: '1'
         run: |
-          xcodebuild test-without-building \
-            -project ios/TaxCenter.xcodeproj \
-            -scheme TaxCenter \
-            -destination "platform=iOS Simulator,id=$SIM_UDID" \
-            -derivedDataPath build/DerivedData \
-            -only-testing:TaxCenterTests/LiveTransportTests \
-            > build/xcodebuild-live.log 2>&1 || true
-          grep -E "LIVE-PROBE|XCTAssert|error:|Executed [0-9]+ test" build/xcodebuild-live.log | sort -u | cut -c1-300
-          grep -q "LIVE-PROBE efka" build/xcodebuild-live.log
+          grep -o "LIVE-PROBE.*" build/xcodebuild-test.log | sort -u | cut -c1-200 || true
+          if ! grep -q "LIVE-PROBE OK" build/xcodebuild-test.log; then
+            echo "::warning title=iOS live probe::Ο ζωντανός έλεγχος της μεταφοράς HTTP δεν ολοκληρώθηκε — δες το log."
+          fi
 
       - name: Build unsigned archive
         run: |

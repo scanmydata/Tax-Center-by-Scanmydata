@@ -103,7 +103,8 @@ npm test                # τρέχει τον engine σε sandbox χωρίς Nod
 
 Δεν χρειάζεται Android Studio — το build γίνεται στο GitHub Actions. Κάθε push
 στο `main` παράγει APK + AAB και δημοσιεύει
-[release](https://github.com/scanmydata/Tax-Center-by-Scanmydata/releases).
+[release](https://github.com/scanmydata/Tax-Center-by-Scanmydata/releases). Στο
+ίδιο release προστίθεται και το `.ipa` του iOS — βλ. [iOS](#ios).
 
 Τοπικά:
 
@@ -115,6 +116,52 @@ gradle assembleRelease -PappVersionCode=1 -PappVersionName=0.1.0
 είναι στη θέση τους). Δες
 [docs/google-cloud.md](docs/google-cloud.md) για keystore, GitHub Secrets και
 στήσιμο του OAuth client.
+
+## iOS
+
+Ο φάκελος [`ios/`](ios/) είναι η εφαρμογή για iPhone και iPad. Χτίζεται στο ίδιο
+workflow: κάθε push στο `main` παράγει και ένα `.ipa`, που ανεβαίνει στο ίδιο
+release λίγα λεπτά μετά το APK.
+
+**Δεν είναι η ίδια εφαρμογή μεταγλωττισμένη αλλιώς.** Ο κώδικας του Android
+είναι Kotlin και δεν τρέχει σε iPhone. Αυτό που μοιράζονται οι δύο είναι το
+δυσκολότερο κομμάτι: ο JS engine που μιλά με τις πύλες
+(`app/src/main/assets/engine`) μπαίνει **αυτούσιος** στο bundle του iOS και
+τρέχει μέσα σε κρυφό `WKWebView`, όπως στο Android μέσα σε κρυφό `WebView`. Το
+περίβλημα — πελάτες, λήψη, έγγραφα — είναι γραμμένο από την αρχή σε SwiftUI.
+
+Τι έχει η πρώτη έκδοση:
+
+- πελάτες (καταχώρηση, διόρθωση, διαγραφή), με τους κωδικούς στο **Keychain**
+- λήψη εντύπων από ΑΑΔΕ και e-ΕΦΚΑ, με τον ίδιο κατάλογο και τα ίδια μηνύματα
+  («βρέθηκε / δεν βρέθηκε / δεν έγινε σύνδεση / κάτι χάλασε»)
+- έγγραφα ανά πελάτη: άνοιγμα, αποστολή από το φύλλο κοινοποίησης του iOS
+  (Mail, Viber, …), διαγραφή
+- κλείδωμα με Face ID / Touch ID / κωδικό συσκευής
+
+Τι **δεν** έχει ακόμη: εισαγωγή από Excel, αποστολή με Gmail και ημερολόγιο
+αποστολών, καρτέλα οφειλών και έντυπα ΚΕΑΟ, αιτήματα ΑΑΔΕ, αυτόματες
+ενημερώσεις, αντίγραφο στο Drive. Κάθε ένα είναι δουλειά μεταφοράς από Kotlin
+σε Swift, όχι ρύθμιση του build.
+
+**Εγκατάσταση.** Το `.ipa` είναι ανυπόγραφο. Η Apple δεν επιτρέπει εγκατάσταση
+σε iPhone χωρίς υπογραφή — δεν υπάρχει αντίστοιχο του «άγνωστες πηγές» του
+Android. Για να μπει σε συσκευή χρειάζεται λογαριασμός
+[Apple Developer](https://developer.apple.com/programs/) (99 $/έτος). Με αυτόν,
+το workflow μπορεί να υπογράφει το build και να το στέλνει στο TestFlight — το
+βήμα αυτό δεν έχει στηθεί ακόμη, γιατί θέλει το πιστοποιητικό του λογαριασμού.
+
+Το Xcode project δεν είναι στο git: παράγεται από το
+[`ios/project.yml`](ios/project.yml) με το [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Σε Mac:
+
+```bash
+cd ios && xcodegen generate && open TaxCenter.xcodeproj
+```
+
+Τα τεστ τρέχουν στο CI σε προσομοιωτή iPhone και φορτώνουν τον πραγματικό
+engine: ένα ολόκληρο config του runner εκτελείται από τη σύνδεση ώς το αρχείο,
+απέναντι σε ψεύτικη πύλη.
 
 ## Εικονίδια
 
