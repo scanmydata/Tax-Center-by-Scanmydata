@@ -26,7 +26,7 @@ struct EngineRunResult {
 @MainActor
 final class EngineHost {
 
-    static let defaultTimeout: TimeInterval = 10 * 60
+    nonisolated static let defaultTimeout: TimeInterval = 10 * 60
 
     private let assets: EngineAssets
     private let transport: HttpTransport

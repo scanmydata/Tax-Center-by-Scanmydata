@@ -1,4 +1,4 @@
-name: Build & Release APK
+name: Build & Release (Android + iOS)
 
 on:
   push:
@@ -16,6 +16,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      name: ${{ steps.version.outputs.name }}
+      code: ${{ steps.version.outputs.code }}
     env:
       # Σε step-level `if:` δεν επιτρέπονται τα secrets — γι' αυτό ανεβαίνει εδώ.
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -109,8 +113,19 @@ jobs:
           if [ -n "${KEYSTORE_PATH:-}" ]; then
             SIGNED_NOTE="✅ Release-signed με το production keystore."
           fi
+          IOS_NOTE="📱 iOS: το .ipa προστίθεται εδώ λίγα λεπτά μετά το APK. Είναι ανυπόγραφο — η Apple δεν επιτρέπει εγκατάσταση σε iPhone χωρίς υπογραφή από λογαριασμό Apple Developer."
           gh release create "${{ steps.version.outputs.tag }}" \
             dist/* \
             --title "ScanMyData Tax Center ${{ steps.version.outputs.tag }}" \
-            --notes "$(printf '%s\n\n%s\n\n%s' "Αυτόματο build από commit ${GITHUB_SHA:0:7}." "$SIGNED_NOTE" "$(git log -1 --pretty=%B)")" \
+            --notes "$(printf '%s\n\n%s\n\n%s\n\n%s' "Αυτόματο build από commit ${GITHUB_SHA:0:7}." "$SIGNED_NOTE" "$IOS_NOTE" "$(git log -1 --pretty=%B)")" \
             || gh release upload "${{ steps.version.outputs.tag }}" dist/* --clobber
+
+  # Η εφαρμογή iOS, στο ίδιο release. Τρέχει **μετά** το Android και χωριστά από
+  # αυτό: αν το build του iOS αποτύχει, το APK έχει ήδη δημοσιευτεί.
+  ios:
+    needs: build
+    uses: ./.github/workflows/ios.yml
+    with:
+      tag: ${{ needs.build.outputs.tag }}
+      version: ${{ needs.build.outputs.name }}
+      build: ${{ needs.build.outputs.code }}

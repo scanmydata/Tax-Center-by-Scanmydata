@@ -87,6 +87,25 @@ jobs:
             -derivedDataPath build/DerivedData \
             2>&1 | tee build/xcodebuild-test.log | { command -v xcbeautify >/dev/null && xcbeautify --quiet || cat; }
 
+      # Η πραγματική μεταφορά (URLSession) απέναντι στις πραγματικές πύλες: μόνο η
+      # δημόσια πρώτη σελίδα, χωρίς σύνδεση. Δείχνει αν το iOS δέχεται το TLS τους
+      # και αν η ανακατεύθυνση μένει στα χέρια του engine. Δεν ρίχνει το build —
+      # μια πύλη εκτός λειτουργίας δεν πρέπει να μπλοκάρει μια έκδοση.
+      - name: Live transport probe (public pages, no login)
+        continue-on-error: true
+        env:
+          TEST_RUNNER_LIVE_PORTAL_PROBE: '1'
+        run: |
+          xcodebuild test-without-building \
+            -project ios/TaxCenter.xcodeproj \
+            -scheme TaxCenter \
+            -destination "platform=iOS Simulator,id=$SIM_UDID" \
+            -derivedDataPath build/DerivedData \
+            -only-testing:TaxCenterTests/LiveTransportTests \
+            > build/xcodebuild-live.log 2>&1 || true
+          grep -E "LIVE-PROBE|XCTAssert|error:|Executed [0-9]+ test" build/xcodebuild-live.log | sort -u | cut -c1-300
+          grep -q "LIVE-PROBE efka" build/xcodebuild-live.log
+
       - name: Build unsigned archive
         run: |
           set -o pipefail
