@@ -212,7 +212,7 @@ final class FetchRunner: ObservableObject {
     // ---------------------------------------------------------------- αρχεία
 
     /// Όνομα -> (χρόνος τροποποίησης, μέγεθος) για κάθε αρχείο του φακέλου.
-    static func snapshot(_ directory: URL) -> [String: String] {
+    nonisolated static func snapshot(_ directory: URL) -> [String: String] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else { return [:] }
         var out: [String: String] = [:]
@@ -230,7 +230,7 @@ final class FetchRunner: ObservableObject {
 
     /// Ό,τι **γράφτηκε** σε αυτή την εκτέλεση — νέο αρχείο ή ξαναγραμμένο. Η
     /// δεύτερη λήψη του ίδιου εκκαθαριστικού γράφει στο ίδιο όνομα.
-    static func written(before: [String: String], after: [String: String]) -> [String] {
+    nonisolated static func written(before: [String: String], after: [String: String]) -> [String] {
         after.filter { before[$0.key] != $0.value }.map { $0.key }
     }
 }
