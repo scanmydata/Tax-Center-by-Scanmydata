@@ -55,6 +55,7 @@ object CredentialMap {
         // «Τα Αιτήματά μου» (which=REQUESTS). Τα υπόλοιπα είδη μηνυμάτων του
         // config έχουν δικά τους logins και δεν ζητούνται από την εφαρμογή.
         "easynotify" to TAXIS,
+        "aade-request" to TAXIS,
         "aade-email" to TAXIS,
         "aade-profile" to TAXIS,
 

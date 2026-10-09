@@ -90,6 +90,11 @@ object Debts {
          * config από την ίδια γραμμή.
          */
         val files: List<String> = emptyList(),
+        /**
+         * Ο φορέας του ΚΕΑΟ στον οποίο ανήκει η γραμμή — το υπόλοιπό του, ή
+         * μια ρύθμισή του. Κενό στην ΑΑΔΕ. Βλ. [Carrier].
+         */
+        val carrier: String = "",
     ) {
         val source: Source get() = group.source
 
@@ -111,6 +116,21 @@ object Debts {
         /** Το ποσό που μπαίνει στο μήνυμα: της δόσης, ή όλο το υπόλοιπο αν δεν έχει δόσεις. */
         val payable: String get() = next?.amount ?: total
     }
+
+    /**
+     * Ένας φορέας του ΚΕΑΟ, όπως τον διαλέγει ο λογιστής στην καρτέλα.
+     *
+     * Το ΚΕΑΟ δεν είναι ένας πιστωτής αλλά πολλοί κάτω από μία πύλη — ΕΦΚΑ,
+     * πρώην ΙΚΑ, ΤΕΚΑ — ο καθένας με δική του Ταυτότητα Οφειλέτη και δικές του
+     * ρυθμίσεις. Ο πελάτης που ρωτά «τι χρωστάω στο ΙΚΑ» δεν θέλει να ακούσει
+     * και τα υπόλοιπα.
+     *
+     * @param key σταθερό μέσα στο στιγμιότυπο· **όχι** ο ΑΜΟ, που δεν είναι
+     *   κάτι που χρειάζεται να κυκλοφορεί στην οθόνη ως αναγνωριστικό
+     * @param label το όνομα του φορέα· όταν δύο έχουν το ίδιο, μαζί με ό,τι τους ξεχωρίζει
+     * @param total το υπόλοιπο του φορέα, χωρίς το «€»
+     */
+    data class Carrier(val key: String, val label: String, val total: String)
 
     data class Snapshot(
         val lines: List<Line> = emptyList(),
@@ -147,6 +167,33 @@ object Debts {
 
         /** Άθροισμα υπολοίπων μιας ομάδας, σε ελληνική μορφή. */
         fun total(group: Group): String = Money.money(Money.sum(inGroup(group).map { it.total }))
+
+        /** Οι φορείς του ΚΕΑΟ, με τη σειρά της πύλης. */
+        val carriers: List<Carrier>
+            get() {
+                val own = inGroup(Group.KEAO_CARRIER).filter { it.carrier.isNotBlank() }
+                val repeated = own.groupingBy { it.title }.eachCount().filterValues { it > 1 }.keys
+                return own.map { line ->
+                    Carrier(
+                        key = line.carrier,
+                        // Ο ίδιος φορέας εμφανίζεται δύο φορές όταν έχει δύο
+                        // μητρώα ή δύο κατηγορίες· τότε το όνομα μόνο του δεν αρκεί.
+                        label = if (line.title in repeated && line.detail.isNotBlank()) {
+                            line.title + " · " + line.detail
+                        } else {
+                            line.title
+                        },
+                        total = line.total,
+                    )
+                }
+            }
+
+        /**
+         * Το υπόλοιπο του ΚΕΑΟ **μόνο** για τους φορείς [only] — ίδιος κανόνας
+         * με το [total]: μετρούν τα υπόλοιπα, όχι οι ρυθμίσεις.
+         */
+        fun keaoTotal(only: Set<String>): String =
+            Money.money(Money.sum(inGroup(Group.KEAO_CARRIER).filter { it.carrier in only }.map { it.total }))
 
         /** Το ληξιπρόθεσμο της ΑΑΔΕ, όπως το δίνει η πύλη ανά οφειλή. */
         val aadeOverdue: String
@@ -327,6 +374,7 @@ object Debts {
                 codeLabel = "Ταυτότητα Οφειλέτη",
                 code = c.debtorId,
                 files = if (afm.isBlank()) emptyList() else listOf(KeaoCard.fileName(afm, tag)),
+                carrier = "keao-$index",
             )
             c.regulated.filter { it.active }.forEachIndexed { n, r ->
                 val pending = r.pending.map { i ->
@@ -351,6 +399,7 @@ object Debts {
                             r.info.trim().split(Regex("\\s+")).firstOrNull().orEmpty().ifBlank { (n + 1).toString() },
                         ),
                     ),
+                    carrier = "keao-$index",
                 )
             }
         }

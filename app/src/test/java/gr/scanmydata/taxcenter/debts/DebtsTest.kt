@@ -232,6 +232,68 @@ class DebtsTest {
         assertTrue(Debts.keaoFilter("""{"carriers":[]}""").isEmpty())
     }
 
+    // ------------------------------------------------------- ΚΕΑΟ ανά φορέα
+
+    /** Δεύτερος φορέας πριν από τον πρώτο, χωρίς ρύθμιση. Συνθετικά στοιχεία. */
+    private fun withSecondCarrier(description: String) = keao.replace(
+        "\"carriers\": [",
+        "\"carriers\": [ { \"Amo\": \"1000002\", \"CarrierDescr\": \"$description\", " +
+            "\"CarrierAm\": \"9000000002\", \"DeptorTransactions\": { " +
+            "\"DeptorID\": \"RF00000000000000001000002\", \"Debits\": { \"Balance\": \"500,00\" } } },",
+    )
+
+    /**
+     * Το ΚΕΑΟ είναι πολλοί πιστωτές κάτω από μία πύλη. Η καρτέλα τους ανοίγει
+     * και τους κλείνει έναν-έναν, άρα κάθε γραμμή πρέπει να ξέρει σε ποιον
+     * ανήκει — και η ρύθμιση ανήκει στον φορέα της, όχι σε «όλο το ΚΕΑΟ».
+     */
+    @Test
+    fun `κάθε γραμμή ΚΕΑΟ ξέρει τον φορέα της`() {
+        val snapshot = Debts.Snapshot(lines = Debts.keao(withSecondCarrier("Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΜΙΣΘΩΤΟΙ ΤΕΚΑ")))
+        val carriers = snapshot.carriers
+        assertEquals(listOf("ΜΙΣΘΩΤΟΙ ΤΕΚΑ", "ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ"), carriers.map { it.label })
+        assertEquals(listOf("500,00", "3.000,00"), carriers.map { it.total })
+        assertEquals(2, carriers.map { it.key }.toSet().size)
+
+        val (teka, efka) = carriers
+        assertEquals("μόνο το υπόλοιπό του", 1, snapshot.lines.count { it.carrier == teka.key })
+        assertEquals("το υπόλοιπο και η ενεργή ρύθμισή του", 2, snapshot.lines.count { it.carrier == efka.key })
+        assertTrue("καμία γραμμή ΚΕΑΟ χωρίς φορέα", snapshot.lines.none { it.carrier.isBlank() })
+        // Στην ΑΑΔΕ δεν υπάρχει φορέας: ο διακόπτης δεν πρέπει να κρύψει ποτέ γραμμή της.
+        assertTrue(Debts.aade(aade).all { it.carrier.isBlank() })
+    }
+
+    /**
+     * Με κλειστό φορέα, το σύνολο που δείχνει η σύνοψη είναι **μόνο** των
+     * ανοιχτών — και πάντα υπόλοιπα, ποτέ υπόλοιπα συν ρυθμίσεις.
+     */
+    @Test
+    fun `το υπόλοιπο του ΚΕΑΟ βγαίνει και για μέρος των φορέων`() {
+        val snapshot = Debts.Snapshot(lines = Debts.keao(withSecondCarrier("Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΜΙΣΘΩΤΟΙ ΤΕΚΑ")))
+        val (teka, efka) = snapshot.carriers
+        assertEquals("3.500,00", snapshot.total(Debts.Source.KEAO))
+        assertEquals("3.500,00", snapshot.keaoTotal(setOf(teka.key, efka.key)))
+        assertEquals("500,00", snapshot.keaoTotal(setOf(teka.key)))
+        assertEquals("η ρύθμιση των 400 δεν προστίθεται", "3.000,00", snapshot.keaoTotal(setOf(efka.key)))
+        assertEquals("0,00", snapshot.keaoTotal(emptySet()))
+    }
+
+    /** Ο ίδιος φορέας με δύο μητρώα: το όνομα μόνο του δεν λέει ποιος είναι ποιος. */
+    @Test
+    fun `φορείς με το ίδιο όνομα ξεχωρίζουν από το μητρώο τους`() {
+        val same = "Ληξιπρόθεσμο - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ - ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ"
+        val labels = Debts.Snapshot(lines = Debts.keao(withSecondCarrier(same))).carriers.map { it.label }
+        assertEquals(2, labels.toSet().size)
+        assertTrue(labels[0], labels[0].endsWith("ΑΜΟ 1000002"))
+        assertTrue(labels[1], labels[1].endsWith("ΑΜΟ 1000001"))
+
+        // Ένας φορέας μόνος του δεν χρειάζεται διευκρίνιση.
+        assertEquals(
+            listOf("ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ"),
+            Debts.Snapshot(lines = Debts.keao(keao)).carriers.map { it.label },
+        )
+    }
+
     // ------------------------------------------------------------ στιγμιότυπο
 
     @Test

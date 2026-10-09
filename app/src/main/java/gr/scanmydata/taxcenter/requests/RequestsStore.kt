@@ -85,6 +85,55 @@ object RequestsStore {
         return left
     }
 
+    // ------------------------------------------------------- ένα αίτημα
+
+    /**
+     * Το πλήρες αίτημα [id], αν έχει κατέβει — βλ. [RequestDetail].
+     *
+     * Ζει σε **δικό του** φάκελο (`runs/<ΑΦΜ>/aade-request/`), μαζί με τα
+     * συνημμένα του, και σβήνεται με τον πελάτη όπως κάθε άλλη λήψη.
+     */
+    fun detail(filesDir: File, afm: String, id: String): RequestDetail.Detail? {
+        if (afm.isBlank() || id.isBlank()) return null
+        val file = File(detailDir(filesDir, afm), RequestDetail.fileName(id))
+        if (!file.isFile) return null
+        val detail = RequestDetail.parse(read(file)) ?: return null
+        // Το config γράφει την ώρα μέσα στο JSON· αν λείπει, μιλά το αρχείο.
+        return if (detail.retrievedAt > 0L) detail else detail.copy(retrievedAt = file.lastModified())
+    }
+
+    /** Ποια αιτήματα έχουν ήδη κατέβει ολόκληρα, και πόσα συνημμένα έχει το καθένα. */
+    fun downloaded(filesDir: File, afm: String): Map<String, Int> {
+        if (afm.isBlank()) return emptyMap()
+        val files = detailDir(filesDir, afm).listFiles() ?: return emptyMap()
+        val out = HashMap<String, Int>()
+        for (file in files) {
+            val m = DETAIL_FILE.matchEntire(file.name) ?: continue
+            val detail = RequestDetail.parse(read(file)) ?: continue
+            out[m.groupValues[1]] = detail.attachments.count { it.downloaded }
+        }
+        return out
+    }
+
+    /**
+     * Το αρχείο ενός συνημμένου, ή `null` όταν δεν υπάρχει στη συσκευή.
+     *
+     * Το όνομα έρχεται από JSON που έγραψε ο engine, όχι από τον χρήστη — αλλά
+     * ένα όνομα που θα έβγαινε από τον φάκελο δεν έχει λόγο να γίνει δεκτό.
+     */
+    fun attachment(filesDir: File, afm: String, saved: String): File? {
+        if (afm.isBlank() || saved.isBlank() || saved != FileBridge.sanitiseSegment(saved)) return null
+        if (!saved.startsWith(FileBridge.ATTACHMENT_PREFIX)) return null
+        return File(detailDir(filesDir, afm), saved).takeIf { it.isFile }
+    }
+
+    private val DETAIL_FILE = Regex("""AITIMA_(\d+)\.json""")
+
+    private fun detailDir(filesDir: File, afm: String): File = File(
+        filesDir,
+        "runs/${FileBridge.sanitiseSegment(afm)}/${FileBridge.sanitiseSegment(RequestDetail.CONFIG)}",
+    )
+
     // ------------------------------------------------------------ εσωτερικά
 
     /** `(γνωστά, αδιάβαστα)`. Τα γνωστά είναι `null` όταν δεν υπάρχει ακόμη μνήμη. */

@@ -95,6 +95,53 @@ object RequestsRefresh {
         return Result(Outcome.OK, changes, describe(changes))
     }
 
+    // ------------------------------------------------------- ένα αίτημα
+
+    /**
+     * Η εργασία που κατεβάζει **ολόκληρο** το αίτημα [id] με τα συνημμένα του.
+     *
+     * Δεν παράγει «έγγραφα»: τα συνημμένα μένουν μέσα στο αίτημα — βλ.
+     * [ProcessRunner] για το γιατί δεν μπαίνουν στη λίστα των εντύπων.
+     */
+    suspend fun detailPlan(repository: ClientRepository, client: ClientEntity, id: String): FetchController.Plan? {
+        if (FetchController.missingCredentials(repository, client, RequestDetail.CONFIG).isNotEmpty()) return null
+        return FetchController.Plan(
+            job = ProcessRunner.Job(
+                client = client,
+                configId = RequestDetail.CONFIG,
+                extraInputs = mapOf(RequestDetail.INPUT_ID to id),
+            ),
+            label = "Αίτημα ΑΑΔΕ — περιεχόμενο και συνημμένα",
+            producesDocuments = false,
+        )
+    }
+
+    /**
+     * Κατεβάζει το αίτημα [id]. Το αποτέλεσμα διαβάζεται μετά από τον δίσκο
+     * ([RequestsStore.detail]) — εδώ επιστρέφει μόνο το αν πέτυχε, και τι να
+     * πούμε αν όχι.
+     */
+    suspend fun fetchDetail(
+        fetch: FetchController,
+        repository: ClientRepository,
+        client: ClientEntity,
+        id: String,
+    ): Result {
+        val plan = detailPlan(repository, client, id)
+            ?: return Result(Outcome.MISSING, message = "Λείπουν οι κωδικοί TAXISnet του πελάτη.")
+        val items = DebtsRefresh.run(fetch, listOf(plan))
+            ?: return Result(Outcome.BUSY, message = DebtsRefresh.BUSY)
+        val item = items.firstOrNull()
+        if (item == null || item.status != FetchController.Status.OK) {
+            val rejected = item?.reason == REASON_BAD_CREDENTIALS
+            return Result(
+                if (rejected) Outcome.REJECTED else Outcome.FAILED,
+                message = item?.detail.orEmpty().ifBlank { "Η λήψη του αιτήματος δεν ολοκληρώθηκε." },
+            )
+        }
+        return Result(Outcome.OK)
+    }
+
     fun describe(changes: List<AadeRequests.Change>): String {
         val answered = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
         val moved = changes.size - answered

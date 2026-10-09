@@ -15,6 +15,7 @@ import gr.scanmydata.taxcenter.doc.Fonts
 import gr.scanmydata.taxcenter.doc.PdfFile
 import gr.scanmydata.taxcenter.keao.KeaoCard
 import gr.scanmydata.taxcenter.keao.KeaoHistory
+import gr.scanmydata.taxcenter.requests.RequestDetail
 import gr.scanmydata.taxcenter.ui.AthensDates
 import java.io.File
 
@@ -338,6 +339,10 @@ class ProcessRunner(
      * στέλνονται ποτέ με email.
      */
     private suspend fun recordDocuments(job: Job, dir: File, produced: Set<String>) {
+        // Τα συνημμένα ενός αιτήματος μένουν **μέσα στο αίτημα**. Ανάμεσά τους
+        // είναι ό,τι υπέβαλε ο πελάτης — ταυτότητες, συμβόλαια — και αν
+        // έμπαιναν στα «Έγγραφα» θα έφευγαν με την πρώτη μαζική αποστολή.
+        if (job.configId == RequestDetail.CONFIG) return
         val now = System.currentTimeMillis()
         for (name in produced) {
             if (!name.endsWith(".pdf", ignoreCase = true)) continue

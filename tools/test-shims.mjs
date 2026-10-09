@@ -945,5 +945,114 @@ await checkAsync('όταν το τμήμα των αιτημάτων σκάσε�
   assert(typeof out.aadeRequests === 'string' && out.aadeRequests.startsWith('ERR:'), JSON.stringify(out.aadeRequests));
 });
 
+console.log('\naade-request — ένα αίτημα, πλήρες, με τα συνημμένα του\n');
+
+// Το σχήμα του /fetch όπως επαληθεύτηκε ζωντανά (9 Οκτωβρίου 2026): messageFiles με
+// fileId αριθμό και fileOrigin «attachedFile» (του πολίτη) ή «internalFile» (της
+// υπηρεσίας). Το getMessageComm ήταν παντού [] — το σχήμα του εδώ είναι υπόθεση, και
+// γι' αυτό το config ψάχνει αρχεία σε οποιοδήποτε βάθος. Όλα τα στοιχεία συνθετικά.
+const PDF_A = Buffer.concat([Buffer.from('%PDF-1.4\n', 'latin1'), Buffer.from([0, 255, 128, 10, 13, 37])]);
+const PNG_B = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 3]);
+
+async function runRequest(inputs, { detail, comm, fileStatus } = {}) {
+  const base = aadeScenario({ goodCredentials: true });
+  const calls = [];
+  const json = (o, status = 200) => ({ status, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(o), 'utf8') });
+  const m = makeBridge((req) => {
+    if (!req.url.includes('/api/amsmsg/')) return base(req);
+    calls.push({ method: req.method, url: req.url, body: req.body, contentType: (req.headers || {})['Content-Type'] });
+    if (req.url.endsWith('/getUser')) return json({ userData: { userVat: '123456783' } });
+    if (req.url.endsWith('/fetch')) return detail ? json(detail(req.body)) : json({ error: 'not found' }, 404);
+    if (req.url.includes('/getMessageComm/')) return json(comm ?? []);
+    if (req.url.includes('/downloadFile/')) {
+      const id = req.url.split('/').pop();
+      if (fileStatus && fileStatus[id]) return { status: fileStatus[id], headers: {}, body: Buffer.alloc(0) };
+      return id === '9002'
+        ? { status: 200, headers: { 'content-type': 'image/png', 'content-disposition': 'attachment; filename=x' }, body: PNG_B }
+        : { status: 200, headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename=x.pdf' }, body: PDF_A };
+    }
+    return json({}, 404);
+  });
+  const c = makeContext(m);
+  vm.runInContext(fs.readFileSync(path.join(ASSETS, 'runner.js'), 'utf8'), c, { filename: 'runner.js' });
+  const waiter = m.awaitFinish('run');
+  vm.runInContext(
+    `__runConfig('run', 'aade-request', ${JSON.stringify(JSON.stringify({ user: 'testuser', pass: 'testpass', vat: '123456783', ...inputs }))}, '.')`,
+    c, { filename: 'invoke' },
+  );
+  return { result: await waiter, mock: m, calls };
+}
+
+const requestDetail = () => ({
+  caseNumber: '1000001/20260901/0001', submittedDate: '2026-09-01', messageStatus: 3,
+  messageText: 'Παρακαλώ για την εκκαθάριση.', answerText: 'Σας επισυνάπτουμε την πράξη.',
+  thematicalGroupText: 'Εισόδημα', diadikasiaText: 'Τροποποιητική δήλωση Ε1', isArchived: false,
+  messageFiles: [
+    { fileId: 9001, fileName: 'Αίτηση πελάτη: τελική?.pdf', fileOrigin: 'attachedFile', fileSize: PDF_A.length },
+    { fileId: 9002, fileName: 'σφραγίδα', fileOrigin: 'internalFile', fileSize: PNG_B.length },
+  ],
+});
+
+await checkAsync('ανοίγει το αίτημα όπως το SPA και κατεβάζει συνημμένα υποβολής ΚΑΙ απάντησης', async () => {
+  const { result, mock, calls } = await runRequest({ id: '4242' }, {
+    detail: requestDetail,
+    comm: [{ messageCommText: 'Συμπληρωματικά στοιχεία.', msgAttachedFiles: [{ fileId: 9003, fileName: 'extra.pdf' }] }],
+  });
+  assert(result.ok === true, `ok=${result.ok} reason=${result.reason}`);
+
+  // Το σώμα του /fetch είναι ο αριθμός γυμνός — όχι αντικείμενο, όχι σε εισαγωγικά.
+  const fetchCall = calls.find((x) => x.url.endsWith('/fetch'));
+  assert(fetchCall.method === 'POST' && fetchCall.body === '4242', `body: ${JSON.stringify(fetchCall.body)}`);
+  assert(/application\/json/.test(fetchCall.contentType || ''), `Content-Type: ${fetchCall.contentType}`);
+  assert(calls.some((x) => x.url.endsWith('/getMessageComm/4242')), 'δεν ζητήθηκε η αλληλογραφία');
+
+  // Ονόματα ασφαλή για δίσκο, με τα ελληνικά στη θέση τους· η κατάληξη που λείπει
+  // βγαίνει από τον τύπο της απάντησης.
+  const names = result.files;
+  assert(names.includes('AITIMA_4242_9001_Αίτηση_πελάτη_τελική.pdf'), `files: ${JSON.stringify(names)}`);
+  assert(names.includes('AITIMA_4242_9002_σφραγίδα.png'), `files: ${JSON.stringify(names)}`);
+  assert(names.includes('AITIMA_4242_9003_extra.pdf'), `files: ${JSON.stringify(names)}`);
+  // Τα bytes περνούν αυτούσια — και όταν δεν είναι PDF.
+  assert(mock.files.get('AITIMA_4242_9001_Αίτηση_πελάτη_τελική.pdf').equals(PDF_A), 'το PDF αλλοιώθηκε');
+  assert(mock.files.get('AITIMA_4242_9002_σφραγίδα.png').equals(PNG_B), 'το PNG αλλοιώθηκε');
+
+  const out = JSON.parse(mock.files.get('AITIMA_4242.json').toString('utf8'));
+  assert(out.detail.answerText === 'Σας επισυνάπτουμε την πράξη.', 'το πλήρες αίτημα μένει αυτούσιο');
+  assert(out.files.length === 3, `files: ${out.files.length}`);
+  assert(out.files[0].fileOrigin === 'attachedFile' && out.files[1].fileOrigin === 'internalFile', 'προέλευση ανά αρχείο');
+  assert(out.files[2].fileOrigin === 'commFile', `αρχείο αλληλογραφίας: ${out.files[2].fileOrigin}`);
+  assert(out.files.every((f) => f.savedFile && f.bytes > 0), 'κάθε αρχείο γράφει πού σώθηκε');
+  assert(out.files[0].fileName === 'Αίτηση πελάτη: τελική?.pdf', 'το όνομα της πύλης μένει όπως ήταν');
+});
+
+await checkAsync('files=0: μόνο το κείμενο, κανένα αίτημα λήψης αρχείου', async () => {
+  const { result, mock, calls } = await runRequest({ id: '4242', files: '0' }, { detail: requestDetail });
+  assert(result.ok === true, `ok=${result.ok}`);
+  assert(JSON.stringify(result.files) === '["AITIMA_4242.json"]', `files: ${JSON.stringify(result.files)}`);
+  assert(!calls.some((x) => x.url.includes('/downloadFile/')), 'δεν έπρεπε να κατέβει αρχείο');
+  const out = JSON.parse(mock.files.get('AITIMA_4242.json').toString('utf8'));
+  assert(out.files.length === 2 && out.files.every((f) => !f.savedFile), 'τα αρχεία αναφέρονται, δεν σώζονται');
+});
+
+await checkAsync('ένα αρχείο που δεν κατεβαίνει δεν ρίχνει το αίτημα — γράφεται το σφάλμα του', async () => {
+  const { result, mock } = await runRequest({ id: '4242' }, { detail: requestDetail, fileStatus: { 9002: 500 } });
+  assert(result.ok === true, `ok=${result.ok}`);
+  const out = JSON.parse(mock.files.get('AITIMA_4242.json').toString('utf8'));
+  assert(out.files[0].savedFile && !out.files[0].error, 'το πρώτο αρχείο κατέβηκε');
+  assert(!out.files[1].savedFile && /500/.test(out.files[1].error), `σφάλμα: ${out.files[1].error}`);
+});
+
+await checkAsync('αίτημα που η πύλη δεν δίνει -> RequestNotFound, χωρίς αρχείο', async () => {
+  const { result, mock } = await runRequest({ id: '4242' }, {});
+  assert(result.ok === false && result.reason === 'RequestNotFound', `ok=${result.ok} reason=${result.reason}`);
+  assert(!mock.files.has('AITIMA_4242.json'), 'δεν έπρεπε να γραφτεί JSON');
+});
+
+await checkAsync('χωρίς αριθμό αιτήματος δεν ανοίγει καν σύνδεση', async () => {
+  const { result, mock } = await runRequest({ id: 'abc' }, { detail: requestDetail });
+  assert(result.ok === false && result.reason === 'NoRequestId', `reason=${result.reason}`);
+  assert(mock.requests.length === 0, `αιτήματα δικτύου: ${mock.requests.length}`);
+});
+
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);

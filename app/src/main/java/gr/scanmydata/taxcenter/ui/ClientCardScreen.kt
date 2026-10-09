@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -28,12 +27,9 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -211,7 +207,7 @@ private fun ClientDocumentsTab(
                 // Ίδια θέση και ίδιο εικονίδιο με τη λίστα πελατών και τα
                 // Έγγραφα: η διαγραφή πρέπει να είναι στο ίδιο σημείο σε κάθε
                 // οθόνη, αλλιώς κάποια στιγμή πατιέται κατά λάθος.
-                IconButton(onClick = { confirmDelete = true }) {
+                IconButton(onClick = { confirmDelete = true }, tone = Tone.DELETE) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "Διαγραφή ${picked.size} εντύπων",
@@ -368,7 +364,7 @@ private fun ClientDocumentsTab(
                         picked.clear()
                         status = "Διαγράφηκαν $count έντυπα."
                     }
-                }) { Text("Διαγραφή", color = MaterialTheme.colorScheme.error) }
+                }, tone = Tone.DELETE) { Text("Διαγραφή") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Άκυρο") } },
         )

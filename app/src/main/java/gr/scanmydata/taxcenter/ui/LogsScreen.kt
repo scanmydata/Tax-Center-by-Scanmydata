@@ -11,10 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -100,7 +98,7 @@ fun LogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     }
                 }
             }) { Text("Εξαγωγή σε CSV") }
-            OutlinedButton(onClick = { confirmWipe = true }) { Text("Εκκαθάριση") }
+            OutlinedButton(onClick = { confirmWipe = true }, tone = Tone.DELETE) { Text("Εκκαθάριση") }
         }
 
         if (status.isNotBlank()) {
@@ -208,14 +206,12 @@ private fun WipeDialog(onDismiss: () -> Unit, onWipe: (months: Int) -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = { onWipe(0) }) {
-                Text("Διαγραφή όλων", color = MaterialTheme.colorScheme.error)
-            }
+            TextButton(onClick = { onWipe(0) }, tone = Tone.DELETE) { Text("Διαγραφή όλων") }
         },
         dismissButton = {
             Row {
                 TextButton(onClick = onDismiss) { Text("Άκυρο") }
-                TextButton(onClick = { onWipe(24) }) { Text("Άνω των 24 μηνών") }
+                TextButton(onClick = { onWipe(24) }, tone = Tone.DELETE) { Text("Άνω των 24 μηνών") }
             }
         },
     )

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,11 +22,9 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -714,6 +711,8 @@ fun ClientEditScreen(
 
         Row {
             Button(
+                // Η αποθήκευση νέας καρτέλας **προσθέτει** πελάτη.
+                tone = if (isNew) Tone.ADD else Tone.NEUTRAL,
                 enabled = !busy && afmClean.length == 9,
                 onClick = {
                     scope.launch {
@@ -727,6 +726,7 @@ fun ClientEditScreen(
 
             if (!isNew) {
                 OutlinedButton(
+                    tone = Tone.DELETE,
                     onClick = { confirmDelete = true },
                     modifier = Modifier.padding(start = 12.dp),
                 ) { Text("Διαγραφή") }
@@ -792,7 +792,7 @@ fun ClientEditScreen(
                         }
                         onDone()
                     }
-                }) { Text("Διαγραφή") }
+                }, tone = Tone.DELETE) { Text("Διαγραφή") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Άκυρο") } },
         )

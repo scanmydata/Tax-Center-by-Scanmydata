@@ -47,6 +47,10 @@ class FileBridge(
         // Κρατάμε το ζητούμενο: το PDF, και το JSON με τα δεδομένα — για
         // διαδικασίες όπως ΑΜΚΑ και ΑΤΛΑΣ το JSON ΕΙΝΑΙ το παραδοτέο.
         if (lower.endsWith(".pdf") || lower.endsWith(".json")) return false
+        // Τα συνημμένα ενός αιτήματος προς την ΑΑΔΕ είναι παραδοτέα ό,τι τύπο
+        // κι αν έχουν: η πύλη δέχεται και εικόνες, και μια σαρωμένη ταυτότητα
+        // σε JPG δεν είναι «διαγνωστικό» για να χαθεί σιωπηλά.
+        if (name.startsWith(ATTACHMENT_PREFIX)) return false
         return true
     }
 
@@ -126,6 +130,9 @@ class FileBridge(
     }
 
     companion object {
+        /** Έτσι ονομάζει το `aade-request` ό,τι κατεβάζει — βλ. [isDiagnostic]. */
+        const val ATTACHMENT_PREFIX = "AITIMA_"
+
         /**
          * Χαρακτήρες άκυροι σε Windows/exFAT/SMB, όχι μόνο σε Linux, συν οι
          * control chars. Παύλες και κενά ΕΠΙΤΡΕΠΟΝΤΑΙ: τα ids των configs είναι

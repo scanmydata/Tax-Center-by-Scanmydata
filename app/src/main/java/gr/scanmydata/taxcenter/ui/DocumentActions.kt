@@ -22,16 +22,33 @@ object DocumentActions {
     fun fileOf(context: Context, document: DocumentEntity): File =
         File(context.filesDir, document.relativePath)
 
-    fun mimeOf(name: String): String = when {
-        name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
-        name.endsWith(".json", ignoreCase = true) -> "application/json"
-        name.endsWith(".zip", ignoreCase = true) -> "application/zip"
+    /**
+     * Τα έντυπα των πυλών είναι PDF. Οι εικόνες και τα έγγραφα γραφείου
+     * υπάρχουν για τα **συνημμένα των αιτημάτων**: εκεί ο πελάτης ανεβάζει ό,τι
+     * έχει — φωτογραφία ταυτότητας, σαρωμένο συμβόλαιο — και ένας άγνωστος
+     * τύπος θα έβγαζε «δεν βρέθηκε εφαρμογή» για μια απλή εικόνα.
+     */
+    fun mimeOf(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+        "pdf" -> "application/pdf"
+        "json" -> "application/json"
+        "zip" -> "application/zip"
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "txt" -> "text/plain"
+        "doc" -> "application/msword"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "xls" -> "application/vnd.ms-excel"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else -> "*/*"
     }
 
     /** Επιστρέφει μήνυμα σφάλματος, ή κενό όταν άνοιξε. */
-    fun open(context: Context, document: DocumentEntity): String {
-        val file = fileOf(context, document)
+    fun open(context: Context, document: DocumentEntity): String =
+        open(context, fileOf(context, document), document.fileName)
+
+    /** Το ίδιο, για αρχείο που δεν είναι εγγραφή της βάσης — π.χ. συνημμένο αιτήματος. */
+    fun open(context: Context, file: File, name: String = file.name): String {
         if (!file.isFile) return "Το αρχείο δεν υπάρχει πια στη συσκευή."
         return try {
             val uri = FileProvider.getUriForFile(
@@ -40,7 +57,7 @@ object DocumentActions {
                 file,
             )
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeOf(document.fileName))
+                setDataAndType(uri, mimeOf(name))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }

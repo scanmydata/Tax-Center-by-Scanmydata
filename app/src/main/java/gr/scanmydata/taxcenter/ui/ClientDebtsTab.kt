@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,19 +18,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +49,7 @@ import gr.scanmydata.taxcenter.debts.DebtMessage
 import gr.scanmydata.taxcenter.debts.Debts
 import gr.scanmydata.taxcenter.debts.DebtsRefresh
 import gr.scanmydata.taxcenter.debts.DebtsStore
+import gr.scanmydata.taxcenter.doc.Money
 import gr.scanmydata.taxcenter.mail.MailTemplateStore
 import gr.scanmydata.taxcenter.sched.DebtWatch
 import kotlinx.coroutines.CancellationException
@@ -85,6 +83,13 @@ import java.time.LocalDate
  * «τι χρωστάω στην εφορία» έπαιρνε απάντηση ανακατεμένη με τον ΕΦΚΑ. Η επιλογή
  * οφειλών για μήνυμα **διασχίζει** τις δύο όψεις: ένα μήνυμα μπορεί να έχει
  * και τα δύο.
+ *
+ * ## Το ΚΕΑΟ, ανά φορέα
+ *
+ * Κάτω από το ΚΕΑΟ βρίσκονται πολλοί πιστωτές — ΕΦΚΑ, πρώην ΙΚΑ, ΤΕΚΑ. Ο
+ * καθένας έχει διακόπτη: κλειστός, κρύβει το υπόλοιπό του και τις ρυθμίσεις
+ * του, και βγαίνει από το σύνολο που δείχνει η σύνοψη. Είναι **όψη**, όχι
+ * ρύθμιση — δεν αποθηκεύεται, και η ενημέρωση από την πύλη φέρνει πάντα όλους.
  */
 @Composable
 internal fun ClientDebtsTab(
@@ -108,6 +113,8 @@ internal fun ClientDebtsTab(
     var status by remember { mutableStateOf("") }
     val picked = remember(client.id) { mutableStateListOf<String>() }
     var source by remember(client.id) { mutableStateOf(Debts.Source.AADE) }
+    // Οι φορείς του ΚΕΑΟ που έχει κλείσει ο χρήστης — βλ. [Debts.Carrier].
+    val hidden = remember(client.id) { mutableStateListOf<String>() }
     var composing by remember { mutableStateOf(false) }
     var watched by remember(client.id) { mutableStateOf(client.id in settings.debtWatchClients) }
     val today = remember { LocalDate.now(AthensDates.ZONE) }
@@ -177,6 +184,7 @@ internal fun ClientDebtsTab(
                 SummaryCard(
                     snapshot = snapshot,
                     source = source,
+                    hidden = hidden.toSet(),
                     busy = busy,
                     status = status,
                     onRefresh = { refresh(source) },
@@ -228,10 +236,29 @@ internal fun ClientDebtsTab(
                     )
                 }
             }
+            if (current != null && source == Debts.Source.KEAO && current.carriers.size > 1) {
+                item {
+                    CarrierToggles(
+                        carriers = current.carriers,
+                        hidden = hidden,
+                        onToggle = { key, on ->
+                            if (on) {
+                                hidden.remove(key)
+                            } else {
+                                hidden.add(key)
+                                // Ό,τι κρύβεται βγαίνει και από την επιλογή: ένα
+                                // μήνυμα δεν πρέπει να στείλει οφειλή που δεν φαίνεται.
+                                picked.removeAll(current.lines.filter { it.carrier == key }.map { it.id })
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
             if (current != null && current.inSource(source).isNotEmpty()) {
                 for (group in Debts.Group.entries) {
                     if (group.source != source) continue
-                    val lines = current.inGroup(group)
+                    val lines = current.inGroup(group).filter { it.carrier.isBlank() || it.carrier !in hidden }
                     if (lines.isEmpty()) continue
                     item {
                         Row(
@@ -245,7 +272,9 @@ internal fun ClientDebtsTab(
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                current.total(group) + " €",
+                                // Το σύνολο όσων **φαίνονται**: με κλειστό φορέα,
+                                // ο αριθμός πρέπει να συμφωνεί με τις κάρτες από κάτω.
+                                Money.money(Money.sum(lines.map { it.total })) + " €",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -322,6 +351,8 @@ internal fun ClientDebtsTab(
 private fun SummaryCard(
     snapshot: Debts.Snapshot?,
     source: Debts.Source,
+    /** Οι φορείς ΚΕΑΟ που είναι κλειστοί στην όψη. */
+    hidden: Set<String>,
     busy: Boolean,
     status: String,
     onRefresh: () -> Unit,
@@ -377,12 +408,28 @@ private fun SummaryCard(
                         at = snapshot.keaoAt,
                         rows = buildList {
                             val carriers = snapshot.inGroup(Debts.Group.KEAO_CARRIER)
-                            if (carriers.isEmpty()) {
-                                add("Καμία οφειλή.")
-                            } else {
-                                add("Υπόλοιπο: " + snapshot.total(Debts.Group.KEAO_CARRIER) + " €")
-                                val regulations = snapshot.inGroup(Debts.Group.KEAO_ARRANGED).size
-                                if (regulations > 0) add("Ενεργές ρυθμίσεις: $regulations")
+                            val shown = snapshot.carriers.map { it.key }.filter { it !in hidden }.toSet()
+                            val all = snapshot.carriers.size
+                            when {
+                                carriers.isEmpty() -> add("Καμία οφειλή.")
+                                // Κανένας φορέας κλειστός: η εικόνα όπως ήταν.
+                                shown.size == all -> {
+                                    add("Υπόλοιπο: " + snapshot.total(Debts.Group.KEAO_CARRIER) + " €")
+                                    val regulations = snapshot.inGroup(Debts.Group.KEAO_ARRANGED).size
+                                    if (regulations > 0) add("Ενεργές ρυθμίσεις: $regulations")
+                                }
+                                shown.isEmpty() -> add("Όλοι οι φορείς είναι κλειστοί — άνοιξε έναν από κάτω.")
+                                else -> {
+                                    // Το μερικό σύνολο λέει ρητά ότι είναι μερικό.
+                                    add(
+                                        "Υπόλοιπο (${shown.size} από $all φορείς): " +
+                                            snapshot.keaoTotal(shown) + " €",
+                                    )
+                                    add("Σύνολο όλων: " + snapshot.total(Debts.Group.KEAO_CARRIER) + " €")
+                                    val regulations = snapshot.inGroup(Debts.Group.KEAO_ARRANGED)
+                                        .count { it.carrier in shown }
+                                    if (regulations > 0) add("Ενεργές ρυθμίσεις: $regulations")
+                                }
                             }
                         },
                     )
@@ -430,6 +477,59 @@ private fun SourceSummary(name: String, at: Long, rows: List<String>) {
     // Χωρίς λήψη δεν ξέρουμε αν υπάρχει οφειλή· το «καμία οφειλή» θα ήταν ψέμα.
     if (at != 0L) {
         rows.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+    }
+}
+
+/**
+ * Οι φορείς του ΚΕΑΟ, ο καθένας με τον διακόπτη του.
+ *
+ * Γραμμές και όχι «ετικέτες»: τα ονόματα των φορέων είναι μακριά («ΕΝΙΑΙΟΣ
+ * ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ») και σε ετικέτα θα κόβονταν εκεί ακριβώς που
+ * διαφέρουν μεταξύ τους.
+ */
+@Composable
+private fun CarrierToggles(
+    carriers: List<Debts.Carrier>,
+    hidden: List<String>,
+    onToggle: (key: String, on: Boolean) -> Unit,
+) {
+    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    val shape = MaterialTheme.shapes.medium
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .padding(start = 12.dp, top = 10.dp, end = 8.dp, bottom = 6.dp),
+    ) {
+        Text(
+            "Φορείς ΚΕΑΟ",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            "Κλείσε όποιον δεν χρειάζεσαι τώρα: κρύβονται το υπόλοιπο και οι ρυθμίσεις του.",
+            style = MaterialTheme.typography.bodySmall,
+            color = dim,
+        )
+        carriers.forEach { carrier ->
+            val on = carrier.key !in hidden
+            Row(
+                Modifier.fillMaxWidth().clickable { onToggle(carrier.key, !on) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        carrier.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (on) MaterialTheme.colorScheme.onSurface else dim,
+                    )
+                    if (carrier.total.isNotBlank()) {
+                        Text(carrier.total + " €", style = MaterialTheme.typography.bodySmall, color = dim)
+                    }
+                }
+                Switch(checked = on, onCheckedChange = { onToggle(carrier.key, it) })
+            }
+        }
     }
 }
 

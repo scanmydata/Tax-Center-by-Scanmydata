@@ -4,6 +4,7 @@ import android.content.Context
 import gr.scanmydata.taxcenter.data.Settings
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
+import gr.scanmydata.taxcenter.requests.RequestDetail
 import java.io.File
 import java.time.ZonedDateTime
 
@@ -27,7 +28,7 @@ import java.time.ZonedDateTime
  */
 object Retention {
 
-    data class Result(val documents: Int, val runLogs: Int)
+    data class Result(val documents: Int, val runLogs: Int, val attachments: Int = 0)
 
     suspend fun apply(
         context: Context,
@@ -36,6 +37,7 @@ object Retention {
     ): Result {
         val months = settings.retentionMonths
         if (months <= 0) return Result(0, 0)
+        val root = File(context.filesDir, "runs")
 
         val cutoff = ZonedDateTime.now().minusMonths(months.toLong()).toInstant().toEpochMilli()
 
@@ -55,16 +57,30 @@ object Retention {
             .toInstant().toEpochMilli()
         val removedLogs = db.runLogs().deleteOlderThan(logCutoff)
 
-        if (stale.isNotEmpty() || removedLogs > 0) {
+        // Τα αιτήματα προς την ΑΑΔΕ με τα συνημμένα τους δεν είναι εγγραφές της
+        // βάσης — ζουν μόνο ως αρχεία, μέσα στο ίδιο το αίτημα. Ανάμεσά τους
+        // είναι ό,τι υπέβαλε ο πελάτης (ταυτότητες, συμβόλαια): ο κανόνας της
+        // διατήρησης ισχύει γι' αυτά περισσότερο από οτιδήποτε άλλο.
+        var removedAttachments = 0
+        for (client in root.listFiles().orEmpty()) {
+            val files = File(client, RequestDetail.CONFIG).listFiles() ?: continue
+            for (file in files) {
+                if (file.isFile && file.lastModified() < cutoff && file.delete()) removedAttachments++
+            }
+        }
+
+        if (stale.isNotEmpty() || removedLogs > 0 || removedAttachments > 0) {
             db.audit().log(
                 AuditEntity(
                     ts = System.currentTimeMillis(),
                     action = "RETENTION",
                     detail = "διαγράφηκαν ${stale.size} έντυπα ($removedFiles αρχεία) " +
-                        "και $removedLogs εγγραφές ιστορικού, όρια $months μήνες",
+                        "και $removedLogs εγγραφές ιστορικού" +
+                        (if (removedAttachments > 0) ", $removedAttachments αρχεία αιτημάτων" else "") +
+                        ", όρια $months μήνες",
                 ),
             )
         }
-        return Result(stale.size, removedLogs)
+        return Result(stale.size, removedLogs, removedAttachments)
     }
 }

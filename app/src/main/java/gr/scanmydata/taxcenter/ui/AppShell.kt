@@ -14,14 +14,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
@@ -260,6 +258,9 @@ fun AppShell(container: AppContainer) {
                         onOpenRequests = { id ->
                             navController.navigate("$CLIENT_ROUTE/$id/requests")
                         },
+                        onOpenDebts = { id ->
+                            navController.navigate("$CLIENT_ROUTE/$id/debts")
+                        },
                     )
                 }
                 composable(
@@ -287,6 +288,18 @@ fun AppShell(container: AppContainer) {
                         onDone = { navController.popBackStack() },
                         onFetchFor = { id -> navController.navigate("fetch/$id") },
                         initialTab = 1,
+                    )
+                }
+                composable(
+                    route = "$CLIENT_ROUTE/{id}/debts",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                ) { entry ->
+                    ClientCardScreen(
+                        container = container,
+                        clientId = entry.arguments?.getLong("id") ?: 0L,
+                        onDone = { navController.popBackStack() },
+                        onFetchFor = { id -> navController.navigate("fetch/$id") },
+                        initialTab = 3,
                     )
                 }
                 // Και στην καρτέλα «Αιτήματα»: εκεί οδηγεί η λίστα πελατών όταν

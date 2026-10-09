@@ -13,17 +13,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.Composable
@@ -119,7 +116,7 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             )
             if (pickedDocuments.isNotEmpty()) {
                 TextButton(onClick = { pickedDocuments.clear() }) { Text("Άκυρο") }
-                IconButton(onClick = { confirmDeleteDocs = true }) {
+                IconButton(onClick = { confirmDeleteDocs = true }, tone = Tone.DELETE) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "Διαγραφή ${pickedDocuments.size} εντύπων",
@@ -216,7 +213,7 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                         pickedDocuments.clear()
                         status = "Διαγράφηκαν $count έντυπα."
                     }
-                }) { Text("Διαγραφή", color = MaterialTheme.colorScheme.error) }
+                }, tone = Tone.DELETE) { Text("Διαγραφή") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDeleteDocs = false }) { Text("Άκυρο") }

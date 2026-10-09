@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -27,12 +28,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -71,8 +69,9 @@ fun ClientsScreen(
     onOpenDocuments: (Long) -> Unit = {},
     /** Πού πάει η οθόνη όταν ξεκινήσει μαζική ενημέρωση. */
     onOpenFetch: () -> Unit = {},
-    /** Η καρτέλα «Αιτήματα» ενός πελάτη με απάντηση της ΑΑΔΕ που δεν έχει ανοιχτεί. */
+    /** Η καρτέλα «Αιτήματα» ενός πελάτη — και από την ειδοποίηση νέας απάντησης. */
     onOpenRequests: (Long) -> Unit = {},
+    onOpenDebts: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var confirmRefresh by remember { mutableStateOf(false) }
@@ -140,7 +139,7 @@ fun ClientsScreen(
                 }) {
                     Text(if (picked.size == filtered.size) "Κανένας" else "Όλοι")
                 }
-                IconButton(onClick = { confirmBulk = true }) {
+                IconButton(onClick = { confirmBulk = true }, tone = Tone.DELETE) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "Διαγραφή επιλεγμένων",
@@ -254,6 +253,15 @@ fun ClientsScreen(
                 actionsFor = null
                 onOpenDocuments(client.id)
             },
+            onDebts = {
+                actionsFor = null
+                onOpenDebts(client.id)
+            },
+            onRequests = {
+                actionsFor = null
+                onOpenRequests(client.id)
+            },
+            freshRequests = client.id in container.settings.requestWatchFresh,
         )
     }
 
@@ -427,10 +435,14 @@ private fun ClientRow(
 /**
  * Τι μπορεί να γίνει με έναν πελάτη.
  *
- * Δύο ενέργειες αντί για τέσσερις. Η «λήψη εντύπων» και η «αποστολή εντύπων»
- * ήταν χωριστές γραμμές που κατέληγαν στην ίδια δουλειά και στα ίδια αρχεία —
- * τώρα είναι μία, και οδηγεί στην καρτέλα «Έγγραφα», όπου υπάρχουν και τα δύο
- * μαζί με ό,τι έχει ήδη κατέβει.
+ * Κάθε γραμμή είναι μία **όψη της καρτέλας**: στοιχεία, έντυπα, οφειλές,
+ * αιτήματα. Η «λήψη εντύπων» και η «αποστολή εντύπων» ήταν χωριστές γραμμές που
+ * κατέληγαν στην ίδια δουλειά και στα ίδια αρχεία — είναι μία, και οδηγεί στα
+ * «Έγγραφα», όπου υπάρχουν και τα δύο μαζί με ό,τι έχει ήδη κατέβει.
+ *
+ * Οι οφειλές και τα αιτήματα μπήκαν εδώ γιατί είναι αυτά που ρωτά ο πελάτης στο
+ * τηλέφωνο· η διαδρομή «άνοιγμα καρτέλας → κύλιση στις ετικέτες» ήταν δύο
+ * βήματα για κάτι που θέλει ένα.
  */
 @Composable
 private fun ClientActionsDialog(
@@ -439,6 +451,10 @@ private fun ClientActionsDialog(
     onOpenCard: () -> Unit,
     onSendDetails: () -> Unit,
     onDocuments: () -> Unit,
+    onDebts: () -> Unit,
+    onRequests: () -> Unit,
+    /** Υπάρχει απάντηση της ΑΑΔΕ που δεν έχει ανοίξει κανείς. */
+    freshRequests: Boolean = false,
 ) {
     val hasEmail = client.effectiveEmail.isNotBlank()
     AlertDialog(
@@ -450,7 +466,8 @@ private fun ClientActionsDialog(
             }
         },
         text = {
-            Column {
+            // Έξι γραμμές δεν χωρούν σε κάθε οθόνη· ο διάλογος κυλά.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     buildString {
                         append("ΑΦΜ ").append(client.afm)
@@ -481,6 +498,19 @@ private fun ClientActionsDialog(
                     onClick = onDocuments,
                 )
                 ActionRow(
+                    icon = R.drawable.ic_menu_debts,
+                    title = "Οφειλές",
+                    subtitle = "ΑΑΔΕ και ΚΕΑΟ: ποσά, δόσεις, ταυτότητες",
+                    onClick = onDebts,
+                )
+                ActionRow(
+                    icon = R.drawable.ic_menu_requests,
+                    title = "Αιτήματα ΑΑΔΕ",
+                    subtitle = if (freshRequests) "Υπάρχει νέα απάντηση" else "Τι ζητήθηκε και τι απαντήθηκε",
+                    onClick = onRequests,
+                    highlight = freshRequests,
+                )
+                ActionRow(
                     icon = R.drawable.ic_menu_send,
                     title = "Αποστολή στοιχείων & κωδικών",
                     subtitle = if (hasEmail) "ΑΦΜ, ΑΜΚΑ, χρήστης TAXISnet" else "χρειάζεται email",
@@ -500,14 +530,21 @@ private fun ActionRow(
     subtitle: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    /** Κάτι περιμένει εδώ — το πλαίσιο παίρνει το χρώμα του θέματος. */
+    highlight: Boolean = false,
 ) {
     val alpha = if (enabled) 1f else 0.4f
+    val shape = MaterialTheme.shapes.small
+    // Κάθε γραμμή είναι κουμπί, και φαίνεται σαν κουμπί: με πλαίσιο.
+    val frame = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     Row(
         Modifier
+            .padding(vertical = 3.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(shape)
+            .border(1.dp, frame.copy(alpha = alpha), shape)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 6.dp),
+            .padding(vertical = 10.dp, horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -579,14 +616,12 @@ private fun BulkDeleteDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDeleteAll) {
-                Text("Οριστική διαγραφή", color = MaterialTheme.colorScheme.error)
-            }
+            TextButton(onClick = onDeleteAll, tone = Tone.DELETE) { Text("Οριστική διαγραφή") }
         },
         dismissButton = {
             Row {
                 TextButton(onClick = onDismiss) { Text("Άκυρο") }
-                TextButton(onClick = onDeleteDocuments) { Text("Μόνο έγγραφα") }
+                TextButton(onClick = onDeleteDocuments, tone = Tone.DELETE) { Text("Μόνο έγγραφα") }
             }
         },
     )

@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -41,15 +40,12 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -741,6 +737,7 @@ private fun DocumentPicker(
 
     OutlinedButton(
         onClick = { open = !open },
+        tone = if (open) Tone.NEUTRAL else Tone.ADD,
         modifier = Modifier.fillMaxWidth(),
     ) { Text(if (open) "Κλείσιμο καταλόγου" else "Πρόσθεσε έντυπο") }
 
@@ -997,7 +994,7 @@ private fun PickCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                     )
                 }
-                IconButton(onClick = onRemove) {
+                IconButton(onClick = onRemove, tone = Tone.DELETE) {
                     Icon(Icons.Filled.Close, contentDescription = "Αφαίρεση")
                 }
             }
@@ -1590,7 +1587,10 @@ private fun FetchProgress(container: AppContainer, modifier: Modifier) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { scope.launch { controller.applySpouse(find) } }) {
+                        Button(
+                            onClick = { scope.launch { controller.applySpouse(find) } },
+                            tone = if (find.alreadyClient) Tone.NEUTRAL else Tone.ADD,
+                        ) {
                             Text(if (find.alreadyClient) "Σύνδεση" else "Δημιουργία καρτέλας")
                         }
                         OutlinedButton(onClick = { controller.discardSpouse(find) }) {
@@ -1800,7 +1800,7 @@ private fun PendingUpdatesDialog(
                 onClick = { onApply(approved.toSet()) },
             ) { Text("Αποθήκευση ${approved.size}") }
         },
-        dismissButton = { TextButton(onClick = onDiscard) { Text("Απόρριψη όλων") } },
+        dismissButton = { TextButton(onClick = onDiscard, tone = Tone.DELETE) { Text("Απόρριψη όλων") } },
     )
 }
 

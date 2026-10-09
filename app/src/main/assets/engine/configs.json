@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 31,
+  "count": 32,
   "configs": [
     {
       "id": "aade-debts",
@@ -525,6 +525,48 @@
           "key": "vat",
           "label": "ΑΦΜ-στόχος (κενό = ο ΑΦΜ του λογαριασμού)",
           "env": "AADE_VAT",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-request",
+      "file": "aade-request.js",
+      "owner": "runner",
+      "title": "ΑΑΔΕ — Αίτημα (πλήρες περιεχόμενο + συνημμένα υποβολής και απάντησης)",
+      "portal": "AADE (GSIS OAM)",
+      "subsystem": "eticketaade",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "id",
+          "label": "messageId αιτήματος (πολλά με κόμμα)",
+          "env": "REQ_ID",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "files",
+          "label": "Λήψη συνημμένων (1/0, κενό = 1)",
+          "env": "REQ_FILES",
           "hidden": false,
           "optional": true
         }

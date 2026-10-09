@@ -9,6 +9,7 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.SendEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import gr.scanmydata.taxcenter.engine.FileBridge
+import gr.scanmydata.taxcenter.requests.RequestDetail
 import gr.scanmydata.taxcenter.ui.AthensDates
 import org.json.JSONArray
 import org.json.JSONObject
@@ -207,6 +208,18 @@ object Exports {
                 val source = File(context.filesDir, doc.relativePath)
                 if (!source.isFile) continue
                 zip.putNextEntry(ZipEntry("έντυπα/${doc.fileName}"))
+                source.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
+
+            // Τα αιτήματα προς την ΑΑΔΕ που έχουν κατέβει, με τα συνημμένα τους:
+            // δεν είναι «έντυπα» της λίστας, αλλά είναι δεδομένα του πελάτη.
+            val requests = File(
+                context.filesDir,
+                "runs/${FileBridge.sanitiseSegment(client.afm)}/${RequestDetail.CONFIG}",
+            ).listFiles().orEmpty().filter { it.isFile }.sortedBy { it.name }
+            for (source in requests) {
+                zip.putNextEntry(ZipEntry("αιτήματα/${source.name}"))
                 source.inputStream().use { it.copyTo(zip) }
                 zip.closeEntry()
             }
