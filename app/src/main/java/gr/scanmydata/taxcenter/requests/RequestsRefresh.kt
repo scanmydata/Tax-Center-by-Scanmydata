@@ -14,9 +14,21 @@ import java.io.File
  * Η **άντληση των αιτημάτων** ενός πελάτη από την ΑΑΔΕ, και η σύγκριση με ό,τι
  * ξέραμε.
  *
- * Ένα σημείο για την καρτέλα και για τον χρονοπρογραμματιστή: και οι δύο
- * πρέπει να καταλήγουν στην ίδια μνήμη ([RequestsStore.absorb]), αλλιώς ένα
- * αίτημα που είδε ο λογιστής το απόγευμα θα ξαναγινόταν «νέο» το επόμενο πρωί.
+ * Ένα σημείο για την καρτέλα, τη συγκεντρωτική οθόνη και τον
+ * χρονοπρογραμματιστή: όλοι πρέπει να καταλήγουν στην ίδια μνήμη
+ * ([RequestsStore.absorb]), αλλιώς ένα αίτημα που είδε ο λογιστής το απόγευμα
+ * θα ξαναγινόταν «νέο» το επόμενο πρωί.
+ *
+ * ## Ο έλεγχος τα αποθηκεύει όλα
+ *
+ * Ένας έλεγχος κάνει δύο δουλειές: διαβάζει τη **λίστα**, και μετά κατεβάζει
+ * **ολόκληρα** — κείμενο, απάντηση, συνημμένα — όσα αιτήματα δεν υπάρχουν ακόμη
+ * στη συσκευή ή άλλαξαν από τότε. Έτσι το άνοιγμα ενός αιτήματος δεν χρειάζεται
+ * ποτέ σύνδεση.
+ *
+ * Η δεύτερη δουλειά είναι δεύτερη συνεδρία GSIS, και γίνεται **μόνο όταν έχει
+ * κάτι να φέρει**: στον συνηθισμένο πρωινό έλεγχο, όπου τίποτα δεν άλλαξε, ο
+ * πελάτης δέχεται μία σύνδεση, όπως πριν.
  *
  * Περνά από την ίδια ουρά με κάθε άλλη λήψη ([DebtsRefresh.run]): δύο συνεδρίες
  * GSIS μαζί κλειδώνουν τον λογαριασμό του πελάτη.
@@ -28,11 +40,30 @@ object RequestsRefresh {
 
     enum class Outcome { OK, BUSY, MISSING, REJECTED, FAILED }
 
+    /** Ποια αιτήματα κατεβαίνουν ολόκληρα μετά τη λίστα. */
+    enum class Details {
+        /** Κανένα — μόνο η λίστα. */
+        NONE,
+
+        /**
+         * Όσα **άλλαξαν** σε αυτόν τον έλεγχο. Για τον χρονοπρογραμματιστή: η
+         * ειδοποίηση πρέπει να οδηγεί σε απάντηση που ήδη υπάρχει στη συσκευή,
+         * αλλά η εργασία παρασκηνίου δεν έχει χρόνο να κατεβάσει το ιστορικό
+         * κάθε πελάτη.
+         */
+        CHANGED,
+
+        /** Όσα λείπουν ή άλλαξαν. Για τον έλεγχο που ζητά ο χρήστης. */
+        MISSING,
+    }
+
     data class Result(
         val outcome: Outcome,
         val changes: List<AadeRequests.Change> = emptyList(),
         /** Έτοιμο κείμενο για την οθόνη. */
         val message: String = "",
+        /** Πόσα αιτήματα αποθηκεύτηκαν ολόκληρα σε αυτή την εκτέλεση. */
+        val saved: Int = 0,
     ) {
         val answered: Int get() = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
     }
@@ -60,6 +91,7 @@ object RequestsRefresh {
     }
 
     /**
+     * @param details ποια αιτήματα αποθηκεύονται ολόκληρα μετά τη λίστα
      * @param ownsBatch βλ. [DebtsRefresh.run]: ο χρονοπρογραμματιστής ακυρώνει
      *   την παρτίδα όταν ακυρωθεί ο ίδιος, η οθόνη όχι.
      */
@@ -70,6 +102,7 @@ object RequestsRefresh {
         settings: Settings,
         client: ClientEntity,
         ownsBatch: Boolean = false,
+        details: Details = Details.MISSING,
     ): Result {
         val plan = plan(repository, client)
             ?: return Result(Outcome.MISSING, message = "Λείπουν οι κωδικοί TAXISnet του πελάτη.")
@@ -92,44 +125,87 @@ object RequestsRefresh {
                 message = "Η σύνδεση έγινε, αλλά η ΑΑΔΕ δεν έδωσε τα αιτήματα. Δοκίμασε ξανά σε λίγο.",
             )
         if (changes.isNotEmpty()) settings.requestWatchFresh = settings.requestWatchFresh + client.id
-        return Result(Outcome.OK, changes, describe(changes))
+
+        // Η λίστα διαβάστηκε. Ό,τι ακολουθεί είναι επιπλέον: αν δεν γίνει, ο
+        // έλεγχος **πέτυχε** — απλώς κάποια αιτήματα δεν ανοίγουν ακόμη χωρίς
+        // σύνδεση, και το μήνυμα το λέει.
+        val ids = when (details) {
+            Details.NONE -> emptyList()
+            Details.CHANGED -> changes.map { it.request.id }.distinct().take(RequestDetail.MAX_BATCH)
+            Details.MISSING -> withContext(Dispatchers.IO) { RequestsStore.wanted(filesDir, client.afm) }
+        }
+        if (ids.isEmpty()) return Result(Outcome.OK, changes, describe(changes))
+
+        val full = fetchDetails(filesDir, fetch, repository, client, ids, ownsBatch)
+        return Result(
+            Outcome.OK,
+            changes,
+            message = (describe(changes) + " " + when {
+                full.outcome != Outcome.OK ->
+                    "Τα πλήρη αιτήματα δεν κατέβηκαν (" + full.message.trimEnd('.') + ") — πάτα ξανά «Έλεγχος»."
+                full.saved == ids.size -> saved(full.saved)
+                else -> saved(full.saved) + " ${ids.size - full.saved} δεν δόθηκαν από την πύλη."
+            }).trim(),
+            saved = full.saved,
+        )
     }
 
-    // ------------------------------------------------------- ένα αίτημα
+    private fun saved(count: Int): String = when (count) {
+        0 -> ""
+        1 -> "Αποθηκεύτηκε 1 αίτημα με τα συνημμένα του."
+        else -> "Αποθηκεύτηκαν $count αιτήματα με τα συνημμένα τους."
+    }
+
+    // ------------------------------------------------------- πλήρη αιτήματα
 
     /**
-     * Η εργασία που κατεβάζει **ολόκληρο** το αίτημα [id] με τα συνημμένα του.
+     * Η εργασία που κατεβάζει **ολόκληρα** τα αιτήματα [ids] με τα συνημμένα
+     * τους — όλα σε μία σύνδεση.
      *
      * Δεν παράγει «έγγραφα»: τα συνημμένα μένουν μέσα στο αίτημα — βλ.
      * [ProcessRunner] για το γιατί δεν μπαίνουν στη λίστα των εντύπων.
      */
-    suspend fun detailPlan(repository: ClientRepository, client: ClientEntity, id: String): FetchController.Plan? {
+    suspend fun detailPlan(
+        repository: ClientRepository,
+        client: ClientEntity,
+        ids: List<String>,
+    ): FetchController.Plan? {
+        if (ids.isEmpty()) return null
         if (FetchController.missingCredentials(repository, client, RequestDetail.CONFIG).isNotEmpty()) return null
         return FetchController.Plan(
             job = ProcessRunner.Job(
                 client = client,
                 configId = RequestDetail.CONFIG,
-                extraInputs = mapOf(RequestDetail.INPUT_ID to id),
+                extraInputs = mapOf(RequestDetail.INPUT_ID to ids.joinToString(",")),
             ),
-            label = "Αίτημα ΑΑΔΕ — περιεχόμενο και συνημμένα",
+            label = if (ids.size == 1) {
+                "Αίτημα ΑΑΔΕ — περιεχόμενο και συνημμένα"
+            } else {
+                "Αιτήματα ΑΑΔΕ — περιεχόμενο και συνημμένα (${ids.size})"
+            },
             producesDocuments = false,
         )
     }
 
     /**
-     * Κατεβάζει το αίτημα [id]. Το αποτέλεσμα διαβάζεται μετά από τον δίσκο
-     * ([RequestsStore.detail]) — εδώ επιστρέφει μόνο το αν πέτυχε, και τι να
-     * πούμε αν όχι.
+     * Κατεβάζει τα αιτήματα [ids] και **σημειώνει** ότι αποθηκεύτηκαν. Το
+     * περιεχόμενο διαβάζεται μετά από τον δίσκο ([RequestsStore.detail]).
+     *
+     * `saved` είναι όσα έχουν πράγματι αρχείο γραμμένο σε αυτή την εκτέλεση —
+     * όχι όσα ζητήθηκαν.
      */
-    suspend fun fetchDetail(
+    suspend fun fetchDetails(
+        filesDir: File,
         fetch: FetchController,
         repository: ClientRepository,
         client: ClientEntity,
-        id: String,
+        ids: List<String>,
+        ownsBatch: Boolean = false,
     ): Result {
-        val plan = detailPlan(repository, client, id)
+        val plan = detailPlan(repository, client, ids)
             ?: return Result(Outcome.MISSING, message = "Λείπουν οι κωδικοί TAXISnet του πελάτη.")
-        val items = DebtsRefresh.run(fetch, listOf(plan))
+        val since = System.currentTimeMillis()
+        val items = DebtsRefresh.run(fetch, listOf(plan), ownsBatch)
             ?: return Result(Outcome.BUSY, message = DebtsRefresh.BUSY)
         val item = items.firstOrNull()
         if (item == null || item.status != FetchController.Status.OK) {
@@ -139,7 +215,8 @@ object RequestsRefresh {
                 message = item?.detail.orEmpty().ifBlank { "Η λήψη του αιτήματος δεν ολοκληρώθηκε." },
             )
         }
-        return Result(Outcome.OK)
+        val saved = withContext(Dispatchers.IO) { RequestsStore.markDetailed(filesDir, client.afm, ids, since) }
+        return Result(Outcome.OK, saved = saved)
     }
 
     fun describe(changes: List<AadeRequests.Change>): String {

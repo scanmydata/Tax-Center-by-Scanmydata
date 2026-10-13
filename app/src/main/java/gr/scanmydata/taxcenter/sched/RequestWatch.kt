@@ -38,6 +38,13 @@ object RequestWatch {
     /** Η εργασία ζητήθηκε ρητά (τώρα, ή ως συνέχεια) — τρέχει και με κλειστό πρόγραμμα. */
     const val KEY_MANUAL = "manual"
 
+    /**
+     * Ο έλεγχος αποθηκεύει **ολόκληρα** όσα αιτήματα λείπουν από τη συσκευή,
+     * όχι μόνο όσα άλλαξαν. Το ζητά ο χρήστης από την οθόνη «Αιτήματα»· ο
+     * προγραμματισμένος έλεγχος δεν το κάνει, γιατί δεν έχει τον χρόνο.
+     */
+    const val KEY_FULL = "full"
+
     /** Μπαίνει στο πρόγραμμα, ή βγαίνει. Καλείται σε κάθε αλλαγή ρύθμισης. */
     fun apply(context: Context, settings: Settings) {
         val manager = WorkManager.getInstance(context.applicationContext)
@@ -56,8 +63,8 @@ object RequestWatch {
     }
 
     /** «Έλεγχος τώρα»: ο ίδιος κώδικας με τον προγραμματισμένο, χωρίς αναμονή. */
-    fun runNow(context: Context) {
-        enqueueNext(context, ids = null, attempt = 0, tally = Tally(), delayMinutes = 0)
+    fun runNow(context: Context, full: Boolean = false) {
+        enqueueNext(context, ids = null, attempt = 0, tally = Tally(), delayMinutes = 0, full = full)
     }
 
     /** Το επόμενο κομμάτι. `ids == null` σημαίνει «όλη η λίστα παρακολούθησης». */
@@ -67,11 +74,13 @@ object RequestWatch {
         attempt: Int,
         tally: Tally,
         delayMinutes: Long,
+        full: Boolean = false,
     ) {
         val data = Data.Builder()
             .putInt(KEY_ATTEMPT, attempt)
             .putIntArray(KEY_TALLY, tally.toArray())
             .putBoolean(KEY_MANUAL, true)
+            .putBoolean(KEY_FULL, full)
         if (ids != null) data.putLongArray(KEY_IDS, ids.toLongArray())
         val request = OneTimeWorkRequestBuilder<RequestWatchWorker>()
             .setInputData(data.build())

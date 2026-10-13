@@ -3,9 +3,6 @@ package gr.scanmydata.taxcenter.requests
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * **Ένα** αίτημα προς την ΑΑΔΕ, ολόκληρο: το κείμενο, η απάντηση, και τα
@@ -180,25 +177,41 @@ object RequestDetail {
     private val TEXT_KEY = Regex("text$", RegexOption.IGNORE_CASE)
 
     /**
-     * Χρειάζεται νέα λήψη;
+     * Πόσα αιτήματα κατεβαίνουν το πολύ σε μία σύνδεση.
      *
-     * Ναι όταν η λίστα λέει ότι το αίτημα **ενημερώθηκε μετά** από τη στιγμή
-     * που το διαβάσαμε. Αυτή είναι ακριβώς η περίπτωση που έχει σημασία: το
-     * αίτημα κατέβηκε όσο περίμενε, και στο μεταξύ απαντήθηκε — τα παλιά
-     * συνημμένα θα έδειχναν ένα αίτημα χωρίς απάντηση.
-     *
-     * @param updated η `updatedDate` της λίστας, «yyyy-MM-dd HH:mm:ss», ώρα Ελλάδας
+     * Όριο για τον χρόνο, όχι για την πύλη: κάθε αίτημα μπορεί να κουβαλά
+     * συνημμένα πολλών MB, και η διαδικασία έχει δέκα λεπτά. Τα νεότερα πρώτα·
+     * τα υπόλοιπα έρχονται στον επόμενο έλεγχο.
      */
-    fun stale(retrievedAt: Long, updated: String, zone: ZoneId = ATHENS): Boolean {
-        if (retrievedAt <= 0L) return true
-        val at = runCatching {
-            LocalDateTime.parse(updated.trim().take(19).replace('T', ' '), STAMP).atZone(zone).toInstant().toEpochMilli()
-        }.getOrNull() ?: return false
-        return at > retrievedAt
-    }
+    const val MAX_BATCH = 25
 
-    private val ATHENS: ZoneId = ZoneId.of("Europe/Athens")
-    private val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    /**
+     * Το αποθηκευμένο αίτημα είναι παλαιότερο από τη λίστα;
+     *
+     * @param saved το αποτύπωμα της λίστας **όταν κατέβηκε** το αίτημα. `null`
+     *   ή κενό = δεν το ξέρουμε (αίτημα που κατέβηκε από παλαιότερη έκδοση)·
+     *   τότε δεν ισχυριζόμαστε ότι άλλαξε.
+     * @param now το τωρινό αποτύπωμα της λίστας ([AadeRequests.Request.stamp])
+     */
+    fun outdated(saved: String?, now: String): Boolean = !saved.isNullOrBlank() && saved != now
+
+    /**
+     * Ποια αιτήματα πρέπει να κατέβουν ολόκληρα, με τη σειρά της λίστας
+     * (νεότερα πρώτα): όσα δεν υπάρχουν στη συσκευή, και όσα άλλαξαν από τότε
+     * που κατέβηκαν.
+     *
+     * @param have τα αιτήματα που έχουν αρχείο στη συσκευή
+     * @param detailed `id -> αποτύπωμα` τη στιγμή της λήψης
+     */
+    fun wanted(
+        requests: List<AadeRequests.Request>,
+        have: Set<String>,
+        detailed: Map<String, String>,
+        limit: Int = MAX_BATCH,
+    ): List<String> = requests
+        .filter { it.id !in have || outdated(detailed[it.id], it.stamp) }
+        .map { it.id }
+        .take(limit.coerceAtLeast(0))
 
     /** «1288743» -> «1,2 MB». Για να ξέρει ο χρήστης τι θα ανοίξει. */
     fun size(bytes: Long): String = when {

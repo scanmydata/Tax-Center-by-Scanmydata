@@ -8,15 +8,21 @@ import java.io.File
 /**
  * Τα αιτήματα ενός πελάτη στον δίσκο, και η **μνήμη** του τι έχουμε ήδη δει.
  *
- * Δύο αρχεία, στον ιδιωτικό φάκελο της λήψης (`runs/<ΑΦΜ>/easynotify/`), που
- * σβήνεται μαζί με τον πελάτη:
+ * Δύο φάκελοι στον ιδιωτικό χώρο της λήψης, που σβήνονται μαζί με τον πελάτη:
  *
- *  * `EASYNOTIFY_<ΑΦΜ>.json` — το γράφει το config σε κάθε λήψη, ολόκληρο.
- *  * `AITIMATA_state.json` — το γράφουμε εμείς: ένα αποτύπωμα ανά αίτημα, και
- *    ποια αιτήματα έχουν απάντηση που ο λογιστής **δεν έχει ανοίξει ακόμη**.
+ *  * `runs/<ΑΦΜ>/easynotify/` — η **λίστα**:
+ *     * `EASYNOTIFY_<ΑΦΜ>.json`, που το γράφει το config σε κάθε έλεγχο, ολόκληρο,
+ *     * `AITIMATA_state.json`, που το γράφουμε εμείς — βλ. [State].
+ *  * `runs/<ΑΦΜ>/aade-request/` — κάθε αίτημα **ολόκληρο**: `AITIMA_<id>.json`
+ *    και τα συνημμένα του, `AITIMA_<id>_…`.
  *
- * Το δεύτερο είναι αυτό που κάνει την παρακολούθηση δυνατή: το config δεν
- * θυμάται τίποτα, οπότε χωρίς αυτό κάθε πρωί όλα τα αιτήματα θα ήταν «νέα» ή
+ * Ό,τι κατέβει **μένει**. Το άνοιγμα ενός αιτήματος διαβάζει τον δίσκο και δεν
+ * ανοίγει ποτέ σύνδεση· σύνδεση γίνεται μόνο στον έλεγχο, ή όταν το ζητήσει ο
+ * χρήστης. Η πρώτη έκδοση κατέβαζε το αίτημα την ώρα που άνοιγε, δηλαδή μία
+ * συνεδρία GSIS για κάθε αίτημα που ήθελε κανείς απλώς να διαβάσει.
+ *
+ * Το αρχείο κατάστασης είναι αυτό που κάνει την παρακολούθηση δυνατή: το config
+ * δεν θυμάται τίποτα, οπότε χωρίς αυτό κάθε πρωί όλα τα αιτήματα θα ήταν «νέα» ή
  * κανένα. Κρατά αποτυπώματα και αριθμούς αιτημάτων — όχι το κείμενο.
  *
  * Διαβάζει και γράφει δίσκο — όχι από το κύριο νήμα.
@@ -26,6 +32,23 @@ object RequestsStore {
     private const val PREFIX = "EASYNOTIFY_"
     private const val STATE = "AITIMATA_state.json"
 
+    /**
+     * Ό,τι θυμόμαστε για τα αιτήματα ενός πελάτη.
+     *
+     * @param known `id -> αποτύπωμα` της τελευταίας λίστας. `null` = δεν υπάρχει
+     *   ακόμη μνήμη, άρα ο επόμενος έλεγχος είναι ο πρώτος.
+     * @param fresh αιτήματα με απάντηση ή αλλαγή που ο λογιστής δεν έχει ανοίξει
+     * @param detailed `id -> αποτύπωμα` **τη στιγμή που κατέβηκε ολόκληρο**. Αν
+     *   διαφέρει από το τωρινό, το αποθηκευμένο αίτημα είναι παλαιότερο από τη
+     *   λίστα. Αποτύπωμα και όχι ημερομηνία: η σύγκριση δεν πρέπει να εξαρτάται
+     *   από το ρολόι της συσκευής ή τη ζώνη ώρας της πύλης.
+     */
+    internal data class State(
+        val known: Map<String, String>? = null,
+        val fresh: Set<String> = emptySet(),
+        val detailed: Map<String, String> = emptyMap(),
+    )
+
     data class Snapshot(
         val requests: List<AadeRequests.Request> = emptyList(),
         /** Πότε γράφτηκε το JSON. `0` = δεν έχει ληφθεί ποτέ. */
@@ -34,8 +57,15 @@ object RequestsStore {
         val fresh: Set<String> = emptySet(),
         /** Μη κενό όταν η τελευταία λήψη δεν διάβασε τα αιτήματα. */
         val error: String = "",
+        /** Τα αιτήματα που είναι αποθηκευμένα ολόκληρα: `id -> συνημμένα στη συσκευή`. */
+        val saved: Map<String, Int> = emptyMap(),
+        /** Αποθηκευμένα που άλλαξαν στην πύλη από τότε — θέλουν ανανέωση. */
+        val outdated: Set<String> = emptySet(),
     ) {
         val pending: Int get() = requests.count { !it.answered }
+
+        /** Πόσα από τα αιτήματα της λίστας ανοίγουν χωρίς σύνδεση. */
+        val complete: Int get() = requests.count { it.id in saved }
     }
 
     fun load(filesDir: File, afm: String): Snapshot {
@@ -44,11 +74,17 @@ object RequestsStore {
         val file = newest(dir) ?: return Snapshot()
         val json = read(file)
         val requests = AadeRequests.parse(json)
+        val state = state(dir)
+        val have = saved(filesDir, afm)
         return Snapshot(
             requests = requests.orEmpty(),
             at = file.lastModified(),
-            fresh = state(dir).second,
+            fresh = state.fresh,
             error = if (requests == null) AadeRequests.error(json).ifBlank { "δεν διαβάστηκαν" } else "",
+            saved = have,
+            outdated = requests.orEmpty()
+                .filter { it.id in have && RequestDetail.outdated(state.detailed[it.id], it.stamp) }
+                .map { it.id }.toSet(),
         )
     }
 
@@ -67,21 +103,27 @@ object RequestsStore {
         val dir = dir(filesDir, afm)
         val file = newest(dir) ?: return null
         val requests = AadeRequests.parse(read(file)) ?: return null
-        val (known, fresh) = state(dir)
-        val changes = AadeRequests.diff(known, requests)
+        val state = state(dir)
+        val changes = AadeRequests.diff(state.known, requests)
         // Ό,τι ήταν «αδιάβαστο» μένει αδιάβαστο, εφόσον το αίτημα υπάρχει ακόμη.
         val ids = requests.map { it.id }.toSet()
-        save(dir, AadeRequests.stamps(requests), (fresh + changes.map { it.request.id }).intersect(ids))
+        save(
+            dir,
+            state.copy(
+                known = AadeRequests.stamps(requests),
+                fresh = (state.fresh + changes.map { it.request.id }).intersect(ids),
+            ),
+        )
         return changes
     }
 
     /** Ο λογιστής τα είδε. Κενό [ids] = όλα. */
     fun markSeen(filesDir: File, afm: String, ids: Set<String> = emptySet()): Set<String> {
         val dir = dir(filesDir, afm)
-        val (known, fresh) = state(dir)
-        if (known == null) return emptySet()
-        val left = if (ids.isEmpty()) emptySet() else fresh - ids
-        save(dir, known, left)
+        val state = state(dir)
+        if (state.known == null) return emptySet()
+        val left = if (ids.isEmpty()) emptySet() else state.fresh - ids
+        save(dir, state.copy(fresh = left))
         return left
     }
 
@@ -89,9 +131,6 @@ object RequestsStore {
 
     /**
      * Το πλήρες αίτημα [id], αν έχει κατέβει — βλ. [RequestDetail].
-     *
-     * Ζει σε **δικό του** φάκελο (`runs/<ΑΦΜ>/aade-request/`), μαζί με τα
-     * συνημμένα του, και σβήνεται με τον πελάτη όπως κάθε άλλη λήψη.
      */
     fun detail(filesDir: File, afm: String, id: String): RequestDetail.Detail? {
         if (afm.isBlank() || id.isBlank()) return null
@@ -102,17 +141,45 @@ object RequestsStore {
         return if (detail.retrievedAt > 0L) detail else detail.copy(retrievedAt = file.lastModified())
     }
 
-    /** Ποια αιτήματα έχουν ήδη κατέβει ολόκληρα, και πόσα συνημμένα έχει το καθένα. */
-    fun downloaded(filesDir: File, afm: String): Map<String, Int> {
-        if (afm.isBlank()) return emptyMap()
-        val files = detailDir(filesDir, afm).listFiles() ?: return emptyMap()
-        val out = HashMap<String, Int>()
-        for (file in files) {
-            val m = DETAIL_FILE.matchEntire(file.name) ?: continue
-            val detail = RequestDetail.parse(read(file)) ?: continue
-            out[m.groupValues[1]] = detail.attachments.count { it.downloaded }
+    /**
+     * Ποια αιτήματα της λίστας πρέπει να κατέβουν ολόκληρα: όσα δεν έχουν
+     * κατέβει ποτέ, και όσα άλλαξαν στην πύλη από τότε. Κενή λίστα σημαίνει ότι
+     * **δεν χρειάζεται δεύτερη σύνδεση** — η συνηθισμένη περίπτωση.
+     */
+    fun wanted(filesDir: File, afm: String, limit: Int = RequestDetail.MAX_BATCH): List<String> {
+        if (afm.isBlank()) return emptyList()
+        val dir = dir(filesDir, afm)
+        val file = newest(dir) ?: return emptyList()
+        val requests = AadeRequests.parse(read(file)) ?: return emptyList()
+        return RequestDetail.wanted(requests, saved(filesDir, afm).keys, state(dir).detailed, limit)
+    }
+
+    /**
+     * Σημειώνει ότι τα [ids] κατέβηκαν **τώρα**, με τη λίστα όπως είναι τώρα.
+     *
+     * Μόνο όσα έχουν πράγματι αρχείο γραμμένο από τη [since] και μετά: ένα
+     * αίτημα που η πύλη δεν έδωσε δεν πρέπει να περάσει για αποθηκευμένο.
+     * Επιστρέφει πόσα σημειώθηκαν.
+     */
+    fun markDetailed(filesDir: File, afm: String, ids: Collection<String>, since: Long): Int {
+        if (afm.isBlank() || ids.isEmpty()) return 0
+        val dir = dir(filesDir, afm)
+        val file = newest(dir) ?: return 0
+        val stamps = AadeRequests.stamps(AadeRequests.parse(read(file)) ?: return 0)
+        val folder = detailDir(filesDir, afm)
+        val done = ids.filter { id ->
+            val json = File(folder, RequestDetail.fileName(id))
+            // Ένα δευτερόλεπτο ανοχή: κάποια συστήματα αρχείων στρογγυλεύουν την ώρα.
+            json.isFile && json.lastModified() >= since - 1_000L && id in stamps
         }
-        return out
+        if (done.isEmpty()) return 0
+        val state = state(dir)
+        // Χωρίς μνήμη της λίστας δεν γράφουμε τίποτα: ένα αρχείο κατάστασης με
+        // άδεια «γνωστά» θα έκανε τον επόμενο έλεγχο να δει κάθε απαντημένο
+        // αίτημα ως καινούργιο.
+        if (state.known == null) return 0
+        save(dir, state.copy(detailed = state.detailed + done.associateWith { stamps.getValue(it) }))
+        return done.size
     }
 
     /**
@@ -127,6 +194,18 @@ object RequestsStore {
         return File(detailDir(filesDir, afm), saved).takeIf { it.isFile }
     }
 
+    /** `id -> πόσα συνημμένα έχει στη συσκευή`, για κάθε αίτημα που έχει κατέβει ολόκληρο. */
+    private fun saved(filesDir: File, afm: String): Map<String, Int> {
+        val files = detailDir(filesDir, afm).listFiles() ?: return emptyMap()
+        val out = HashMap<String, Int>()
+        for (file in files) {
+            val m = DETAIL_FILE.matchEntire(file.name) ?: continue
+            val detail = RequestDetail.parse(read(file)) ?: continue
+            out[m.groupValues[1]] = detail.attachments.count { it.downloaded }
+        }
+        return out
+    }
+
     private val DETAIL_FILE = Regex("""AITIMA_(\d+)\.json""")
 
     private fun detailDir(filesDir: File, afm: String): File = File(
@@ -134,29 +213,37 @@ object RequestsStore {
         "runs/${FileBridge.sanitiseSegment(afm)}/${FileBridge.sanitiseSegment(RequestDetail.CONFIG)}",
     )
 
-    // ------------------------------------------------------------ εσωτερικά
+    // ------------------------------------------------------------ κατάσταση
 
-    /** `(γνωστά, αδιάβαστα)`. Τα γνωστά είναι `null` όταν δεν υπάρχει ακόμη μνήμη. */
-    private fun state(dir: File): Pair<Map<String, String>?, Set<String>> {
-        val o = runCatching { JSONObject(File(dir, STATE).readText(Charsets.UTF_8)) }.getOrNull()
-            ?: return NONE
-        val known = o.optJSONObject("known") ?: return NONE
-        val fresh = o.optJSONArray("fresh") ?: JSONArray()
-        return known.keys().asSequence().associateWith { known.optString(it) } to
-            (0 until fresh.length()).map { fresh.optString(it) }.filter { it.isNotBlank() }.toSet()
-    }
+    private fun state(dir: File): State =
+        decode(runCatching { File(dir, STATE).readText(Charsets.UTF_8) }.getOrDefault(""))
 
-    private val NONE: Pair<Map<String, String>?, Set<String>> = Pair(null, emptySet())
-
-    private fun save(dir: File, known: Map<String, String>, fresh: Set<String>) {
-        val o = JSONObject()
-            .put("known", JSONObject().apply { known.forEach { (id, stamp) -> put(id, stamp) } })
-            .put("fresh", JSONArray().apply { fresh.forEach { put(it) } })
+    private fun save(dir: File, state: State) {
         runCatching {
             dir.mkdirs()
-            File(dir, STATE).writeText(o.toString(), Charsets.UTF_8)
+            File(dir, STATE).writeText(encode(state), Charsets.UTF_8)
         }
     }
+
+    /** Ό,τι δεν διαβάζεται είναι «καμία μνήμη» — ποτέ μισή μνήμη. */
+    internal fun decode(json: String): State {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: return State()
+        val known = o.optJSONObject("known") ?: return State()
+        val fresh = o.optJSONArray("fresh") ?: JSONArray()
+        // Τα αρχεία των προηγούμενων εκδόσεων δεν έχουν «detailed»: κενό, όχι σφάλμα.
+        val detailed = o.optJSONObject("detailed") ?: JSONObject()
+        return State(
+            known = known.keys().asSequence().associateWith { known.optString(it) },
+            fresh = (0 until fresh.length()).map { fresh.optString(it) }.filter { it.isNotBlank() }.toSet(),
+            detailed = detailed.keys().asSequence().associateWith { detailed.optString(it) },
+        )
+    }
+
+    internal fun encode(state: State): String = JSONObject()
+        .put("known", JSONObject().apply { state.known.orEmpty().forEach { (id, stamp) -> put(id, stamp) } })
+        .put("fresh", JSONArray().apply { state.fresh.forEach { put(it) } })
+        .put("detailed", JSONObject().apply { state.detailed.forEach { (id, stamp) -> put(id, stamp) } })
+        .toString()
 
     /** Ο φάκελος όπου γράφει το `ProcessRunner` — ίδιος κανόνας ονομάτων. */
     private fun dir(filesDir: File, afm: String): File = File(

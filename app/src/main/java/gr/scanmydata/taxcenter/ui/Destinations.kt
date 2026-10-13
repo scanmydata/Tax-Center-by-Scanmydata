@@ -1,6 +1,9 @@
 package gr.scanmydata.taxcenter.ui
 
 import androidx.annotation.DrawableRes
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import gr.scanmydata.taxcenter.R
 
 /**
@@ -22,6 +25,26 @@ import gr.scanmydata.taxcenter.R
  * Ως vector: ένα αρχείο για κάθε πυκνότητα οθόνης, και ο χρωματισμός γίνεται από
  * το θέμα — άρα δουλεύουν σωστά σε ανοιχτό και σκοτεινό.
  */
+/**
+ * Οθόνη που ζητήθηκε **απ' έξω** — σήμερα μόνο από την ειδοποίηση των αιτημάτων.
+ *
+ * `object` για τον ίδιο λόγο με το `TourState`: το αίτημα φτάνει στο
+ * `MainActivity` πριν υπάρξει σύνθεση, και συχνά πριν ξεκλειδώσει η εφαρμογή.
+ * Μένει εδώ ώσπου το [AppShell] να μπορεί να πλοηγηθεί, και καταναλώνεται μία φορά.
+ */
+object Launch {
+    var route by mutableStateOf<String?>(null)
+        private set
+
+    fun request(target: String) {
+        route = target
+    }
+
+    fun consume() {
+        route = null
+    }
+}
+
 enum class Destination(
     val route: String,
     val label: String,
@@ -39,6 +62,12 @@ enum class Destination(
     Fetch("fetch", "Λήψη εντύπων", R.drawable.ic_menu_fetch),
     Documents("documents", "Έγγραφα", R.drawable.ic_menu_documents),
     Calendar("calendar", "Ημερολόγιο αποστολών", R.drawable.ic_menu_calendar),
+
+    /**
+     * Τα αιτήματα **όλων** των πελατών προς την ΑΑΔΕ, σε μία λίστα. Η καρτέλα
+     * του πελάτη δείχνει τα δικά του· εδώ φαίνεται τι περιμένει το γραφείο.
+     */
+    Requests("requests", "Αιτήματα ΑΑΔΕ", R.drawable.ic_menu_requests),
 
     Help("help", "Οδηγίες χρήσης", R.drawable.ic_menu_help),
     SettingsScreen("settings", "Ρυθμίσεις", R.drawable.ic_menu_settings),

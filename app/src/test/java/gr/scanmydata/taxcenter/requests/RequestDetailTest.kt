@@ -7,7 +7,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
-import java.time.ZoneId
 
 /**
  * Ένα αίτημα ολόκληρο, με τα συνημμένα του.
@@ -167,30 +166,98 @@ class RequestDetailTest {
         assertEquals("AITIMA_42.json", RequestDetail.fileName("../4/2"))
     }
 
-    // ------------------------------------------------------- χρειάζεται νέα λήψη;
+    // ------------------------------------------------- τι πρέπει να κατέβει
 
-    private val athens = ZoneId.of("Europe/Athens")
-    private fun at(iso: String) = Instant.parse(iso).toEpochMilli()
+    private fun request(id: String, status: String = "Απαντημένο", answer: String = "ok") =
+        AadeRequests.Request(id = id, status = status, answer = answer, updated = "2026-09-30 10:00:00")
 
     /**
-     * Το αίτημα κατέβηκε όσο περίμενε, και μετά απαντήθηκε. Τα παλιά συνημμένα
-     * θα έδειχναν ένα αίτημα χωρίς απάντηση — πρέπει να ξανακατέβει.
+     * Ο έλεγχος κατεβάζει ολόκληρα μόνο όσα **χρειάζεται**. Όταν δεν χρειάζεται
+     * κανένα — η συνηθισμένη μέρα — δεν γίνεται δεύτερη σύνδεση στο GSIS.
      */
     @Test
-    fun `αίτημα που ενημερώθηκε μετά τη λήψη θέλει νέα λήψη`() {
-        // 09:15Z = 12:15 ώρα Ελλάδας (καλοκαίρι, UTC+3).
-        val retrieved = at("2026-10-09T09:15:00Z")
-        assertTrue(RequestDetail.stale(retrieved, "2026-10-09 12:16:00", athens))
-        assertFalse(RequestDetail.stale(retrieved, "2026-10-09 12:14:00", athens))
-        assertFalse(RequestDetail.stale(retrieved, "2026-09-30 10:00:00", athens))
+    fun `κατεβαίνουν όσα λείπουν και όσα άλλαξαν, με τη σειρά της λίστας`() {
+        val a = request("1")
+        val b = request("2")
+        val c = request("3", status = "Σε επεξεργασία", answer = "")
+        val list = listOf(a, b, c)
+
+        // Τίποτα στη συσκευή: όλα.
+        assertEquals(listOf("1", "2", "3"), RequestDetail.wanted(list, emptySet(), emptyMap()))
+
+        // Όλα αποθηκευμένα με το τωρινό τους αποτύπωμα: κανένα.
+        val current = list.associate { it.id to it.stamp }
+        assertTrue(RequestDetail.wanted(list, setOf("1", "2", "3"), current).isEmpty())
+
+        // Το 3 αποθηκεύτηκε όσο περίμενε, και μετά απαντήθηκε.
+        val answered = c.copy(status = "Απαντημένο", answer = "Εγκρίθηκε.")
+        assertEquals(
+            listOf("3"),
+            RequestDetail.wanted(listOf(a, b, answered), setOf("1", "2", "3"), current),
+        )
+
+        // Το 2 δεν έχει αρχείο, όσο κι αν το θυμόμαστε.
+        assertEquals(listOf("2"), RequestDetail.wanted(list, setOf("1", "3"), current))
+    }
+
+    /**
+     * Ό,τι κατέβηκε από έκδοση που δεν κρατούσε αποτύπωμα **δεν** ξανακατεβαίνει:
+     * δεν ξέρουμε αν άλλαξε, και μια σύνδεση «για κάθε ενδεχόμενο» σε κάθε
+     * πελάτη είναι ακριβώς ό,τι αποφεύγουμε.
+     */
+    @Test
+    fun `αποθηκευμένο χωρίς αποτύπωμα δεν θεωρείται αλλαγμένο`() {
+        val a = request("1")
+        assertTrue(RequestDetail.wanted(listOf(a), setOf("1"), emptyMap()).isEmpty())
+        assertFalse(RequestDetail.outdated(null, a.stamp))
+        assertFalse(RequestDetail.outdated("", a.stamp))
+        assertFalse(RequestDetail.outdated(a.stamp, a.stamp))
+        assertTrue(RequestDetail.outdated("κάτι άλλο", a.stamp))
     }
 
     @Test
-    fun `χωρίς ώρα λήψης ξανακατεβαίνει, χωρίς ώρα ενημέρωσης όχι`() {
-        assertTrue(RequestDetail.stale(0L, "2026-09-30 10:00:00", athens))
-        // Η λίστα δεν έδωσε (ή δεν διαβάζεται) ημερομηνία: δεν υπάρχει λόγος για σύνδεση.
-        assertFalse(RequestDetail.stale(at("2026-10-09T09:15:00Z"), "", athens))
-        assertFalse(RequestDetail.stale(at("2026-10-09T09:15:00Z"), "χθες", athens))
+    fun `μία σύνδεση κατεβάζει ως ένα όριο, τα νεότερα πρώτα`() {
+        val many = (1..40).map { request(it.toString()) }
+        val first = RequestDetail.wanted(many, emptySet(), emptyMap())
+        assertEquals(RequestDetail.MAX_BATCH, first.size)
+        assertEquals("1", first.first())
+        assertEquals(listOf("1", "2"), RequestDetail.wanted(many, emptySet(), emptyMap(), limit = 2))
+        assertTrue(RequestDetail.wanted(many, emptySet(), emptyMap(), limit = 0).isEmpty())
+    }
+
+    // ------------------------------------------------------------- η μνήμη
+
+    /** Το αρχείο κατάστασης γράφεται και ξαναδιαβάζεται χωρίς να χάσει τίποτα. */
+    @Test
+    fun `η μνήμη των αιτημάτων επιβιώνει από την αποθήκευση`() {
+        val state = RequestsStore.State(
+            known = mapOf("1" to "απαντημενο||a1", "2" to "σε επεξεργασια||"),
+            fresh = setOf("1"),
+            detailed = mapOf("1" to "απαντημενο||a1"),
+        )
+        assertEquals(state, RequestsStore.decode(RequestsStore.encode(state)))
+    }
+
+    /**
+     * Το αρχείο των προηγούμενων εκδόσεων δεν έχει «detailed». Πρέπει να
+     * διαβαστεί κανονικά — αλλιώς η αναβάθμιση θα έσβηνε τη μνήμη, και ο
+     * επόμενος έλεγχος θα έβλεπε κάθε παλιά απάντηση ως νέα.
+     */
+    @Test
+    fun `η μνήμη παλαιότερης έκδοσης διαβάζεται ολόκληρη`() {
+        val old = RequestsStore.decode("""{"known":{"1":"a","2":"b"},"fresh":["2"]}""")
+        assertEquals(mapOf("1" to "a", "2" to "b"), old.known)
+        assertEquals(setOf("2"), old.fresh)
+        assertTrue(old.detailed.isEmpty())
+    }
+
+    /** Χαλασμένο αρχείο είναι «καμία μνήμη»: ο επόμενος έλεγχος γίνεται ο πρώτος, χωρίς ειδοποίηση. */
+    @Test
+    fun `ό,τι δεν διαβάζεται είναι καμία μνήμη, όχι μισή`() {
+        assertNull(RequestsStore.decode("").known)
+        assertNull(RequestsStore.decode("{").known)
+        assertNull(RequestsStore.decode("""{"fresh":["1"],"detailed":{"1":"a"}}""").known)
+        assertTrue(RequestsStore.decode("""{"fresh":["1"]}""").fresh.isEmpty())
     }
 
     // ---------------------------------------------------------------- μέγεθος

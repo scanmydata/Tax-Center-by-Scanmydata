@@ -52,6 +52,7 @@ class RequestWatchWorker(
         val continuing = inputData.getLongArray(RequestWatch.KEY_IDS)?.toList()
         val manual = inputData.getBoolean(RequestWatch.KEY_MANUAL, false)
         val attempt = inputData.getInt(RequestWatch.KEY_ATTEMPT, 0)
+        val full = inputData.getBoolean(RequestWatch.KEY_FULL, false)
         var tally = RequestWatch.Tally.of(inputData.getIntArray(RequestWatch.KEY_TALLY))
 
         // Η περιοδική εργασία μπορεί να ξυπνήσει αφού ο χρήστης έκλεισε το
@@ -81,6 +82,11 @@ class RequestWatchWorker(
                     settings = settings,
                     client = client,
                     ownsBatch = true,
+                    // Ό,τι απαντήθηκε κατεβαίνει ολόκληρο τώρα: η ειδοποίηση
+                    // πρέπει να οδηγεί σε απάντηση που ήδη υπάρχει στη συσκευή.
+                    // Το ιστορικό κάθε πελάτη κατεβαίνει μόνο όταν το ζητήσει
+                    // ο χρήστης — βλ. [RequestWatch.KEY_FULL].
+                    details = if (full) RequestsRefresh.Details.MISSING else RequestsRefresh.Details.CHANGED,
                 )
                 if (result.outcome == RequestsRefresh.Outcome.BUSY) {
                     // Η ουρά είναι του χρήστη αυτή τη στιγμή. Ξαναδοκιμάζουμε
@@ -88,7 +94,7 @@ class RequestWatchWorker(
                     if (attempt >= MAX_BUSY_ATTEMPTS) {
                         finish(tally, suffix = " · σταμάτησε: έτρεχε άλλη λήψη")
                     } else {
-                        RequestWatch.enqueueNext(applicationContext, left, attempt + 1, tally, BUSY_DELAY_MINUTES)
+                        RequestWatch.enqueueNext(applicationContext, left, attempt + 1, tally, BUSY_DELAY_MINUTES, full)
                     }
                     return Result.success()
                 }
@@ -127,13 +133,13 @@ class RequestWatchWorker(
             // ο πελάτης που έτρεχε τώρα μένει έξω ώς τον επόμενο κύκλο.
             left.removeFirstOrNull()
             if (left.isNotEmpty()) {
-                RequestWatch.enqueueNext(applicationContext, left, 0, tally, CONTINUE_DELAY_MINUTES)
+                RequestWatch.enqueueNext(applicationContext, left, 0, tally, CONTINUE_DELAY_MINUTES, full)
             }
             throw e
         }
 
         if (left.isNotEmpty()) {
-            RequestWatch.enqueueNext(applicationContext, left, 0, tally, CONTINUE_DELAY_MINUTES)
+            RequestWatch.enqueueNext(applicationContext, left, 0, tally, CONTINUE_DELAY_MINUTES, full)
         } else {
             finish(tally)
         }
@@ -183,8 +189,17 @@ class RequestWatchWorker(
             val open = PendingIntent.getActivity(
                 context,
                 1,
-                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                PendingIntent.FLAG_IMMUTABLE,
+                // Το πάτημα οδηγεί στα «Αιτήματα», όχι απλώς στην εφαρμογή: εκεί
+                // φαίνεται ποιο απαντήθηκε και σε ποιον. Το extra είναι όνομα
+                // οθόνης από κλειστή λίστα — βλ. [MainActivity].
+                Intent(context, MainActivity::class.java)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                    )
+                    .putExtra(MainActivity.EXTRA_OPEN, MainActivity.OPEN_REQUESTS),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             manager.notify(
                 NOTIFICATION_ID,

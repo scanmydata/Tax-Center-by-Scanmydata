@@ -1,5 +1,6 @@
 package gr.scanmydata.taxcenter
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -14,6 +15,8 @@ import androidx.fragment.app.FragmentActivity
 import gr.scanmydata.taxcenter.security.AppLock
 import gr.scanmydata.taxcenter.ui.AppContainer
 import gr.scanmydata.taxcenter.ui.AppShell
+import gr.scanmydata.taxcenter.ui.Destination
+import gr.scanmydata.taxcenter.ui.Launch
 import gr.scanmydata.taxcenter.ui.LockScreen
 import gr.scanmydata.taxcenter.ui.SplashScreen
 import gr.scanmydata.taxcenter.ui.theme.TaxCenterTheme
@@ -50,6 +53,7 @@ class MainActivity : FragmentActivity() {
         // Το θέμα διαβάζεται **πριν** από το πρώτο σχέδιο, αλλιώς η εφαρμογή
         // ξεκινά στο κλασικό και αλλάζει μπροστά στα μάτια του χρήστη.
         ThemeState.set(container.settings.themeVariant)
+        route(intent)
 
         setContent {
             TaxCenterTheme {
@@ -77,6 +81,26 @@ class MainActivity : FragmentActivity() {
                     else -> AppShell(container)
                 }
             }
+        }
+    }
+
+    /** Η εφαρμογή ήταν ήδη ανοιχτή όταν πατήθηκε η ειδοποίηση. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        route(intent)
+    }
+
+    /**
+     * Πού θέλει να ανοίξει η ειδοποίηση που πατήθηκε.
+     *
+     * Το intent λέει **όνομα από κλειστή λίστα**, ποτέ διαδρομή: ό,τι δεν
+     * αναγνωρίζεται αγνοείται. Η πλοήγηση γίνεται από το [AppShell], δηλαδή
+     * μόνο αφού ξεκλειδώσει η εφαρμογή.
+     */
+    private fun route(intent: Intent?) {
+        if (intent?.getStringExtra(EXTRA_OPEN) == OPEN_REQUESTS) {
+            Launch.request(Destination.Requests.route)
+            intent?.removeExtra(EXTRA_OPEN)
         }
     }
 
@@ -110,7 +134,11 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private companion object {
-        const val SPLASH_FLOOR_MS = 700L
+    companion object {
+        /** Ποια οθόνη να ανοίξει — βλ. [route]. */
+        const val EXTRA_OPEN = "gr.scanmydata.taxcenter.OPEN"
+        const val OPEN_REQUESTS = "requests"
+
+        private const val SPLASH_FLOOR_MS = 700L
     }
 }

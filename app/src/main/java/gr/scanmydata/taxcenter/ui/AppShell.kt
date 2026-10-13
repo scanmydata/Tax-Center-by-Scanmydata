@@ -118,6 +118,24 @@ fun AppShell(container: AppContainer) {
         if (UpdateChecker.isNewer(release.version)) update = release
     }
 
+    // Ειδοποίηση που πατήθηκε: ανοίγει η οθόνη της, μία φορά. Το `AppShell`
+    // συντίθεται μόνο ξεκλείδωτο, άρα η πλοήγηση περιμένει το ξεκλείδωμα.
+    val launch = Launch.route
+    LaunchedEffect(launch) {
+        if (launch != null) {
+            Launch.consume()
+            // Με όνομα διαδρομής και όχι από το γράφημα: το εφέ μπορεί να
+            // τρέξει στην πρώτη σύνθεση, και μια πλοήγηση που δεν έγινε είναι
+            // προτιμότερη από μια εφαρμογή που έπεσε ανοίγοντας από ειδοποίηση.
+            runCatching {
+                navController.navigate(launch) {
+                    popUpTo(Destination.Clients.route)
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val base = route?.substringBefore('?')
@@ -320,6 +338,13 @@ fun AppShell(container: AppContainer) {
                     NewClientScreen(
                         container = container,
                         onDone = { navController.navigate(Destination.Clients.route) },
+                    )
+                }
+                composable(Destination.Requests.route) {
+                    RequestsScreen(
+                        container = container,
+                        onOpenClient = { id -> navController.navigate("$CLIENT_ROUTE/$id/requests") },
+                        onOpenSettings = { navController.navigate(Destination.SettingsScreen.route) },
                     )
                 }
                 composable(Destination.Fetch.route) { FetchScreen(container) }
