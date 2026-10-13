@@ -84,6 +84,7 @@ object Exports {
                         send.toEmail,
                         when {
                             send.kind == SendEntity.KIND_CREDENTIALS -> "Στοιχεία πελάτη"
+                            send.aboutRequests -> send.requestLabel
                             send.aboutDebts -> "Μήνυμα οφειλής (" + send.channel + ")"
                             send.viaViber -> "Φορολογικά έντυπα (Viber)"
                             else -> "Φορολογικά έντυπα"
@@ -93,6 +94,7 @@ object Exports {
                         when {
                             send.failed -> "ΑΠΕΤΥΧΕ"
                             // Παράδοση σε άλλη εφαρμογή δεν είναι «στάλθηκε».
+                            send.handed && send.aboutRequests -> "Παραδόθηκε σε άλλη εφαρμογή"
                             send.handed -> "Παραδόθηκε στο " + send.channel
                             else -> "Στάλθηκε"
                         },

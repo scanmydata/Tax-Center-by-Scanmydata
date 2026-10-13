@@ -147,6 +147,96 @@ class RequestBoardTest {
         assertEquals(listOf("21"), ids(RequestBoard.arrange(all, filter = Filter.PENDING, query = "αντωνίου")))
     }
 
+    // ------------------------------------------------------------ ανά πελάτη
+
+    private fun clients(groups: List<RequestBoard.Group>) = groups.map { it.clientName.substringBefore(' ') }
+
+    /**
+     * Μία κάρτα ανά πελάτη, με **όλα** τα αιτήματά του μέσα. Ο πελάτης παίρνει
+     * τη θέση του καλύτερου αιτήματός του: εδώ, αυτού που κινήθηκε τελευταίο.
+     */
+    @Test
+    fun `τα αιτήματα μαζεύονται ανά πελάτη, στη θέση του πιο πρόσφατου`() {
+        val groups = RequestBoard.groups(all)
+        assertEquals(listOf("Αντωνίου", "Ωμέγα", "Βασιλείου"), clients(groups))
+        assertEquals(listOf("22", "21"), ids(groups[0].rows))
+        assertEquals(listOf("31", "32"), ids(groups[1].rows))
+        assertEquals(listOf("11"), ids(groups[2].rows))
+        assertEquals("2026-10-08 15:30:00", groups[0].updated)
+    }
+
+    /** «2 αιτήματα · 1 σε αναμονή · 1 απαντημένο» — και κάθε αίτημα μετριέται μία φορά. */
+    @Test
+    fun `κάθε πελάτης γράφει πόσα αιτήματα έχει και σε ποια κατάσταση`() {
+        val (antoniou, omega, vasileiou) = RequestBoard.groups(all)
+        assertEquals("2 αιτήματα", antoniou.count)
+        assertEquals("1 σε αναμονή · 1 απαντημένο", antoniou.statuses)
+        assertEquals(1, antoniou.fresh)
+
+        // Η απόρριψη δεν είναι «σε αναμονή», ακόμη κι αν δεν έχει κείμενο απάντησης.
+        assertEquals("1 σε αναμονή · 1 απορρίφθηκε", omega.statuses)
+        assertEquals(0, omega.fresh)
+
+        assertEquals("1 αίτημα", vasileiou.count)
+        assertEquals("1 απαντημένο", vasileiou.statuses)
+
+        for (group in listOf(antoniou, omega, vasileiou)) {
+            assertEquals(group.rows.size, group.waiting + group.rejected + group.answered)
+        }
+    }
+
+    @Test
+    fun `οι πληθυντικοί των καταστάσεων`() {
+        val rows = listOf(
+            row(1, "Α", "1", "2026-01-01 09:00:00", "2026-01-01 09:00:00"),
+            row(1, "Α", "2", "2026-01-02 09:00:00", "2026-01-02 09:00:00"),
+            row(1, "Α", "3", "2026-01-03 09:00:00", "2026-01-03 09:00:00", status = "Απορρίφθηκε", rejected = true),
+            row(1, "Α", "4", "2026-01-04 09:00:00", "2026-01-04 09:00:00", status = "Απορρίφθηκε", rejected = true),
+            row(1, "Α", "5", "2026-01-05 09:00:00", "2026-01-05 09:00:00", status = "Νέο", answer = ""),
+            row(1, "Α", "6", "2026-01-06 09:00:00", "2026-01-06 09:00:00", status = "Νέο", answer = ""),
+        )
+        val group = RequestBoard.groups(rows).single()
+        assertEquals("6 αιτήματα", group.count)
+        assertEquals("2 σε αναμονή · 2 απορρίφθηκαν · 2 απαντημένα", group.statuses)
+    }
+
+    /** Με «κατάσταση», πρώτος ο πελάτης που έχει κάτι να δει κανείς· με «πελάτη», αλφαβητικά. */
+    @Test
+    fun `οι πελάτες ακολουθούν την ταξινόμηση που διάλεξε ο χρήστης`() {
+        assertEquals(
+            listOf("Αντωνίου", "Ωμέγα", "Βασιλείου"),
+            clients(RequestBoard.groups(all, Sort.STATUS)),
+        )
+        assertEquals(
+            listOf("Αντωνίου", "Βασιλείου", "Ωμέγα"),
+            clients(RequestBoard.groups(all, Sort.CLIENT)),
+        )
+        assertEquals(
+            listOf("Ωμέγα", "Βασιλείου", "Αντωνίου"),
+            clients(RequestBoard.groups(all, Sort.CLIENT, reversed = true)),
+        )
+        // Παλαιότερη ενημέρωση πρώτα: ο πελάτης με το παλαιότερο αίτημα.
+        assertEquals(
+            listOf("Βασιλείου", "Ωμέγα", "Αντωνίου"),
+            clients(RequestBoard.groups(all, reversed = true)),
+        )
+    }
+
+    /** Με φίλτρο, ο πελάτης δείχνει μόνο όσα ταιριάζουν — και μετρά αυτά. */
+    @Test
+    fun `το φίλτρο κόβει μέσα στον πελάτη, και όποιος δεν έχει τίποτα φεύγει`() {
+        val pending = RequestBoard.groups(all, filter = Filter.PENDING)
+        assertEquals(listOf("Αντωνίου", "Ωμέγα"), clients(pending))
+        assertEquals(listOf("21"), ids(pending[0].rows))
+        assertEquals("1 αίτημα", pending[0].count)
+        assertEquals("1 σε αναμονή", pending[0].statuses)
+
+        val found = RequestBoard.groups(all, query = "ωμεγα")
+        assertEquals(listOf("Ωμέγα"), clients(found))
+        assertEquals(2, found[0].rows.size)
+        assertTrue(RequestBoard.groups(emptyList()).isEmpty())
+    }
+
     // ---------------------------------------------------------------- σύνοψη
 
     @Test

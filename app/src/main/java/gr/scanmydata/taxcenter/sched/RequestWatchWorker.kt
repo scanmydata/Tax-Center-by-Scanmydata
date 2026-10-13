@@ -18,6 +18,7 @@ import gr.scanmydata.taxcenter.R
 import gr.scanmydata.taxcenter.TaxCenterApp
 import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.requests.AadeRequests
+import gr.scanmydata.taxcenter.requests.RequestSends
 import gr.scanmydata.taxcenter.requests.RequestsRefresh
 import kotlinx.coroutines.CancellationException
 
@@ -116,6 +117,22 @@ class RequestWatchWorker(
                         tally.copy(dropped = tally.dropped + 1)
                     }
                     RequestsRefresh.Outcome.OK -> {
+                        // Στο ημερολόγιο αποστολών, ανά πελάτη: πότε έμαθε το γραφείο
+                        // ότι κάτι άλλαξε. Η αποτυχία του δεν ρίχνει τον έλεγχο.
+                        if (result.changes.isNotEmpty()) {
+                            runCatching {
+                                container.db.sends().log(
+                                    RequestSends.notice(
+                                        clientId = client.id,
+                                        afm = client.afm,
+                                        clientName = client.displayName,
+                                        changes = result.changes,
+                                        at = System.currentTimeMillis(),
+                                        delivered = notificationsAllowed(),
+                                    ),
+                                )
+                            }
+                        }
                         val answered = result.answered
                         val moved = result.changes.count { it.kind == AadeRequests.Kind.STATUS }
                         tally.copy(
@@ -160,14 +177,15 @@ class RequestWatchWorker(
         }
     }
 
+    /** Επιτρέπει το Android ειδοποιήσεις στην εφαρμογή; Πριν από το 13 δεν ρωτιέται. */
+    private fun notificationsAllowed(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
     private fun notify(title: String, text: String) {
         val context = applicationContext
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
+        if (!notificationsAllowed()) return
         runCatching {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&

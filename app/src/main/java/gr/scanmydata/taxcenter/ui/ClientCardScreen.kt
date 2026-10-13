@@ -524,6 +524,7 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                             Text(
                                 when {
                                     send.kind == SendEntity.KIND_CREDENTIALS -> "Στοιχεία & κωδικοί"
+                                    send.aboutRequests -> send.requestLabel
                                     send.aboutDebts -> "Μήνυμα οφειλής · " + send.channel
                                     send.viaViber -> "Φορολογικά έντυπα · Viber"
                                     else -> "Φορολογικά έντυπα"
@@ -543,7 +544,11 @@ private fun ClientSendsTab(container: AppContainer, clientId: Long) {
                         )
                         if (send.handed) {
                             Text(
-                                (if (send.viaSms) "Παραδόθηκε στα Μηνύματα" else "Παραδόθηκε στο Viber") +
+                                (when {
+                                    send.viaSms -> "Παραδόθηκε στα Μηνύματα"
+                                    send.aboutRequests -> "Παραδόθηκε σε άλλη εφαρμογή"
+                                    else -> "Παραδόθηκε στο Viber"
+                                }) +
                                     " — η ίδια η αποστολή γίνεται από εκεί και δεν " +
                                     "επιβεβαιώνεται εδώ.",
                                 style = MaterialTheme.typography.labelSmall,

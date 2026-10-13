@@ -225,6 +225,11 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     label = { Text("Οφειλές") },
                 )
                 FilterChip(
+                    selected = kindFilter == FILTER_REQUESTS,
+                    onClick = { kindFilter = FILTER_REQUESTS },
+                    label = { Text("Αιτήματα") },
+                )
+                FilterChip(
                     selected = kindFilter == FILTER_VIBER,
                     onClick = { kindFilter = FILTER_VIBER },
                     label = { Text("Viber") },
@@ -401,6 +406,12 @@ private suspend fun retrySend(
             "Το μήνυμα οφειλής ξαναστέλνεται από την καρτέλα του πελάτη, στις " +
                 "Οφειλές — τα ποσά μπορεί να έχουν αλλάξει από τότε."
 
+        // Δεν υπάρχει τίποτα να ξανασταλεί: το αίτημα είναι στη συσκευή.
+        send.aboutRequests ->
+            "Το αίτημα φαίνεται στα «Αιτήματα ΑΑΔΕ». Αν δεν ήρθε ειδοποίηση, άνοιξε " +
+                "εκεί τις ειδοποιήσεις της εφαρμογής· ένα συνημμένο κοινοποιείται ξανά " +
+                "μέσα από το αίτημά του."
+
         send.viaViber ->
             "Η αποστολή με Viber επαναλαμβάνεται από την καρτέλα του πελάτη, " +
                 "στα Έγγραφα — χρειάζεται την ίδια τη συσκευή."
@@ -541,11 +552,17 @@ private fun SendRow(send: SendEntity, onRetry: (() -> Unit)? = null) {
                 )
             }
             Text(send.toEmail, style = MaterialTheme.typography.bodySmall)
+            // Στα αιτήματα το θέμα λέει **τι** έγινε («νέα απάντηση…»)· χωρίς αυτό
+            // η γραμμή θα έγραφε μόνο «ειδοποίηση».
+            if (send.aboutRequests && send.subject.isNotBlank()) {
+                Text(send.subject, style = MaterialTheme.typography.bodySmall)
+            }
             Text(
                 buildString {
                     append(
                         when {
                             send.kind == SendEntity.KIND_CREDENTIALS -> "Στοιχεία πελάτη"
+                            send.aboutRequests -> send.requestLabel
                             send.aboutDebts -> "Μήνυμα οφειλής · " + send.channel
                             send.viaViber -> "Φορολογικά έντυπα · Viber"
                             else -> "Φορολογικά έντυπα"
@@ -613,10 +630,12 @@ private fun calendarDays(anchor: LocalDate, weekView: Boolean): List<LocalDate> 
 private const val FILTER_VIBER = "#viber"
 private const val FILTER_SMS = "#sms"
 private const val FILTER_DEBTS = "#debts"
+private const val FILTER_REQUESTS = "#requests"
 
 private fun matchesKind(send: SendEntity, filter: String): Boolean = when (filter) {
     FILTER_VIBER -> send.viaViber
     FILTER_SMS -> send.viaSms
     FILTER_DEBTS -> send.aboutDebts
+    FILTER_REQUESTS -> send.aboutRequests
     else -> send.kind == filter
 }

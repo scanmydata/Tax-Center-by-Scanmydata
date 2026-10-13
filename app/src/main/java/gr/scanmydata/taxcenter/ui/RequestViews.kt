@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -49,6 +50,7 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.requests.AadeRequests
 import gr.scanmydata.taxcenter.requests.RequestDetail
+import gr.scanmydata.taxcenter.requests.RequestSends
 import gr.scanmydata.taxcenter.requests.RequestsRefresh
 import gr.scanmydata.taxcenter.requests.RequestsStore
 import kotlinx.coroutines.CancellationException
@@ -350,20 +352,27 @@ internal fun RequestDialog(
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
+                // Πίσω αριστερά, όπου το ψάχνει το χέρι· η ανανέωση δεξιά. Το
+                // «Κλείσιμο» έφυγε από κάτω: τρία κουμπιά σε μια σειρά δεν
+                // χωρούσαν σε τηλέφωνο, και το κείμενό τους κοβόταν.
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, end = 10.dp, bottom = 10.dp),
+                    Modifier.fillMaxWidth().padding(start = 10.dp, top = 12.dp, end = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f).padding(end = 10.dp)) {
+                    IconButton(onClick = { opener.close() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Πίσω")
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Text("Αίτημα προς την ΑΑΔΕ", style = MaterialTheme.typography.labelMedium, color = dim)
-                        Text(request.title, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            request.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     IconButton(enabled = !blocked, onClick = { opener.refresh(client, request.id) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Ανανέωση από την ΑΑΔΕ")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = { opener.close() }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Κλείσιμο")
                     }
                 }
                 if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider()
@@ -474,20 +483,31 @@ internal fun RequestDialog(
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(enabled = !blocked, onClick = { opener.refresh(client, request.id) }) {
+                    // Δύο κουμπιά, μοιρασμένα στο πλάτος: χωρούν πάντα ολόκληρα.
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            enabled = !blocked,
+                            onClick = { opener.refresh(client, request.id) },
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(
                                 when {
                                     refreshing -> "Ανανέωση…"
-                                    detail == null -> "Λήψη από την ΑΑΔΕ"
+                                    detail == null -> "Λήψη"
                                     else -> "Ανανέωση"
                                 },
+                                maxLines = 1,
                             )
                         }
                         if (onOpenClient != null) {
-                            OutlinedButton(onClick = onOpenClient) { Text("Καρτέλα πελάτη") }
+                            OutlinedButton(onClick = onOpenClient, modifier = Modifier.weight(1f)) {
+                                Text("Καρτέλα πελάτη", maxLines = 1)
+                            }
+                        } else {
+                            OutlinedButton(onClick = { opener.close() }, modifier = Modifier.weight(1f)) {
+                                Text("Πίσω", maxLines = 1)
+                            }
                         }
-                        OutlinedButton(onClick = { opener.close() }) { Text("Κλείσιμο") }
                     }
                 }
             }
@@ -512,7 +532,7 @@ private fun SavedNote(loaded: Boolean, detail: RequestDetail.Detail?, outdated: 
             refreshing -> "Γίνεται λήψη από την ΑΑΔΕ…"
             detail == null ->
                 "Δεν έχει αποθηκευτεί ακόμη ολόκληρο: φαίνεται ό,τι έχει η λίστα, χωρίς συνημμένα. " +
-                    "Πάτα «Λήψη από την ΑΑΔΕ» — ή «Έλεγχος τώρα», που τα αποθηκεύει όλα μαζί."
+                    "Πάτα «Λήψη» — ή «Έλεγχος τώρα», που τα αποθηκεύει όλα μαζί."
             outdated ->
                 "Το αίτημα άλλαξε στην ΑΑΔΕ από τότε που αποθηκεύτηκε (" +
                     AthensDates.stamp(detail.retrievedAt) + "). Πάτα «Ανανέωση» για την τωρινή του μορφή " +
@@ -560,10 +580,12 @@ private fun Field(label: String, value: String) {
 /**
  * Τα συνημμένα μιας ενότητας, το καθένα με άνοιγμα και κοινοποίηση.
  *
- * Η κοινοποίηση γράφεται στο αρχείο ενεργειών: ένα έγγραφο πελάτη φεύγει από
- * την εφαρμογή προς άλλη, και αυτό είναι ακριβώς το είδος της κίνησης που
- * πρέπει να μπορεί να αποδειχθεί αργότερα. Γράφεται ο αριθμός της υπόθεσης,
- * ποτέ το όνομα του αρχείου.
+ * Η κοινοποίηση γράφεται **δύο φορές**, για δύο αναγνώστες. Στο αρχείο
+ * ενεργειών, γιατί ένα έγγραφο πελάτη φεύγει από την εφαρμογή προς άλλη και
+ * αυτό πρέπει να μπορεί να αποδειχθεί αργότερα — εκεί μόνο ο αριθμός της
+ * υπόθεσης, ποτέ το όνομα του αρχείου. Και στο ημερολόγιο αποστολών, που είναι
+ * το εργαλείο δουλειάς του λογιστή («τι έστειλα στον τάδε τον Οκτώβριο»), με το
+ * όνομα του αρχείου όπως για κάθε έντυπο.
  */
 @Composable
 private fun Attachments(
@@ -620,15 +642,32 @@ private fun Attachments(
                             onStatus(GONE)
                         } else {
                             onStatus("")
-                            runCatching {
+                            val failure = runCatching {
                                 Exports.share(
                                     context,
                                     target,
                                     DocumentActions.mimeOf(file.saved),
                                     "Κοινοποίηση συνημμένου",
                                 )
-                            }.onFailure { onStatus("Δεν άνοιξε η κοινοποίηση: ${it.message}") }
+                            }.exceptionOrNull()
+                            if (failure != null) onStatus("Δεν άνοιξε η κοινοποίηση: ${failure.message}")
                             scope.launch {
+                                // Και στο ημερολόγιο αποστολών: ένα έγγραφο της ΑΑΔΕ
+                                // που προωθήθηκε είναι «τι έστειλα και πότε», όπως
+                                // κάθε άλλο έντυπο.
+                                runCatching {
+                                    container.db.sends().log(
+                                        RequestSends.file(
+                                            clientId = client.id,
+                                            afm = client.afm,
+                                            clientName = client.displayName,
+                                            caseNumber = caseNumber,
+                                            fileName = file.name,
+                                            at = System.currentTimeMillis(),
+                                            error = failure?.let { it.message ?: it.toString() }.orEmpty(),
+                                        ),
+                                    )
+                                }
                                 container.db.audit().log(
                                     AuditEntity(
                                         ts = System.currentTimeMillis(),

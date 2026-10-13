@@ -99,6 +99,68 @@ object RequestBoard {
         return kept.sortedWith(ordered.then(newestFirst).thenBy { it.key })
     }
 
+    /**
+     * Τα αιτήματα **ενός πελάτη**, μαζί.
+     *
+     * Η λίστα του γραφείου είναι λίστα πελατών: «ο τάδε έχει δύο αιτήματα, το
+     * ένα περιμένει». Δύο κάρτες με το ίδιο όνομα, σκόρπιες ανάμεσα σε άλλες,
+     * δεν το λένε αυτό.
+     *
+     * Οι τρεις μετρητές **χωρίζουν** τα αιτήματα — κάθε αίτημα μετριέται σε
+     * έναν ακριβώς. Τα «νέα» είναι άλλη ερώτηση (τι δεν έχει ανοιχτεί) και
+     * μετριούνται χωριστά.
+     */
+    data class Group(
+        val clientId: Long,
+        val clientName: String,
+        val afm: String,
+        /** Με τη σειρά της τρέχουσας ταξινόμησης. */
+        val rows: List<Row>,
+    ) {
+        val fresh: Int get() = rows.count { it.fresh }
+        val rejected: Int get() = rows.count { it.request.rejected }
+        val answered: Int get() = rows.count { !it.request.rejected && it.request.answered }
+        val waiting: Int get() = rows.count { !it.request.rejected && !it.request.answered }
+
+        /** Πότε κινήθηκε τελευταία φορά οποιοδήποτε αίτημά του. */
+        val updated: String get() = rows.maxOfOrNull { updated(it) }.orEmpty()
+
+        /** «2 αιτήματα». */
+        val count: String get() = if (rows.size == 1) "1 αίτημα" else "${rows.size} αιτήματα"
+
+        /**
+         * «1 σε αναμονή · 1 απαντημένο» — πρώτα ό,τι θέλει προσοχή. Μόνο όσα
+         * υπάρχουν: ένα «0 απορρίφθηκαν» σε κάθε κάρτα θα ήταν θόρυβος.
+         */
+        val statuses: String
+            get() = listOfNotNull(
+                when (waiting) { 0 -> null; else -> "$waiting σε αναμονή" },
+                when (rejected) { 0 -> null; 1 -> "1 απορρίφθηκε"; else -> "$rejected απορρίφθηκαν" },
+                when (answered) { 0 -> null; 1 -> "1 απαντημένο"; else -> "$answered απαντημένα" },
+            ).joinToString(" · ")
+    }
+
+    /**
+     * Η λίστα **ανά πελάτη**: ίδια φίλτρα και ίδια ταξινόμηση με το [arrange],
+     * και κάθε πελάτης στη θέση του **καλύτερου** αιτήματός του. Με «πιο
+     * πρόσφατη ενημέρωση πρώτα», πρώτος βγαίνει ο πελάτης στον οποίο κινήθηκε
+     * κάτι τελευταία· με «κατάσταση», αυτός που έχει κάτι να δει κανείς.
+     *
+     * Με φίλτρο ή αναζήτηση, κάθε ομάδα έχει **μόνο** τα αιτήματα που
+     * ταιριάζουν — και ο μετρητής της μετρά αυτά.
+     */
+    fun groups(
+        rows: List<Row>,
+        sort: Sort = Sort.UPDATED,
+        reversed: Boolean = false,
+        filter: Filter = Filter.ALL,
+        query: String = "",
+    ): List<Group> = arrange(rows, sort, reversed, filter, query)
+        // Το `groupBy` κρατά τη σειρά της πρώτης εμφάνισης — δηλαδή του καλύτερου αιτήματος.
+        .groupBy { it.clientId }
+        .values
+        .map { own -> Group(own.first().clientId, own.first().clientName, own.first().afm, own) }
+
     /** Η ημερομηνία που λέει «πότε κινήθηκε τελευταία φορά». Το ISO ταξινομείται ως κείμενο. */
     private fun updated(row: Row): String = row.request.updated.ifBlank { row.request.submitted }
 

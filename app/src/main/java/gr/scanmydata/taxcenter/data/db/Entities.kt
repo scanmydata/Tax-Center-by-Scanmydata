@@ -217,7 +217,9 @@ data class SendEntity(
      * DOCUMENTS = φορολογικά έντυπα με email · CREDENTIALS = οι κωδικοί του
      * ίδιου του πελάτη · VIBER_DOCUMENTS = έντυπα που παραδόθηκαν στο Viber ·
      * VIBER_DEBTS / SMS_DEBTS = μήνυμα οφειλής που παραδόθηκε στο Viber ή
-     * στην εφαρμογή μηνυμάτων της συσκευής.
+     * στην εφαρμογή μηνυμάτων της συσκευής · REQUEST_NOTICE = ειδοποίηση της
+     * συσκευής για απάντηση ή αλλαγή σε αίτημα ΑΑΔΕ · REQUEST_FILE = συνημμένο
+     * αιτήματος που κοινοποιήθηκε σε άλλη εφαρμογή.
      */
     val kind: String,
     /** Ονόματα συνημμένων ή περιγραφή περιεχομένου, ένα ανά γραμμή. */
@@ -250,11 +252,24 @@ data class SendEntity(
     /** Μήνυμα οφειλής και όχι έντυπα. */
     val aboutDebts: Boolean get() = kind == KIND_VIBER_DEBTS || kind == KIND_SMS_DEBTS
 
+    /** Ειδοποίηση ή συνημμένο για **αίτημα προς την ΑΑΔΕ** — όχι έντυπα, όχι οφειλές. */
+    val aboutRequests: Boolean get() = kind == KIND_REQUEST_NOTICE || kind == KIND_REQUEST_FILE
+
+    /**
+     * Τι ήταν, για τις κινήσεις των αιτημάτων. Ένα σημείο για το ημερολόγιο,
+     * την καρτέλα του πελάτη και την εξαγωγή — τρία αντίγραφα της ίδιας φράσης
+     * θα διέφεραν στην πρώτη αλλαγή.
+     */
+    val requestLabel: String
+        get() = if (kind == KIND_REQUEST_FILE) "Συνημμένο αιτήματος ΑΑΔΕ" else "Ειδοποίηση για αίτημα ΑΑΔΕ"
+
     /** Το κανάλι, όπως το λέμε στον χρήστη. */
     val channel: String
         get() = when {
             viaViber -> "Viber"
             viaSms -> "SMS"
+            kind == KIND_REQUEST_NOTICE -> "ειδοποίηση"
+            kind == KIND_REQUEST_FILE -> "κοινοποίηση"
             else -> "email"
         }
 
@@ -267,6 +282,8 @@ data class SendEntity(
         const val KIND_CREDENTIALS = "CREDENTIALS"
         const val KIND_VIBER_DEBTS = "VIBER_DEBTS"
         const val KIND_SMS_DEBTS = "SMS_DEBTS"
+        const val KIND_REQUEST_NOTICE = "REQUEST_NOTICE"
+        const val KIND_REQUEST_FILE = "REQUEST_FILE"
     }
 }
 
