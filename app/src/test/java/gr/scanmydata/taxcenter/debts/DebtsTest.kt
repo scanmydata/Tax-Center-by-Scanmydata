@@ -205,14 +205,16 @@ class DebtsTest {
     // ------------------------------------------------------------------ ΚΕΑΟ
 
     @Test
-    fun `το ΚΕΑΟ δίνει υπόλοιπο φορέα και μία γραμμή ανά ενεργή ρύθμιση`() {
+    fun `το ΚΕΑΟ δίνει οφειλή φορέα, μία γραμμή ανά ενεργή ρύθμιση και τις μη ενεργές χωριστά`() {
         val all = Debts.keao(keao)
-        assertEquals("η απολεσθείσα ρύθμιση μένει έξω", 2, all.size)
+        assertEquals(3, all.size)
 
         val carrier = all[0]
         assertEquals(Debts.Group.KEAO_CARRIER, carrier.group)
         assertEquals("ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ", carrier.title)
-        assertEquals("3.000,00", carrier.total)
+        // Χωρίς οφειλές εκτός ρύθμισης: ό,τι μένει από τη ρύθμιση, όχι το
+        // λογιστικό «Υπόλοιπο» της καρτέλας Χρεώσεων.
+        assertEquals("400,00", carrier.total)
         assertEquals("RF00000000000000001000001", carrier.code)
 
         val regulation = all[1]
@@ -224,6 +226,70 @@ class DebtsTest {
         assertEquals("150,00", regulation.next?.amount)
         assertEquals("400,00", regulation.total)
         assertEquals(3, regulation.instalments)
+
+        // Η απολεσθείσα: ιστορικό, που δεν μετρά και δεν πληρώνεται.
+        val lost = all[2]
+        assertEquals(Debts.Group.KEAO_INACTIVE, lost.group)
+        assertFalse(lost.active)
+        assertEquals("Απολεσθείσα", lost.status)
+        assertEquals("", lost.code)
+        assertTrue(lost.unpaid.isEmpty())
+        assertTrue(lost.files.isEmpty())
+        assertEquals(carrier.carrier, lost.carrier)
+    }
+
+    /**
+     * Το σύνολο του φορέα είναι αυτό που **πληρώνεται**: οι οφειλές εκτός
+     * ρύθμισης με τα πρόσθετα τέλη τους, και ό,τι μένει από τις δόσεις μαζί με
+     * τις προσαυξήσεις τους.
+     */
+    @Test
+    fun `το σύνολο ΚΕΑΟ έχει πρόσθετα τέλη, τόκους και προσαυξήσεις`() {
+        val full = keao
+            .replace(
+                "\"CarrierAm\": \"9000000001\",",
+                "\"CarrierAm\": \"9000000001\", \"Payments\": { \"OutOfRegulatedDepts\": [ " +
+                    "{ \"Primary\": \"100,00\", \"Additional\": \"12,00\", \"Total\": \"112,00\" } ] },",
+            )
+            .replace("\"Balance\": \"150,00\" }", "\"Balance\": \"150,00\", \"Increments\": \"2,50\" }")
+            .replace("\"Total\": \"3.000,00\",", "\"Total\": \"3.000,00\", \"Interest\": \"200,00\",")
+        val all = Debts.keao(full)
+        val carrier = all[0]
+        assertEquals("112,00 + 400,00 + 2,50", "514,50", carrier.total)
+        assertEquals(
+            listOf(
+                Debts.PART_OUTSIDE to "112,00",
+                Debts.PART_ADDITIONAL to "12,00",
+                Debts.PART_REGULATED to "402,50",
+                Debts.PART_INCREMENTS to "2,50",
+            ),
+            carrier.parts.map { it.label to it.amount },
+        )
+
+        val regulation = all[1]
+        assertEquals("402,50", regulation.total)
+        // Η δόση που τρέχει πληρώνεται με την προσαύξησή της.
+        assertEquals("152,50", regulation.next?.amount)
+        // Οι τόκοι γράφονται, αλλά δεν προστίθενται: είναι ήδη μέσα στις δόσεις.
+        assertTrue(regulation.parts.any { it.included && it.amount == "200,00" })
+
+        val snapshot = Debts.Snapshot(lines = all)
+        val shown = snapshot.carriers.map { it.key }.toSet()
+        assertEquals("514,50", snapshot.total(Debts.Source.KEAO))
+        assertEquals(12.0, snapshot.keaoPart(Debts.PART_ADDITIONAL, shown), 0.001)
+        assertEquals(2.5, snapshot.keaoPart(Debts.PART_INCREMENTS, shown), 0.001)
+    }
+
+    /** Οι μη ενεργές δεν μετρούν: ούτε στο σύνολο, ούτε ως «αλλαγή». */
+    @Test
+    fun `οι μη ενεργές ρυθμίσεις μένουν έξω από σύνολα και αποτύπωμα`() {
+        val snapshot = Debts.Snapshot(lines = Debts.keao(keao))
+        assertEquals(2, snapshot.inSource(Debts.Source.KEAO).size)
+        assertEquals(1, snapshot.inGroup(Debts.Group.KEAO_INACTIVE).size)
+        assertEquals("400,00", snapshot.total(Debts.Source.KEAO))
+
+        val renamed = Debts.Snapshot(lines = Debts.keao(keao.replace("\"ΠΑΛΙΑ\"", "\"ΠΑΛΙΑ ΡΥΘΜΙΣΗ\"")))
+        assertEquals(snapshot.fingerprint, renamed.fingerprint)
     }
 
     @Test
@@ -252,12 +318,12 @@ class DebtsTest {
         val snapshot = Debts.Snapshot(lines = Debts.keao(withSecondCarrier("Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΜΙΣΘΩΤΟΙ ΤΕΚΑ")))
         val carriers = snapshot.carriers
         assertEquals(listOf("ΜΙΣΘΩΤΟΙ ΤΕΚΑ", "ΕΝΙΑΙΟΣ ΦΟΡΕΑΣ ΚΟΙΝΩΝΙΚΗΣ ΑΣΦΑΛΙΣΗΣ"), carriers.map { it.label })
-        assertEquals(listOf("500,00", "3.000,00"), carriers.map { it.total })
+        assertEquals(listOf("500,00", "400,00"), carriers.map { it.total })
         assertEquals(2, carriers.map { it.key }.toSet().size)
 
         val (teka, efka) = carriers
         assertEquals("μόνο το υπόλοιπό του", 1, snapshot.lines.count { it.carrier == teka.key })
-        assertEquals("το υπόλοιπο και η ενεργή ρύθμισή του", 2, snapshot.lines.count { it.carrier == efka.key })
+        assertEquals("η οφειλή και οι δύο ρυθμίσεις του", 3, snapshot.lines.count { it.carrier == efka.key })
         assertTrue("καμία γραμμή ΚΕΑΟ χωρίς φορέα", snapshot.lines.none { it.carrier.isBlank() })
         // Στην ΑΑΔΕ δεν υπάρχει φορέας: ο διακόπτης δεν πρέπει να κρύψει ποτέ γραμμή της.
         assertTrue(Debts.aade(aade).all { it.carrier.isBlank() })
@@ -271,10 +337,10 @@ class DebtsTest {
     fun `το υπόλοιπο του ΚΕΑΟ βγαίνει και για μέρος των φορέων`() {
         val snapshot = Debts.Snapshot(lines = Debts.keao(withSecondCarrier("Ληξιπρόθεσμο - ΜΙΣΘΩΤΟΙ ΤΕΚΑ - ΜΙΣΘΩΤΟΙ ΤΕΚΑ")))
         val (teka, efka) = snapshot.carriers
-        assertEquals("3.500,00", snapshot.total(Debts.Source.KEAO))
-        assertEquals("3.500,00", snapshot.keaoTotal(setOf(teka.key, efka.key)))
+        assertEquals("900,00", snapshot.total(Debts.Source.KEAO))
+        assertEquals("900,00", snapshot.keaoTotal(setOf(teka.key, efka.key)))
         assertEquals("500,00", snapshot.keaoTotal(setOf(teka.key)))
-        assertEquals("η ρύθμιση των 400 δεν προστίθεται", "3.000,00", snapshot.keaoTotal(setOf(efka.key)))
+        assertEquals("η ρύθμιση των 400 δεν προστίθεται δεύτερη φορά", "400,00", snapshot.keaoTotal(setOf(efka.key)))
         assertEquals("0,00", snapshot.keaoTotal(emptySet()))
     }
 
@@ -302,13 +368,13 @@ class DebtsTest {
         assertEquals("2.779,90", snapshot.total(Debts.Group.AADE_OPEN))
         assertEquals("835,03", snapshot.total(Debts.Group.AADE_ARRANGED))
         assertEquals("1.042,05", snapshot.aadeOverdue)
-        assertEquals("3.000,00", snapshot.total(Debts.Group.KEAO_CARRIER))
+        assertEquals("400,00", snapshot.total(Debts.Group.KEAO_CARRIER))
     }
 
     /**
      * ΑΑΔΕ και ΚΕΑΟ είναι άλλος πιστωτής: χωριστό σύνολο, χωριστή όψη.
      *
-     * Στο ΚΕΑΟ το σύνολο είναι **μόνο** τα υπόλοιπα των φορέων — οι ρυθμίσεις
+     * Στο ΚΕΑΟ το σύνολο είναι **μόνο** οι γραμμές των φορέων — οι ρυθμίσεις
      * είναι μέρος τους, και το άθροισμα και των δύο θα έδειχνε τη ρυθμισμένη
      * οφειλή δύο φορές.
      */
@@ -318,7 +384,7 @@ class DebtsTest {
         assertEquals(4, snapshot.inSource(Debts.Source.AADE).size)
         assertEquals(2, snapshot.inSource(Debts.Source.KEAO).size)
         assertEquals("3.614,93", snapshot.total(Debts.Source.AADE))
-        assertEquals("3.000,00", snapshot.total(Debts.Source.KEAO))
+        assertEquals("400,00", snapshot.total(Debts.Source.KEAO))
         assertEquals(10L, snapshot.at(Debts.Source.AADE))
         assertEquals(20L, snapshot.at(Debts.Source.KEAO))
         assertTrue(Debts.Group.entries.all { it.label.startsWith(it.source.label) })

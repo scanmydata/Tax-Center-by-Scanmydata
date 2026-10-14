@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -310,7 +311,7 @@ internal fun StatusPill(request: AadeRequests.Request) {
  *
  * Διαβάζει **μόνο τον δίσκο**. Ό,τι έχει αποθηκευτεί — κείμενο, απάντηση,
  * συνημμένα — ανοίγει αμέσως και χωρίς σύνδεση, όσες φορές κι αν ανοιχτεί.
- * Σύνδεση στην ΑΑΔΕ γίνεται μόνο με το κουμπί **«Ανανέωση»**.
+ * Σύνδεση στην ΑΑΔΕ γίνεται μόνο με το κουμπί **ανανέωσης** πάνω δεξιά.
  *
  * Η πρώτη έκδοση κατέβαζε το αίτημα την ώρα που άνοιγε. Αυτό σήμαινε μία
  * συνεδρία GSIS για κάθε αίτημα που ήθελε κανείς απλώς να διαβάσει — αναμονή
@@ -352,9 +353,10 @@ internal fun RequestDialog(
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
-                // Πίσω αριστερά, όπου το ψάχνει το χέρι· η ανανέωση δεξιά. Το
-                // «Κλείσιμο» έφυγε από κάτω: τρία κουμπιά σε μια σειρά δεν
-                // χωρούσαν σε τηλέφωνο, και το κείμενό τους κοβόταν.
+                // Πίσω αριστερά, όπου το ψάχνει το χέρι· η ανανέωση δεξιά, με
+                // χρώμα, γιατί είναι η μόνη ενέργεια της οθόνης. Κάτω δεν μένει
+                // κανένα κουμπί: η μπάρα εκεί έπεφτε πάνω στην πλοήγηση του
+                // συστήματος και κοβόταν, και επαναλάμβανε τα δύο από εδώ.
                 Row(
                     Modifier.fillMaxWidth().padding(start = 10.dp, top = 12.dp, end = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -371,11 +373,26 @@ internal fun RequestDialog(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    IconButton(enabled = !blocked, onClick = { opener.refresh(client, request.id) }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Ανανέωση από την ΑΑΔΕ")
+                    IconButton(
+                        enabled = !blocked,
+                        primary = true,
+                        onClick = { opener.refresh(client, request.id) },
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = if (detail == null) "Λήψη από την ΑΑΔΕ" else "Ανανέωση από την ΑΑΔΕ",
+                        )
                     }
                 }
                 if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider()
+                if (opener.status.isNotBlank()) {
+                    Text(
+                        opener.status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (refreshing) dim else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+                    )
+                }
 
                 Column(
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -395,6 +412,11 @@ internal fun RequestDialog(
                     Spacer(Modifier.height(6.dp))
 
                     if (showClient) Field("Πελάτης", client.displayName + " · ΑΦΜ " + client.afm)
+                    if (onOpenClient != null) {
+                        TextButton(onClick = onOpenClient, modifier = Modifier.padding(bottom = 6.dp)) {
+                            Text("Καρτέλα πελάτη")
+                        }
+                    }
                     Field("Είδος αιτήματος", request.title)
                     if (request.topic != request.title) Field("Θεματική ενότητα", request.topic)
                     Field("Υπηρεσία", request.service)
@@ -470,45 +492,8 @@ internal fun RequestDialog(
                             )
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
-                }
-
-                HorizontalDivider()
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    if (opener.status.isNotBlank()) {
-                        Text(
-                            opener.status,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (refreshing) dim else MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                    // Δύο κουμπιά, μοιρασμένα στο πλάτος: χωρούν πάντα ολόκληρα.
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            enabled = !blocked,
-                            onClick = { opener.refresh(client, request.id) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                when {
-                                    refreshing -> "Ανανέωση…"
-                                    detail == null -> "Λήψη"
-                                    else -> "Ανανέωση"
-                                },
-                                maxLines = 1,
-                            )
-                        }
-                        if (onOpenClient != null) {
-                            OutlinedButton(onClick = onOpenClient, modifier = Modifier.weight(1f)) {
-                                Text("Καρτέλα πελάτη", maxLines = 1)
-                            }
-                        } else {
-                            OutlinedButton(onClick = { opener.close() }, modifier = Modifier.weight(1f)) {
-                                Text("Πίσω", maxLines = 1)
-                            }
-                        }
-                    }
+                    // Το τέλος του κειμένου πάνω από την πλοήγηση του συστήματος.
+                    Spacer(Modifier.navigationBarsPadding().height(24.dp))
                 }
             }
         }
@@ -535,12 +520,12 @@ private fun SavedNote(loaded: Boolean, detail: RequestDetail.Detail?, outdated: 
                     "Πάτα «Λήψη» — ή «Έλεγχος τώρα», που τα αποθηκεύει όλα μαζί."
             outdated ->
                 "Το αίτημα άλλαξε στην ΑΑΔΕ από τότε που αποθηκεύτηκε (" +
-                    AthensDates.stamp(detail.retrievedAt) + "). Πάτα «Ανανέωση» για την τωρινή του μορφή " +
+                    AthensDates.stamp(detail.retrievedAt) + "). Πάτα την ανανέωση πάνω δεξιά για την τωρινή του μορφή " +
                     "και τα νέα έγγραφα."
             detail.missing > 0 ->
                 "Αποθηκευμένο στη συσκευή από " + AthensDates.stamp(detail.retrievedAt) + ". " +
                     (if (detail.missing == 1) "Ένα συνημμένο δεν κατέβηκε" else "${detail.missing} συνημμένα δεν κατέβηκαν") +
-                    " — δοκίμασε «Ανανέωση»."
+                    " — δοκίμασε την ανανέωση πάνω δεξιά."
             else ->
                 "Αποθηκευμένο στη συσκευή από " + AthensDates.stamp(detail.retrievedAt) +
                     " — ανοίγει χωρίς σύνδεση."
@@ -686,4 +671,4 @@ private fun Attachments(
     }
 }
 
-private const val GONE = "Το αρχείο δεν υπάρχει πια στη συσκευή — πάτα «Ανανέωση»."
+private const val GONE = "Το αρχείο δεν υπάρχει πια στη συσκευή — πάτα την ανανέωση πάνω δεξιά."

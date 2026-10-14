@@ -184,7 +184,37 @@ class KeaoCardTest {
         assertEquals("Ληξιπρόθεσμο", facts["Κατηγορία"])
         assertEquals("1000001", facts["ΑΜΟ"])
         assertTrue(report.summary.any { it.first == "Υπόλοιπο" && it.second == "3.000,00" })
+        assertEquals("2.052,25", report.summary.toMap()["Συνολική οφειλή"])
         assertTrue(report.footer.any { it.contains("17/09/2026") })
+    }
+
+    /**
+     * Η οφειλή του φορέα **με όλα της**: εκτός ρύθμισης με τα πρόσθετα τέλη
+     * (440,00 + 110,75), και από την ενεργή ρύθμιση οι απλήρωτες δόσεις
+     * (250,00 + 1.250,00) με την προσαύξησή τους (1,50). Η απολεσθείσα δεν
+     * μετρά — η οφειλή της είναι ήδη στις εκτός ρύθμισης.
+     */
+    @Test
+    fun `η οφειλή φορέα έχει πρόσθετα τέλη, τόκους και προσαυξήσεις`() {
+        val (efka, teka) = KeaoCard.parse(sample)
+        val owed = efka.owed
+        assertFalse(owed.fallback)
+        assertEquals(550.75, owed.outside, 0.001)
+        assertEquals(50.25, owed.outsideAdditional, 0.001)
+        assertEquals(1501.50, owed.regulated, 0.001)
+        assertEquals(1.50, owed.increments, 0.001)
+        assertEquals(2052.25, owed.total, 0.001)
+
+        // Χωρίς ρύθμιση και χωρίς οφειλές: μένει το υπόλοιπο της καρτέλας.
+        assertTrue(teka.owed.fallback)
+        assertEquals(0.0, teka.owed.total, 0.001)
+    }
+
+    @Test
+    fun `το δοσολόγιο γράφει τις προσαυξήσεις και τη συνολική οφειλή`() {
+        val summary = regulations().single().summary.toMap()
+        assertEquals("1,50", summary["Προσαυξήσεις"])
+        assertEquals("1.501,50", summary["Συνολική οφειλή"])
     }
 
     /**

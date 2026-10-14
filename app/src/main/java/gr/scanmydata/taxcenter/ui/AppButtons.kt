@@ -176,6 +176,9 @@ fun TextButton(
 /**
  * Κουμπί με εικονίδιο. Το εικονίδιο παίρνει το χρώμα του ρόλου, εκτός αν η
  * οθόνη του δώσει ρητά άλλο `tint`.
+ *
+ * @param primary η κύρια ενέργεια της οθόνης: χρώμα και γέμισμα όπως το
+ *   [Button], ώστε να ξεχωρίζει από τα ουδέτερα εικονίδια δίπλα του
  */
 @Composable
 fun IconButton(
@@ -183,19 +186,21 @@ fun IconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     tone: Tone = Tone.NEUTRAL,
+    primary: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     // Το ουδέτερο εικονίδιο παίρνει το χρώμα **του χώρου όπου βρίσκεται**, και
     // το πλαίσιό του το ίδιο, αχνότερο. Το μενού ζει πάνω στη χρωματιστή μπάρα
     // τίτλου· με το χρώμα του κειμένου θα γινόταν σκούρο πάνω σε μπλε.
-    val tint = if (tone == Tone.NEUTRAL) LocalContentColor.current else tone.accent()
-    val border = tint.copy(alpha = if (tone == Tone.NEUTRAL) 0.3f else 0.6f)
+    val tint = if (tone == Tone.NEUTRAL && !primary) LocalContentColor.current else tone.accent()
+    val border = if (primary) tint else tint.copy(alpha = if (tone == Tone.NEUTRAL) 0.3f else 0.6f)
     androidx.compose.material3.OutlinedIconButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
         shape = MaterialTheme.shapes.small,
         colors = IconButtonDefaults.outlinedIconButtonColors(
+            containerColor = if (primary) tint.copy(alpha = 0.12f) else Color.Transparent,
             contentColor = tint,
             disabledContentColor = disabledContent(),
         ),

@@ -81,6 +81,22 @@ object KeaoCard {
         /** Οι δόσεις που μένουν — αυτές που αφορούν τον πελάτη από δω και πέρα. */
         val pending: List<Instalment> get() = instalments.filter { it.open }
 
+        /** Ό,τι μένει από τις απλήρωτες δόσεις, **χωρίς** τις προσαυξήσεις τους. */
+        val remaining: Double get() = Money.sum(pending.map { it.balance.ifBlank { it.amount } })
+
+        /** Οι προσαυξήσεις των απλήρωτων δόσεων — όσων έληξαν χωρίς να πληρωθούν. */
+        val increments: Double get() = Money.sum(pending.map { it.increments })
+
+        /**
+         * Τι χρωστιέται σήμερα στη ρύθμιση: υπόλοιπο δόσεων **και**
+         * προσαυξήσεις. Οι τόκοι της ρύθμισης είναι ήδη μέσα στις δόσεις —
+         * προστίθενται μία φορά, από την ίδια την πύλη.
+         *
+         * Ρύθμιση χωρίς δοσολόγιο (η πύλη δεν έδωσε την «Ανάλυση Δόσεων»)
+         * μετρά με το σύνολό της: λιγότερο ακριβές, αλλά όχι μηδέν.
+         */
+        val owed: Double get() = if (instalments.isEmpty()) Money.amount(total) else remaining + increments
+
         /** Η πρώτη απλήρωτη, δηλαδή αυτή που τρέχει. */
         val next: Instalment? get() = pending.firstOrNull()
         val nextDue: String get() = next?.due.orEmpty()
@@ -117,6 +133,56 @@ object KeaoCard {
         val totals: Totals = Totals(),
         val regulated: List<Regulation> = emptyList(),
         val outstanding: List<Outstanding> = emptyList(),
+    ) {
+        /** Τι χρωστά συνολικά στον φορέα — βλ. [Owed]. */
+        val owed: Owed
+            get() {
+                val active = regulated.filter { it.active }
+                if (outstanding.isEmpty() && active.isEmpty()) {
+                    return Owed(total = Money.amount(totals.balance), fallback = true)
+                }
+                return Owed(
+                    outside = outstanding.sumOf { o ->
+                        if (o.total.isNotBlank()) Money.amount(o.total)
+                        else Money.amount(o.primary) + Money.amount(o.additional)
+                    },
+                    outsideAdditional = Money.sum(outstanding.map { it.additional }),
+                    regulated = active.sumOf { it.owed },
+                    increments = active.filter { it.instalments.isNotEmpty() }.sumOf { it.increments },
+                )
+            }
+    }
+
+    /**
+     * Η οφειλή ενός φορέα **με όλα της**: κύρια, πρόσθετα τέλη, τόκοι
+     * ρυθμίσεων και προσαυξήσεις.
+     *
+     * Το «Υπόλοιπο» της καρτέλας Χρεώσεων ([Totals.balance]) είναι λογιστικό
+     * υπόλοιπο της κύριας οφειλής: δεν έχει τα πρόσθετα τέλη που τρέχουν στις
+     * οφειλές εκτός ρύθμισης, ούτε τις προσαυξήσεις των δόσεων που έληξαν. Ο
+     * πελάτης που ρωτά «πόσα χρωστάω» πληρώνει όμως αυτά. Γι' αυτό το σύνολο
+     * χτίζεται από τα δύο που πληρώνονται:
+     *
+     *  * **εκτός ρύθμισης** — το «Σύνολο» κάθε οφειλής της οθόνης Πληρωμή/IRIS,
+     *    δηλαδή κύρια και πρόσθετα τέλη·
+     *  * **σε ενεργή ρύθμιση** — ό,τι μένει από τις δόσεις (μαζί με τους τόκους
+     *    της ρύθμισης, που είναι μέσα τους) και οι προσαυξήσεις τους.
+     *
+     * Οι ανενεργές και οι απολεσθείσες ρυθμίσεις δεν μετρούν: η οφειλή τους
+     * έχει γυρίσει στις εκτός ρύθμισης, και θα μετριόταν δύο φορές.
+     *
+     * @param outsideAdditional από το [outside], τα πρόσθετα τέλη
+     * @param increments από το [regulated], οι προσαυξήσεις
+     * @param fallback ούτε οφειλές εκτός ρύθμισης ούτε ενεργή ρύθμιση: μένει
+     *   μόνο το υπόλοιπο της καρτέλας, χωρίς ανάλυση
+     */
+    data class Owed(
+        val outside: Double = 0.0,
+        val outsideAdditional: Double = 0.0,
+        val regulated: Double = 0.0,
+        val increments: Double = 0.0,
+        val fallback: Boolean = false,
+        val total: Double = outside + regulated,
     )
 
     // ------------------------------------------------------------- ανάγνωση
@@ -386,6 +452,9 @@ object KeaoCard {
                 if (c.totals.reduction.isNotBlank()) add("Έκπτωση" to c.totals.reduction)
                 if (c.totals.deleted.isNotBlank()) add("Διαγραφή" to c.totals.deleted)
                 if (c.totals.balance.isNotBlank()) add("Υπόλοιπο" to c.totals.balance)
+                // Αυτό που πληρώνεται: με πρόσθετα τέλη, τόκους και προσαυξήσεις.
+                val owed = c.owed
+                if (!owed.fallback) add("Συνολική οφειλή" to money(owed.total))
             },
             sections = sections,
             footer = buildList {
@@ -400,6 +469,13 @@ object KeaoCard {
                     add(
                         "Υπάρχουν και ${c.outstanding.size} οφειλές εκτός ρύθμισης, που δεν " +
                             "περιλαμβάνονται σε αυτό το έντυπο.",
+                    )
+                }
+                if (!c.owed.fallback) {
+                    add(
+                        "«Συνολική οφειλή»: οι οφειλές εκτός ρύθμισης με τα πρόσθετα τέλη τους, " +
+                            "και ό,τι μένει από τις δόσεις των ενεργών ρυθμίσεων με τους τόκους " +
+                            "και τις προσαυξήσεις τους.",
                     )
                 }
                 add(
@@ -498,6 +574,10 @@ object KeaoCard {
                 if (r.instalments.isNotEmpty()) {
                     add("Καταβλήθηκαν" to money(sum(r.instalments.map { it.paid })))
                     add("Υπόλοιπο" to money(sum(pending.map { it.balance })))
+                    if (r.increments > 0.004) {
+                        add("Προσαυξήσεις" to money(r.increments))
+                        add("Συνολική οφειλή" to money(r.owed))
+                    }
                 }
             },
             sections = sections,

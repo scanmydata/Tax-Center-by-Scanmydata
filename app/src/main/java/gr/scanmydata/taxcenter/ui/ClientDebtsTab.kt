@@ -115,6 +115,8 @@ internal fun ClientDebtsTab(
     var source by remember(client.id) { mutableStateOf(Debts.Source.AADE) }
     // Οι φορείς του ΚΕΑΟ που έχει κλείσει ο χρήστης — βλ. [Debts.Carrier].
     val hidden = remember(client.id) { mutableStateListOf<String>() }
+    // Οι μη ενεργές ρυθμίσεις του ΚΕΑΟ — όψη, όπως οι φορείς· κλειστές εξ ορισμού.
+    var showInactive by remember(client.id) { mutableStateOf(false) }
     var composing by remember { mutableStateOf(false) }
     var watched by remember(client.id) { mutableStateOf(client.id in settings.debtWatchClients) }
     val today = remember { LocalDate.now(AthensDates.ZONE) }
@@ -255,9 +257,21 @@ internal fun ClientDebtsTab(
                     Spacer(Modifier.height(8.dp))
                 }
             }
-            if (current != null && current.inSource(source).isNotEmpty()) {
+            if (current != null && source == Debts.Source.KEAO && current.keaoAt != 0L) {
+                item {
+                    InactiveToggle(
+                        count = current.inGroup(Debts.Group.KEAO_INACTIVE)
+                            .count { it.carrier !in hidden },
+                        on = showInactive,
+                        onChange = { showInactive = it },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+            if (current != null && current.lines.any { it.source == source }) {
                 for (group in Debts.Group.entries) {
                     if (group.source != source) continue
+                    if (group == Debts.Group.KEAO_INACTIVE && !showInactive) continue
                     val lines = current.inGroup(group).filter { it.carrier.isBlank() || it.carrier !in hidden }
                     if (lines.isEmpty()) continue
                     item {
@@ -274,7 +288,9 @@ internal fun ClientDebtsTab(
                             Text(
                                 // Το σύνολο όσων **φαίνονται**: με κλειστό φορέα,
                                 // ο αριθμός πρέπει να συμφωνεί με τις κάρτες από κάτω.
-                                Money.money(Money.sum(lines.map { it.total })) + " €",
+                                // Οι μη ενεργές δεν αθροίζονται — δεν χρωστιούνται.
+                                if (group == Debts.Group.KEAO_INACTIVE) "${lines.size}"
+                                else Money.money(Money.sum(lines.map { it.total })) + " €",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -286,6 +302,7 @@ internal fun ClientDebtsTab(
                             today = today,
                             checked = line.id in picked,
                             onToggle = {
+                                if (!line.active) return@DebtCard
                                 if (line.id in picked) picked.remove(line.id) else picked.add(line.id)
                             },
                             onCopy = {
@@ -414,7 +431,8 @@ private fun SummaryCard(
                                 carriers.isEmpty() -> add("Καμία οφειλή.")
                                 // Κανένας φορέας κλειστός: η εικόνα όπως ήταν.
                                 shown.size == all -> {
-                                    add("Υπόλοιπο: " + snapshot.total(Debts.Group.KEAO_CARRIER) + " €")
+                                    add("Συνολική οφειλή: " + snapshot.total(Debts.Group.KEAO_CARRIER) + " €")
+                                    keaoBreakdown(snapshot, shown)?.let(::add)
                                     val regulations = snapshot.inGroup(Debts.Group.KEAO_ARRANGED).size
                                     if (regulations > 0) add("Ενεργές ρυθμίσεις: $regulations")
                                 }
@@ -422,9 +440,10 @@ private fun SummaryCard(
                                 else -> {
                                     // Το μερικό σύνολο λέει ρητά ότι είναι μερικό.
                                     add(
-                                        "Υπόλοιπο (${shown.size} από $all φορείς): " +
+                                        "Συνολική οφειλή (${shown.size} από $all φορείς): " +
                                             snapshot.keaoTotal(shown) + " €",
                                     )
+                                    keaoBreakdown(snapshot, shown)?.let(::add)
                                     add("Σύνολο όλων: " + snapshot.total(Debts.Group.KEAO_CARRIER) + " €")
                                     val regulations = snapshot.inGroup(Debts.Group.KEAO_ARRANGED)
                                         .count { it.carrier in shown }
@@ -462,6 +481,25 @@ private fun SummaryCard(
             }
         }
     }
+}
+
+/**
+ * «με πρόσθετα τέλη 50,25 € · προσαυξήσεις 1,50 € · τόκους ρυθμίσεων» — τι
+ * από τη συνολική οφειλή των φορέων [shown] δεν είναι κύρια οφειλή. Οι τόκοι
+ * χωρίς ποσό: είναι μέσα στις δόσεις, και η πύλη δεν λέει πόσοι μένουν.
+ * `null` όταν δεν υπάρχει τίποτα από αυτά.
+ */
+private fun keaoBreakdown(snapshot: Debts.Snapshot, shown: Set<String>): String? {
+    val parts = listOf(
+        "πρόσθετα τέλη" to Debts.PART_ADDITIONAL,
+        "προσαυξήσεις" to Debts.PART_INCREMENTS,
+    ).mapNotNull { (label, part) ->
+        val value = snapshot.keaoPart(part, shown)
+        if (value > 0.004) "$label ${Money.money(value)} €" else null
+    } + listOfNotNull(
+        "τους τόκους των ρυθμίσεων".takeIf { snapshot.keaoPart(Debts.PART_REGULATED, shown) > 0.004 },
+    )
+    return if (parts.isEmpty()) null else "με " + parts.joinToString(" · ")
 }
 
 @Composable
@@ -533,6 +571,39 @@ private fun CarrierToggles(
     }
 }
 
+/**
+ * Ο διακόπτης των ρυθμίσεων ΚΕΑΟ που **δεν** είναι ενεργές — ανενεργές,
+ * απολεσθείσες, εξοφλημένες.
+ *
+ * Κλειστός εξ ορισμού: ο πελάτης στο τηλέφωνο ρωτά τι πληρώνει τώρα, και δέκα
+ * παλιές ρυθμίσεις θα έκρυβαν αυτήν που τρέχει. Ανοιχτός, απαντά στο «γιατί
+ * χάθηκε η ρύθμιση» ή «πότε την είχαμε κάνει». Οι γραμμές του δεν μπαίνουν σε
+ * σύνολα ούτε σε μήνυμα.
+ */
+@Composable
+private fun InactiveToggle(count: Int, on: Boolean, onChange: (Boolean) -> Unit) {
+    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+            .clickable(enabled = count > 0) { onChange(!on) }
+            .padding(start = 12.dp, top = 6.dp, end = 8.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text("Και οι μη ενεργές ρυθμίσεις", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (count == 0) "Δεν υπάρχουν ανενεργές ή απολεσθείσες ρυθμίσεις."
+                else "$count ανενεργές / απολεσθείσες · δεν μετρούν στα σύνολα.",
+                style = MaterialTheme.typography.bodySmall,
+                color = dim,
+            )
+        }
+        Switch(checked = on && count > 0, enabled = count > 0, onCheckedChange = onChange)
+    }
+}
+
 /** Μία οφειλή: τι είναι, πόσο, η δόση που τρέχει, και ο κωδικός πληρωμής της. */
 @Composable
 private fun DebtCard(
@@ -543,16 +614,20 @@ private fun DebtCard(
     onCopy: () -> Unit,
 ) {
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    // Μη ενεργή ρύθμιση: ιστορικό — ούτε επιλογή για μήνυμα, ούτε κωδικός πληρωμής.
+    val live = line.active
     Card(
-        Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onToggle),
-        colors = if (checked) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-        } else {
-            CardDefaults.cardColors()
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(enabled = live, onClick = onToggle),
+        colors = when {
+            checked -> CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            !live -> CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            else -> CardDefaults.cardColors()
         },
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 2.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)) {
-            Checkbox(checked = checked, onCheckedChange = { onToggle() })
+        Row(
+            Modifier.fillMaxWidth().padding(start = if (live) 2.dp else 14.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
+        ) {
+            if (live) Checkbox(checked = checked, onCheckedChange = { onToggle() })
             Column(Modifier.weight(1f).padding(top = 10.dp)) {
                 Row {
                     Text(
@@ -561,12 +636,34 @@ private fun DebtCard(
                         modifier = Modifier.weight(1f).padding(end = 8.dp),
                     )
                     if (line.total.isNotBlank()) {
-                        Text(line.total + " €", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            line.total + " €",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (live) MaterialTheme.colorScheme.onSurface else dim,
+                        )
                     }
+                }
+                if (line.status.isNotBlank()) {
+                    Text(
+                        "Κατάσταση: " + line.status,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
                 if (line.detail.isNotBlank()) {
                     Text(line.detail, style = MaterialTheme.typography.bodySmall, color = dim)
                 }
+                // Από τι αποτελείται το ποσό. Τα «μέσα σε» άλλο ποσό γράφονται
+                // εσοχή, για να μη διαβαστούν ως κάτι που προστίθεται.
+                line.parts.forEach { part ->
+                    Text(
+                        part.label.replaceFirstChar { it.uppercase() } + " " + part.amount + " €",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = dim,
+                        modifier = Modifier.padding(start = if (part.included) 12.dp else 0.dp),
+                    )
+                }
+                if (!live) return@Column
 
                 val next = line.next
                 if (next != null) {

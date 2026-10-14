@@ -51,9 +51,24 @@ object Debts {
     enum class Group(val label: String, val source: Source, val short: String) {
         AADE_OPEN("ΑΑΔΕ — εκτός ρύθμισης", Source.AADE, "Εκτός ρύθμισης"),
         AADE_ARRANGED("ΑΑΔΕ — σε ρύθμιση", Source.AADE, "Σε ρύθμιση"),
-        KEAO_CARRIER("ΚΕΑΟ — υπόλοιπο ανά φορέα", Source.KEAO, "Υπόλοιπο ανά φορέα"),
+        KEAO_CARRIER("ΚΕΑΟ — οφειλή ανά φορέα", Source.KEAO, "Οφειλή ανά φορέα"),
         KEAO_ARRANGED("ΚΕΑΟ — ενεργές ρυθμίσεις", Source.KEAO, "Ενεργές ρυθμίσεις"),
+
+        /**
+         * Ανενεργές, απολεσθείσες, εξοφλημένες. Φαίνονται μόνο όταν τις ζητήσει
+         * ο λογιστής, και **δεν μετρούν** πουθενά — βλ. [Line.active].
+         */
+        KEAO_INACTIVE("ΚΕΑΟ — μη ενεργές ρυθμίσεις", Source.KEAO, "Ανενεργές / απολεσθείσες ρυθμίσεις"),
     }
+
+    /**
+     * Ένα κομμάτι του συνόλου μιας γραμμής: «πρόσθετα τέλη 40,00».
+     *
+     * @param included `true` όταν το ποσό είναι **ήδη μέσα** σε άλλο κομμάτι
+     *   ή στο σύνολο και γράφεται μόνο για να φαίνεται — π.χ. οι τόκοι μιας
+     *   ρύθμισης, που είναι μέσα στις δόσεις. Δεν αθροίζεται ξανά.
+     */
+    data class Part(val label: String, val amount: String, val included: Boolean = false)
 
     /** Μία **απλήρωτη** δόση. Το [amount] είναι ό,τι μένει να πληρωθεί γι' αυτήν. */
     data class Instalment(val no: String, val due: String, val amount: String) {
@@ -95,8 +110,19 @@ object Debts {
          * μια ρύθμισή του. Κενό στην ΑΑΔΕ. Βλ. [Carrier].
          */
         val carrier: String = "",
+        /** Από τι αποτελείται το [total] — πρόσθετα τέλη, προσαυξήσεις, τόκοι. */
+        val parts: List<Part> = emptyList(),
+        /** Η κατάσταση όπως τη γράφει η πύλη, για ρυθμίσεις που δεν είναι ενεργές. */
+        val status: String = "",
     ) {
         val source: Source get() = group.source
+
+        /**
+         * Μετρά στα σύνολα, στα μηνύματα και στο «άλλαξε κάτι;». Μόνο οι μη
+         * ενεργές ρυθμίσεις του ΚΕΑΟ είναι `false`: είναι ιστορικό, και η οφειλή
+         * τους έχει ήδη γυρίσει στις εκτός ρύθμισης του φορέα.
+         */
+        val active: Boolean get() = group != Group.KEAO_INACTIVE
 
         /**
          * Η δόση που πρέπει να πληρωθεί **τώρα**: η παλαιότερη απλήρωτη.
@@ -148,7 +174,8 @@ object Debts {
 
         fun inGroup(group: Group): List<Line> = lines.filter { it.group == group }
 
-        fun inSource(source: Source): List<Line> = lines.filter { it.source == source }
+        /** Οι **ενεργές** γραμμές μιας πύλης — αυτές που μετρούν. */
+        fun inSource(source: Source): List<Line> = lines.filter { it.source == source && it.active }
 
         /** Πότε διαβάστηκε η πύλη. `0` = ποτέ. */
         fun at(source: Source): Long = if (source == Source.AADE) aadeAt else keaoAt
@@ -156,9 +183,10 @@ object Debts {
         /**
          * Τι χρωστά συνολικά σε μια πύλη.
          *
-         * Στο ΚΕΑΟ μετρούν **μόνο** τα υπόλοιπα των φορέων: οι ρυθμίσεις είναι
+         * Στο ΚΕΑΟ μετρούν **μόνο** οι γραμμές των φορέων: οι ρυθμίσεις είναι
          * μέρος τους, και το άθροισμα και των δύο θα έδειχνε τη ρυθμισμένη
-         * οφειλή δύο φορές.
+         * οφειλή δύο φορές. Η γραμμή του φορέα έχει ήδη πρόσθετα τέλη, τόκους
+         * και προσαυξήσεις — βλ. [KeaoCard.Owed].
          */
         fun total(source: Source): String = when (source) {
             Source.AADE -> Money.money(Money.sum(inSource(Source.AADE).map { it.total }))
@@ -195,6 +223,14 @@ object Debts {
         fun keaoTotal(only: Set<String>): String =
             Money.money(Money.sum(inGroup(Group.KEAO_CARRIER).filter { it.carrier in only }.map { it.total }))
 
+        /**
+         * Το άθροισμα ενός κομματιού ([Part.label]) στους φορείς [only] του ΚΕΑΟ
+         * — π.χ. πόσα από το σύνολο είναι πρόσθετα τέλη.
+         */
+        fun keaoPart(label: String, only: Set<String>): Double = inGroup(Group.KEAO_CARRIER)
+            .filter { it.carrier in only }
+            .sumOf { line -> line.parts.filter { it.label == label }.sumOf { Money.amount(it.amount) } }
+
         /** Το ληξιπρόθεσμο της ΑΑΔΕ, όπως το δίνει η πύλη ανά οφειλή. */
         val aadeOverdue: String
             get() = Money.money(Money.sum(inGroup(Group.AADE_OPEN).map { it.overdue }))
@@ -206,7 +242,7 @@ object Debts {
          * λήψης μένει έξω: αλλιώς κάθε ενημέρωση θα μετρούσε ως αλλαγή.
          */
         val fingerprint: String
-            get() = lines.joinToString("|") { line ->
+            get() = lines.filter { it.active }.joinToString("|") { line ->
                 listOf(line.group.name, line.title, line.total, line.code, line.unpaid.size.toString(), line.next?.due.orEmpty())
                     .joinToString("~")
             }
@@ -344,9 +380,11 @@ object Debts {
     /**
      * Οι οφειλές από το `KEAO_ofeiles_….json`.
      *
-     * Δύο είδη γραμμών ανά φορέα: το **υπόλοιπο** του φορέα, και μία γραμμή για
-     * κάθε **ενεργή ρύθμισή** του με τις δόσεις της. Όλες πληρώνονται με την
-     * ίδια Ταυτότητα Οφειλέτη — του φορέα.
+     * Τρία είδη γραμμών ανά φορέα: η **οφειλή** του φορέα (με πρόσθετα τέλη,
+     * τόκους και προσαυξήσεις — [KeaoCard.Owed]), μία γραμμή για κάθε **ενεργή
+     * ρύθμισή** του με τις δόσεις της, και οι **μη ενεργές** ρυθμίσεις ως
+     * ιστορικό. Όσες πληρώνονται, πληρώνονται με την ίδια Ταυτότητα Οφειλέτη —
+     * του φορέα.
      */
     fun keao(json: String): List<Line> {
         val carriers = runCatching { KeaoCard.parse(json) }.getOrDefault(emptyList())
@@ -362,6 +400,7 @@ object Debts {
             // Ίδιος κανόνας με το `KeaoCard.reports`: ο ΑΜΟ πρώτος.
             val tag = listOf(c.amo, c.carrierAm, (index + 1).toString())
                 .firstOrNull { it.isNotBlank() }.orEmpty()
+            val owed = c.owed
             out += Line(
                 id = "keao-$index",
                 group = Group.KEAO_CARRIER,
@@ -370,28 +409,32 @@ object Debts {
                     name.category,
                     if (c.amo.isBlank()) "" else "ΑΜΟ ${c.amo}",
                 ).filter { it.isNotBlank() }.joinToString(" · "),
-                total = euro(c.totals.balance),
+                total = Money.money(owed.total),
                 codeLabel = "Ταυτότητα Οφειλέτη",
                 code = c.debtorId,
                 files = if (afm.isBlank()) emptyList() else listOf(KeaoCard.fileName(afm, tag)),
                 carrier = "keao-$index",
+                parts = carrierParts(owed),
             )
             c.regulated.filter { it.active }.forEachIndexed { n, r ->
                 val pending = r.pending.map { i ->
-                    // Ό,τι **μένει** από τη δόση· το ονομαστικό ποσό μόνο αν η
-                    // πύλη δεν έδωσε υπόλοιπο.
-                    Instalment(i.no, i.due, euro(i.balance.ifBlank { i.amount }))
+                    // Ό,τι **μένει** από τη δόση, μαζί με τις προσαυξήσεις της:
+                    // αυτό πληρώνει ο πελάτης. Το ονομαστικό ποσό μόνο αν η πύλη
+                    // δεν έδωσε υπόλοιπο.
+                    val left = Money.amount(i.balance.ifBlank { i.amount }) + Money.amount(i.increments)
+                    Instalment(i.no, i.due, Money.money(left))
                 }
                 out += Line(
                     id = "keao-$index-r$n",
                     group = Group.KEAO_ARRANGED,
                     title = r.resolutionType.ifBlank { "Ρύθμιση ΚΕΑΟ" },
                     detail = who,
-                    total = Money.money(Money.sum(pending.map { it.amount })),
+                    total = Money.money(r.owed),
                     codeLabel = "Ταυτότητα Οφειλέτη",
                     code = c.debtorId,
                     unpaid = pending,
                     instalments = r.installments,
+                    parts = regulationParts(r),
                     files = if (afm.isBlank()) emptyList() else listOf(
                         KeaoCard.regulationFileName(
                             afm,
@@ -402,9 +445,69 @@ object Debts {
                     carrier = "keao-$index",
                 )
             }
+            // Οι υπόλοιπες, ως ιστορικό: χωρίς δόσεις, χωρίς κωδικό, χωρίς έντυπο.
+            c.regulated.filter { !it.active }.forEachIndexed { n, r ->
+                out += Line(
+                    id = "keao-$index-x$n",
+                    group = Group.KEAO_INACTIVE,
+                    title = r.resolutionType.ifBlank { "Ρύθμιση ΚΕΑΟ" },
+                    detail = listOf(
+                        if (r.info.isBlank()) "" else "απόφαση ${r.info}",
+                        if (r.installments > 0) "${r.installments} δόσεις" else "",
+                        who,
+                    ).filter { it.isNotBlank() }.joinToString(" · "),
+                    total = euro(r.total),
+                    codeLabel = "Ταυτότητα Οφειλέτη",
+                    carrier = "keao-$index",
+                    parts = regulationTerms(r),
+                    status = r.status.ifBlank { "χωρίς κατάσταση" },
+                )
+            }
         }
         return out
     }
+
+    /** Οι ετικέτες των κομματιών — κοινές, ώστε η σύνοψη να τα αθροίζει. */
+    const val PART_OUTSIDE = "Εκτός ρύθμισης"
+    const val PART_ADDITIONAL = "πρόσθετα τέλη"
+    const val PART_REGULATED = "Σε ρύθμιση, με τους τόκους"
+    const val PART_INCREMENTS = "προσαυξήσεις"
+    const val PART_INTEREST = "τόκοι ρύθμισης"
+
+    /**
+     * Φορέας: εκτός ρύθμισης και σε ρύθμιση, που αθροίζονται στο σύνολο, και
+     * κάτω από το καθένα τα πρόσθετα τέλη και οι προσαυξήσεις του.
+     *
+     * Οι τόκοι **δεν** γράφονται εδώ ως ποσό: η πύλη δίνει τους τόκους όλης της
+     * ρύθμισης, και όχι πόσοι μένουν στις απλήρωτες δόσεις. Μετρούν πάντως —
+     * είναι μέσα στις δόσεις — και το λέει η ετικέτα [PART_REGULATED].
+     */
+    private fun carrierParts(owed: KeaoCard.Owed): List<Part> = buildList {
+        if (owed.fallback) return@buildList
+        if (owed.outside > CENT) add(Part(PART_OUTSIDE, Money.money(owed.outside)))
+        if (owed.outsideAdditional > CENT) add(Part(PART_ADDITIONAL, Money.money(owed.outsideAdditional), included = true))
+        if (owed.regulated > CENT) add(Part(PART_REGULATED, Money.money(owed.regulated)))
+        if (owed.increments > CENT) add(Part(PART_INCREMENTS, Money.money(owed.increments), included = true))
+    }
+
+    /** Ενεργή ρύθμιση: τι μένει από τις δόσεις, οι προσαυξήσεις, και οι τόκοι της. */
+    private fun regulationParts(r: KeaoCard.Regulation): List<Part> = buildList {
+        if (r.instalments.isNotEmpty()) add(Part("υπόλοιπο δόσεων", Money.money(r.remaining)))
+        // Κάτω από τις δόσεις, που τους περιέχουν — όλης της ρύθμισης, όχι όσοι μένουν.
+        if (Money.amount(r.interest) > CENT) {
+            add(Part("$PART_INTEREST (σε όλες τις δόσεις)", euro(r.interest), included = true))
+        }
+        if (r.increments > CENT) add(Part(PART_INCREMENTS, Money.money(r.increments)))
+    }
+
+    /** Από τι αποτελείται η ρύθμιση, όπως τη γράφει η πύλη — μέσα στο σύνολό της. */
+    private fun regulationTerms(r: KeaoCard.Regulation): List<Part> = buildList {
+        if (Money.amount(r.primary) > CENT) add(Part("κύρια", euro(r.primary), included = true))
+        if (Money.amount(r.additional) > CENT) add(Part(PART_ADDITIONAL, euro(r.additional), included = true))
+        if (Money.amount(r.interest) > CENT) add(Part(PART_INTEREST, euro(r.interest), included = true))
+    }
+
+    private const val CENT = 0.004
 
     /** Τα μητρώα στα οποία περιορίστηκε η λήψη ΚΕΑΟ — βλ. [Snapshot.keaoPartial]. */
     fun keaoFilter(json: String): List<String> {
