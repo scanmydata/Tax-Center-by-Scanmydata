@@ -9,10 +9,14 @@ import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.DocumentEntity
 import gr.scanmydata.taxcenter.data.db.DriveFileEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
+import gr.scanmydata.taxcenter.debts.DebtsStore
 import gr.scanmydata.taxcenter.engine.FileBridge
+import gr.scanmydata.taxcenter.requests.RequestsStore
+import gr.scanmydata.taxcenter.ui.AthensDates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDate
 
 /**
  * Συγχρονισμός των ληφθέντων εντύπων στο Google Drive, με δομή φακέλων ανά
@@ -26,8 +30,11 @@ import java.io.File
  *   ├─ Πελάτες/
  *   │    └─ 123456783 — ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ/
  *   │         ├─ 2025/  E1_….pdf, E2_….pdf
- *   │         └─ Χωρίς έτος/  STOIXEIA_….pdf
- *   └─ Αντίγραφα/  taxcenter-backup-….smdbk
+ *   │         ├─ Χωρίς έτος/  STOIXEIA_….pdf
+ *   │         ├─ Οφειλές/  Οφειλές.txt
+ *   │         └─ Αιτήματα/  Αιτήματα.txt
+ *   │              └─ 1000001-20260901-0001 — Τροποποιητική Ε1/  Αίτημα.txt, συνημμένα
+ *   └─ Αντίγραφα/  taxcenter-backup-….smdbk   (κρυπτογραφημένα)
  * ```
  *
  * ## Καθρέφτης, όχι μετακόμιση
@@ -62,19 +69,23 @@ class DriveSync(
             "Τίποτα δεν ανεβαίνει. Τα δεδομένα ζουν μόνο στη συσκευή.",
         ),
         BACKUP(
-            "Μόνο αντίγραφο ασφαλείας",
-            "Χειροκίνητο, κρυπτογραφημένο αντίγραφο ολόκληρης της βάσης. Η Google " +
-                "βλέπει μόνο κρυπτογράφημα.",
+            "Αυτόματο αντίγραφο ασφαλείας",
+            "Μία φορά την ημέρα, κρυπτογραφημένο αντίγραφο ολόκληρης της βάσης στον " +
+                "φάκελο «Αντίγραφα» του Drive σου. Η Google βλέπει μόνο κρυπτογράφημα.",
         ),
         SYNC(
-            "Αντίγραφο και συγχρονισμός εντύπων",
-            "Επιπλέον, κάθε έντυπο που κατεβαίνει ανεβαίνει αυτόματα σε φάκελο ανά " +
-                "πελάτη και έτος. Τα PDF στο Drive είναι αναγνώσιμα — είναι τα ίδια " +
-                "αρχεία που θα έστελνες με email.",
+            "Αντίγραφο και αρχεία πελατών",
+            "Επιπλέον, σε φάκελο ανά πελάτη ανεβαίνουν τα έντυπα, οι οφειλές και τα " +
+                "αιτήματα ΑΑΔΕ με τα συνημμένα τους. Αυτά είναι αναγνώσιμα στο Drive — " +
+                "ό,τι θα έστελνες και με email.",
         ),
     }
 
-    data class Progress(val uploaded: Int, val skipped: Int, val failed: Int) {
+    /**
+     * @param stage τι ανεβαίνει τώρα — «Έντυπα», «Οφειλές», «Αιτήματα» — για το
+     *   παράθυρο αναμονής
+     */
+    data class Progress(val uploaded: Int, val skipped: Int, val failed: Int, val stage: String = "") {
         val total: Int get() = uploaded + skipped + failed
     }
 
@@ -88,7 +99,7 @@ class DriveSync(
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    val enabled: Boolean get() = settings.driveMode == Mode.SYNC
+    val enabled: Boolean get() = settings.driveMode == Mode.SYNC && settings.driveReady
 
     // ------------------------------------------------------------ φάκελοι
 
@@ -105,24 +116,43 @@ class DriveSync(
         entity: ClientEntity,
         year: String,
     ): String {
+        val parent = clientFolder(client, cache, entity)
+        return subFolder(client, cache, entity, parent, year.ifBlank { NO_YEAR })
+    }
+
+    /** `Πελάτες/<ΑΦΜ — Επωνυμία>`, φτιάχνοντας ό,τι λείπει. */
+    private fun clientFolder(
+        client: DriveClient,
+        cache: MutableMap<String, String>,
+        entity: ClientEntity,
+    ): String {
         val base = folderPath
         val clientsFolder = cache.getOrPut("$base/$CLIENTS") {
             client.ensureFolder(CLIENTS, rootFolder(client, cache))
         }
-        val label = FileBridge.sanitiseSegment(
-            buildString {
-                append(entity.afm)
-                if (entity.displayName != entity.afm) append(" — ").append(entity.displayName)
-            },
-        )
-        val clientFolder = cache.getOrPut("$base/$CLIENTS/$label") {
+        val label = clientLabel(entity)
+        return cache.getOrPut("$base/$CLIENTS/$label") {
             client.ensureFolder(label, clientsFolder)
         }
-        val yearLabel = year.ifBlank { NO_YEAR }
-        return cache.getOrPut("$base/$CLIENTS/$label/$yearLabel") {
-            client.ensureFolder(yearLabel, clientFolder)
-        }
     }
+
+    /** Ένας φάκελος μέσα στον φάκελο του πελάτη (έτος, «Οφειλές», «Αιτήματα»). */
+    private fun subFolder(
+        client: DriveClient,
+        cache: MutableMap<String, String>,
+        entity: ClientEntity,
+        parent: String,
+        name: String,
+    ): String = cache.getOrPut("$folderPath/$CLIENTS/${clientLabel(entity)}/$name") {
+        client.ensureFolder(name, parent)
+    }
+
+    private fun clientLabel(entity: ClientEntity): String = FileBridge.sanitiseSegment(
+        buildString {
+            append(entity.afm)
+            if (entity.displayName != entity.afm) append(" — ").append(entity.displayName)
+        },
+    )
 
     fun backupFolder(client: DriveClient, cache: MutableMap<String, String>): String =
         cache.getOrPut("$folderPath/$BACKUPS") {
@@ -174,7 +204,7 @@ class DriveSync(
     // ---------------------------------------------------------- ανεβάσματα
 
     /**
-     * Ανεβάζει ό,τι δεν έχει ανέβει ακόμη.
+     * Ανεβάζει ό,τι δεν έχει ανέβει ακόμη: έντυπα, οφειλές, αιτήματα.
      *
      * Παραλείπει σιωπηλά τα ήδη συγχρονισμένα με **ίδιο μέγεθος**: το Drive δεν
      * χρειάζεται να ξαναδεί το ίδιο PDF, και μια παρτίδα 300 εντύπων δεν πρέπει
@@ -195,7 +225,8 @@ class DriveSync(
         var skipped = 0
         var failed = 0
 
-        for (document in allDocuments()) {
+        val documents = allDocuments()
+        for (document in documents) {
             val entity = clientsById[document.clientId] ?: continue
             val file = File(context.filesDir, document.relativePath)
             if (!file.isFile) {
@@ -230,7 +261,18 @@ class DriveSync(
             } catch (e: Exception) {
                 failed++
             }
-            onProgress(Progress(uploaded, skipped, failed))
+            onProgress(Progress(uploaded, skipped, failed, STAGE_DOCUMENTS))
+        }
+
+        // Οφειλές και αιτήματα: όσοι πελάτες έχουν κάτι στη συσκευή.
+        for (entity in clientsById.values) {
+            if (entity.afm.isBlank()) continue
+            val debts = runCatching { mirrorDebts(drive, folders, entity) }.getOrElse { Tally(failed = 1) }
+            uploaded += debts.uploaded; skipped += debts.skipped; failed += debts.failed
+            onProgress(Progress(uploaded, skipped, failed, STAGE_DEBTS))
+            val requests = runCatching { mirrorRequests(drive, folders, entity) }.getOrElse { Tally(failed = 1) }
+            uploaded += requests.uploaded; skipped += requests.skipped; failed += requests.failed
+            onProgress(Progress(uploaded, skipped, failed, STAGE_REQUESTS))
         }
 
         if (uploaded > 0 || failed > 0) {
@@ -256,6 +298,9 @@ class DriveSync(
         val drive = DriveClient(accessToken)
         var restored = 0
         for (mapping in db.driveFiles().all()) {
+            // Οι αναφορές κειμένου (οφειλές, αιτήματα) δεν είναι αρχεία της
+            // συσκευής: ξαναγράφονται από τη βάση και τα JSON, δεν κατεβαίνουν.
+            if (mapping.relativePath.startsWith(REPORT_PREFIX)) continue
             val target = File(context.filesDir, mapping.relativePath)
             if (target.isFile && target.length() == mapping.bytes) continue
             runCatching { drive.download(mapping.driveId, target) }
@@ -264,9 +309,151 @@ class DriveSync(
         restored
     }
 
+    private data class Tally(val uploaded: Int = 0, val skipped: Int = 0, val failed: Int = 0) {
+        operator fun plus(o: Tally) = Tally(uploaded + o.uploaded, skipped + o.skipped, failed + o.failed)
+    }
+
+    /**
+     * `Οφειλές/Οφειλές.txt` του πελάτη — **ένα** αρχείο που αντικαθίσταται σε
+     * κάθε ενημέρωση. Το Drive κρατά μόνο του τις παλιές εκδόσεις του αρχείου·
+     * δεκάδες αρχεία με ημερομηνία στο όνομα θα έκρυβαν το τωρινό.
+     */
+    private suspend fun mirrorDebts(drive: DriveClient, folders: HashMap<String, String>, entity: ClientEntity): Tally {
+        val snapshot = DebtsStore.load(context.filesDir, entity.afm)
+        val changedAt = maxOf(snapshot.aadeAt, snapshot.keaoAt)
+        if (changedAt == 0L) return Tally()
+        val key = REPORT_PREFIX + "debts/" + entity.afm
+        val known = db.driveFiles().byPath(key)
+        if (known != null && known.syncedAt >= changedAt) return Tally(skipped = 1)
+
+        val text = DriveReports.debts(
+            clientName = entity.displayName,
+            afm = entity.afm,
+            snapshot = snapshot,
+            aadeAt = if (snapshot.aadeAt == 0L) "" else AthensDates.stamp(snapshot.aadeAt),
+            keaoAt = if (snapshot.keaoAt == 0L) "" else AthensDates.stamp(snapshot.keaoAt),
+            today = LocalDate.now(AthensDates.ZONE),
+        )
+        val parent = subFolder(drive, folders, entity, clientFolder(drive, folders, entity), DEBTS)
+        return uploadText(drive, key, parent, DriveReports.DEBTS_FILE, text, known)
+    }
+
+    /**
+     * `Αιτήματα/`: η λίστα όλων, και ένας υποφάκελος για κάθε αίτημα που είναι
+     * αποθηκευμένο ολόκληρο, με το κείμενό του και τα συνημμένα του.
+     */
+    private suspend fun mirrorRequests(drive: DriveClient, folders: HashMap<String, String>, entity: ClientEntity): Tally {
+        val snapshot = RequestsStore.load(context.filesDir, entity.afm)
+        if (snapshot.at == 0L || snapshot.requests.isEmpty() && snapshot.saved.isEmpty()) return Tally()
+        val clientDir = { clientFolder(drive, folders, entity) }
+        val requestsFolder = { subFolder(drive, folders, entity, clientDir(), REQUESTS) }
+        var tally = Tally()
+
+        val listKey = REPORT_PREFIX + "requests/" + entity.afm
+        val listKnown = db.driveFiles().byPath(listKey)
+        tally += if (listKnown != null && listKnown.syncedAt >= snapshot.at) {
+            Tally(skipped = 1)
+        } else {
+            val text = DriveReports.requests(entity.displayName, entity.afm, snapshot.requests, AthensDates.stamp(snapshot.at))
+            uploadText(drive, listKey, requestsFolder(), DriveReports.REQUESTS_FILE, text, listKnown)
+        }
+
+        for (id in snapshot.saved.keys) {
+            val source = RequestsStore.detailFile(context.filesDir, entity.afm, id)
+            val detail = RequestsStore.detail(context.filesDir, entity.afm, id) ?: continue
+            val listed = snapshot.requests.firstOrNull { it.id == id }
+            val folderName = DriveReports.requestFolder(
+                id = id,
+                caseNumber = detail.caseNumber.ifBlank { listed?.caseNumber.orEmpty() },
+                title = listed?.title ?: detail.process.ifBlank { detail.topic },
+            )
+            val folder = {
+                folders.getOrPut("$folderPath/$CLIENTS/${clientLabel(entity)}/$REQUESTS/$folderName") {
+                    drive.ensureFolder(FileBridge.sanitiseSegment(folderName), requestsFolder())
+                }
+            }
+
+            val key = REPORT_PREFIX + "request/" + entity.afm + "/" + id
+            val known = db.driveFiles().byPath(key)
+            tally += if (known != null && known.syncedAt >= source.lastModified()) {
+                Tally(skipped = 1)
+            } else {
+                val retrieved = if (detail.retrievedAt == 0L) "" else AthensDates.stamp(detail.retrievedAt)
+                val text = DriveReports.request(entity.displayName, entity.afm, listed, detail, retrieved)
+                uploadText(drive, key, folder(), DriveReports.REQUEST_FILE, text, known)
+            }
+
+            for (file in detail.attachments.filter { it.downloaded }) {
+                val local = RequestsStore.attachment(context.filesDir, entity.afm, file.saved) ?: continue
+                val relative = local.relativeTo(context.filesDir).invariantSeparatorsPath
+                val mapped = db.driveFiles().byPath(relative)
+                if (mapped != null && mapped.bytes == local.length()) {
+                    tally += Tally(skipped = 1)
+                    continue
+                }
+                tally += try {
+                    val parent = folder()
+                    val entry = drive.upload(
+                        file = local,
+                        parentId = parent,
+                        name = file.name.ifBlank { local.name },
+                        mimeType = mimeOf(local.name),
+                        existingId = mapped?.driveId,
+                    )
+                    db.driveFiles().put(
+                        DriveFileEntity(relative, entry.id, entry.name, parent, local.length(), System.currentTimeMillis()),
+                    )
+                    Tally(uploaded = 1)
+                } catch (e: Exception) {
+                    Tally(failed = 1)
+                }
+            }
+        }
+        return tally
+    }
+
+    /** Ανεβάζει κείμενο ως `.txt` UTF-8, αντικαθιστώντας την προηγούμενη έκδοσή του. */
+    private suspend fun uploadText(
+        drive: DriveClient,
+        key: String,
+        parent: String,
+        name: String,
+        text: String,
+        known: DriveFileEntity?,
+    ): Tally {
+        val temp = File.createTempFile("drive-report", ".txt", context.cacheDir)
+        return try {
+            temp.writeText(text, Charsets.UTF_8)
+            val entry = drive.upload(
+                file = temp,
+                parentId = parent,
+                name = name,
+                mimeType = "text/plain; charset=utf-8",
+                // Αν άλλαξε φάκελος (π.χ. νέα διαδρομή), ανεβαίνει ως νέο.
+                existingId = known?.driveId?.takeIf { known.parentId == parent },
+            )
+            db.driveFiles().put(DriveFileEntity(key, entry.id, entry.name, parent, temp.length(), System.currentTimeMillis()))
+            Tally(uploaded = 1)
+        } catch (e: Exception) {
+            Tally(failed = 1)
+        } finally {
+            // Το κείμενο έχει στοιχεία πελάτη: δεν μένει στην cache.
+            temp.delete()
+        }
+    }
+
     private fun mimeOf(name: String): String = when {
         name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
         name.endsWith(".json", ignoreCase = true) -> "application/json"
+        name.endsWith(".jpg", ignoreCase = true) || name.endsWith(".jpeg", ignoreCase = true) -> "image/jpeg"
+        name.endsWith(".png", ignoreCase = true) -> "image/png"
+        name.endsWith(".txt", ignoreCase = true) -> "text/plain"
+        name.endsWith(".doc", ignoreCase = true) -> "application/msword"
+        name.endsWith(".docx", ignoreCase = true) ->
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        name.endsWith(".xls", ignoreCase = true) -> "application/vnd.ms-excel"
+        name.endsWith(".xlsx", ignoreCase = true) ->
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else -> "application/octet-stream"
     }
 
@@ -285,6 +472,19 @@ class DriveSync(
         const val CLIENTS = "Πελάτες"
         const val BACKUPS = "Αντίγραφα"
         const val NO_YEAR = "Χωρίς έτος"
+        const val DEBTS = "Οφειλές"
+        const val REQUESTS = "Αιτήματα"
+
+        const val STAGE_DOCUMENTS = "Έντυπα"
+        const val STAGE_DEBTS = "Οφειλές"
+        const val STAGE_REQUESTS = "Αιτήματα"
+
+        /**
+         * Κλειδιά του πίνακα `drive_files` για αρχεία που **δεν** υπάρχουν στη
+         * συσκευή ως έχουν — οι αναφορές κειμένου. Το `@` δεν βγαίνει ποτέ από
+         * διαδρομή του `filesDir`.
+         */
+        const val REPORT_PREFIX = "@report/"
 
         /**
          * Καθαρίζει μια διαδρομή που πληκτρολόγησε άνθρωπος.

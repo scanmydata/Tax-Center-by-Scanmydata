@@ -33,6 +33,9 @@ import javax.crypto.spec.SecretKeySpec
  *
  * Το scope είναι `drive.file`: η εφαρμογή βλέπει μόνο ό,τι δημιούργησε η ίδια,
  * ποτέ τον υπόλοιπο Drive του χρήστη.
+ *
+ * Το αντίγραφο γίνεται **αυτόματα** μία φορά την ημέρα ([gr.scanmydata.taxcenter.sched.DriveWork]),
+ * με την passphrase φυλαγμένη στη συσκευή — βλ. [gr.scanmydata.taxcenter.data.KeyStoreKeys.backupPassphrase].
  */
 class DriveBackup(
     private val context: Context,
@@ -49,7 +52,12 @@ class DriveBackup(
 
     // ------------------------------------------------------------- ανέβασμα
 
-    suspend fun upload(accessToken: String, passphrase: String): Entry {
+    /**
+     * @param parentId ο φάκελος «Αντίγραφα» της εφαρμογής. Χωρίς αυτόν το
+     *   αντίγραφο έπεφτε στη **ρίζα** του Drive — και ο χρήστης το έψαχνε στον
+     *   φάκελο που είχε διαλέξει.
+     */
+    suspend fun upload(accessToken: String, passphrase: String, parentId: String? = null): Entry {
         require(passphrase.length >= MIN_PASSPHRASE) {
             "Η passphrase πρέπει να έχει τουλάχιστον $MIN_PASSPHRASE χαρακτήρες."
         }
@@ -64,6 +72,7 @@ class DriveBackup(
         val metadata = JSONObject()
             .put("name", name)
             .put("description", "ScanMyData Tax Center — κρυπτογραφημένο αντίγραφο")
+            .apply { if (parentId != null) put("parents", org.json.JSONArray().put(parentId)) }
             .toString()
 
         val body = MultipartBody.Builder()
@@ -94,8 +103,8 @@ class DriveBackup(
     // ------------------------------------------------------------- κατάλογος
 
     fun list(accessToken: String): List<Entry> {
-        val url = "$FILES?q=" + java.net.URLEncoder.encode("name contains 'taxcenter-backup'", "UTF-8") +
-            "&orderBy=createdTime desc&pageSize=25&fields=files(id,name,createdTime,size)"
+        val url = "$FILES?q=" + java.net.URLEncoder.encode("name contains 'taxcenter-backup' and trashed = false", "UTF-8") +
+            "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,createdTime,size)"
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $accessToken")
@@ -114,6 +123,25 @@ class DriveBackup(
                 )
             }
         }
+    }
+
+    /**
+     * Κρατά τα [keep] νεότερα αντίγραφα και στέλνει τα παλαιότερα στον **κάδο**
+     * — όχι οριστική διαγραφή: ένα λάθος εδώ πρέπει να διορθώνεται από τον
+     * Drive. Με ένα αντίγραφο την ημέρα, δύο εβδομάδες πίσω είναι αρκετές για
+     * να βρεθεί μια βάση πριν από ένα λάθος που δεν φάνηκε αμέσως.
+     *
+     * @return πόσα πήγαν στον κάδο
+     */
+    fun prune(accessToken: String, keep: Int = KEEP): Int {
+        val all = list(accessToken)
+        if (all.size <= keep) return 0
+        val drive = DriveClient(accessToken)
+        var trashed = 0
+        all.drop(keep).forEach { entry ->
+            runCatching { drive.trash(entry.id) }.onSuccess { trashed++ }
+        }
+        return trashed
     }
 
     // ------------------------------------------------------------ επαναφορά
@@ -214,11 +242,12 @@ class DriveBackup(
         JSONObject(body).getJSONObject("error").getString("message")
     }.getOrDefault("HTTP $code")
 
-    private companion object {
-        const val UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
-        const val FILES = "https://www.googleapis.com/drive/v3/files"
-        const val ITERATIONS = 210_000
+    companion object {
+        private const val UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
+        private const val FILES = "https://www.googleapis.com/drive/v3/files"
+        private const val ITERATIONS = 210_000
         const val MIN_PASSPHRASE = 12
-        val MAGIC = "SMDBK1  ".toByteArray(Charsets.US_ASCII)
+        const val KEEP = 14
+        private val MAGIC = "SMDBK1  ".toByteArray(Charsets.US_ASCII)
     }
 }

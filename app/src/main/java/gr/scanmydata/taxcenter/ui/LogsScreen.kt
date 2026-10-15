@@ -55,6 +55,7 @@ fun LogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
     var query by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
+    var exporting by remember { mutableStateOf(false) }
     var confirmWipe by remember { mutableStateOf(false) }
 
     val shown = remember(entries, query) {
@@ -88,13 +89,15 @@ fun LogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = {
                 scope.launch {
-                    status = "Δημιουργία αρχείου…"
+                    exporting = true
                     status = try {
                         val file = withContext(Dispatchers.IO) { Exports.auditCsv(context, container.db) }
                         Exports.share(context, file, "text/csv", "Αρχείο ενεργειών")
                         "Έτοιμο."
                     } catch (e: Exception) {
                         "Απέτυχε: ${e.message}"
+                    } finally {
+                        exporting = false
                     }
                 }
             }) { Text("Εξαγωγή σε CSV") }
@@ -105,6 +108,7 @@ fun LogsScreen(container: AppContainer, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(6.dp))
             Text(status, style = MaterialTheme.typography.bodySmall)
         }
+        BusyOverlay(visible = exporting, title = "Εξαγωγή σε CSV", text = "Δημιουργία του αρχείου ενεργειών…")
 
         Spacer(Modifier.height(10.dp))
         Text("${shown.size} εγγραφές", style = MaterialTheme.typography.labelMedium)

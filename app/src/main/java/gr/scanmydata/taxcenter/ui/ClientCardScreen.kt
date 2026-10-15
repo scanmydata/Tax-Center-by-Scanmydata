@@ -158,6 +158,7 @@ private fun ClientDocumentsTab(
     var status by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmSend by remember { mutableStateOf(false) }
+    var sendingTitle by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
 
     val selected = remember(documents, picked.toList()) {
@@ -222,10 +223,11 @@ private fun ClientDocumentsTab(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
         )
 
-        if (status.isNotBlank()) {
+        if (status.isNotBlank() && !sending) {
             Spacer(Modifier.height(6.dp))
             Text(status, style = MaterialTheme.typography.bodySmall)
         }
+        BusyOverlay(visible = sending, title = sendingTitle, text = status)
 
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.weight(1f)) {
@@ -323,9 +325,13 @@ private fun ClientDocumentsTab(
                         val chosen = channel
                         scope.launch {
                             sending = true
+                            sendingTitle = when (chosen) {
+                                SendChannel.EMAIL -> "Αποστολή ${batch.size} εντύπων"
+                                SendChannel.VIBER -> "Προετοιμασία για Viber"
+                            }
                             status = when (chosen) {
-                                SendChannel.EMAIL -> "Αποστολή ${batch.size} εντύπων σε $to…"
-                                SendChannel.VIBER -> "Άνοιγμα Viber…"
+                                SendChannel.EMAIL -> "Προς $to"
+                                SendChannel.VIBER -> "Τα έντυπα ετοιμάζονται για να τα διαλέξεις στο Viber."
                             }
                             status = when (chosen) {
                                 SendChannel.EMAIL ->

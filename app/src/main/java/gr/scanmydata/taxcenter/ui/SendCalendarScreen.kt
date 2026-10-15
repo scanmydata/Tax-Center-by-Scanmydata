@@ -88,6 +88,7 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
     var failedOnly by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
+    var retrying by remember { mutableStateOf("") }
     // Τα φίλτρα είναι κλειστά εξ ορισμού. Έπαιρναν τέσσερις σειρές μόνιμα, και
     // σε τηλέφωνο έμεναν δύο-τρεις γραμμές για τη λίστα — που είναι η ουσία.
     var showFilters by remember { mutableStateOf(false) }
@@ -339,6 +340,7 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
             ) { Text("Εξαγωγή CSV") }
         }
 
+        BusyOverlay(visible = retrying.isNotBlank(), title = "Επανάληψη αποστολής", text = "Προς $retrying")
         if (status.isNotBlank()) {
             Text(status, style = MaterialTheme.typography.bodySmall)
         }
@@ -354,8 +356,12 @@ fun SendCalendarScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     onRetry = if (send.failed) {
                         {
                             scope.launch {
-                                status = "Επανάληψη προς ${send.toEmail}…"
-                                status = retrySend(container, authorizer, send)
+                                retrying = send.toEmail.ifBlank { "τον παραλήπτη" }
+                                status = try {
+                                    retrySend(container, authorizer, send)
+                                } finally {
+                                    retrying = ""
+                                }
                             }
                         }
                     } else {

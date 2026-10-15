@@ -103,6 +103,15 @@ internal fun ClientRequestsTab(
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
     val current = snapshot
 
+    FetchBusyOverlay(
+        container = container,
+        visible = refreshing,
+        title = "Έλεγχος αιτημάτων ΑΑΔΕ",
+        text = client.displayName,
+        detail = "Πρώτα η λίστα των αιτημάτων και μετά, σε δεύτερη σύνδεση, όσα λείπουν " +
+            "ή άλλαξαν με τα συνημμένα τους. Οι συνδέσεις γίνονται μία-μία.",
+    )
+
     LazyColumn(Modifier.padding(horizontal = 16.dp)) {
         item {
             Spacer(Modifier.height(10.dp))

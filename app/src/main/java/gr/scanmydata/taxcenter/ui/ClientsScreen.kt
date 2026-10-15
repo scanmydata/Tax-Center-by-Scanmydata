@@ -290,7 +290,7 @@ fun ClientsScreen(
         )
     }
 
-    BusyOverlay(visible = working.isNotBlank(), text = working)
+    BusyOverlay(visible = working.isNotBlank(), title = "Περίμενε", text = working)
     }
 
     if (confirmRefresh) {

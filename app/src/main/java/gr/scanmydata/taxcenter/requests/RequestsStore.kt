@@ -208,6 +208,10 @@ object RequestsStore {
 
     private val DETAIL_FILE = Regex("""AITIMA_(\d+)\.json""")
 
+    /** Το JSON ενός αποθηκευμένου αιτήματος — υπάρχει ή όχι. */
+    fun detailFile(filesDir: File, afm: String, id: String): File =
+        File(detailDir(filesDir, afm), RequestDetail.fileName(id))
+
     private fun detailDir(filesDir: File, afm: String): File = File(
         filesDir,
         "runs/${FileBridge.sanitiseSegment(afm)}/${FileBridge.sanitiseSegment(RequestDetail.CONFIG)}",

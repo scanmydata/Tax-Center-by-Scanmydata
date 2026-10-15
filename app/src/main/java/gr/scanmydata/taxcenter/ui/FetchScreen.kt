@@ -179,6 +179,8 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
     var confirmSend by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    // Η μαζική αποστολή στοιχείων: πόσοι έχουν σταλεί, από πόσους.
+    var mailing by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     // Όταν ερχόμαστε από την καρτέλα ενός πελάτη, έρχεται ήδη επιλεγμένος: το
     // «λήψη εντύπων για αυτόν» δεν πρέπει να καταλήγει σε λίστα 400 ονομάτων.
@@ -431,9 +433,25 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
             item { Spacer(Modifier.height(12.dp)) }
         }
 
-        if (status.isNotBlank()) {
+        if (status.isNotBlank() && !busy && mailing == null) {
             Text(status, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(6.dp))
+        }
+
+        BusyOverlay(
+            visible = busy,
+            title = "Προετοιμασία λήψης",
+            text = "Ποιοι πελάτες, ποια έντυπα, ποιοι κωδικοί — και σύνδεση με Google αν χρειάζεται " +
+                "για την αποστολή ή το Drive.",
+        )
+        mailing?.let { (done, total) ->
+            BusyOverlay(
+                visible = true,
+                title = "Αποστολή στοιχείων — ${done + 1} από $total",
+                text = status,
+                progress = if (total == 0) null else done.toFloat() / total,
+                detail = "Τα email φεύγουν ένα-ένα από τον λογαριασμό Google του γραφείου.",
+            )
         }
 
         HorizontalDivider()
@@ -525,11 +543,13 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                 scope.launch {
                     var sent = 0
                     val failures = ArrayList<String>()
-                    status = "Αποστολή…"
+                    status = "Σύνδεση με Google…"
+                    mailing = 0 to recipients.size
                     try {
                         val token = authorizer.accessToken()
-                        for (client in recipients) {
-                            status = "Αποστολή ${sent + 1}/${recipients.size}: ${client.displayName}…"
+                        for ((index, client) in recipients.withIndex()) {
+                            mailing = index to recipients.size
+                            status = client.displayName
                             val result = withContext(Dispatchers.IO) {
                                 runCatching {
                                     container.mail.sendOwnDetails(token, client, includeSecrets)
@@ -555,6 +575,8 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
                         status = "Χρειάζεται σύνδεση με Google από τις Ρυθμίσεις."
                     } catch (e: Exception) {
                         status = "Απέτυχε: ${e.message}"
+                    } finally {
+                        mailing = null
                     }
                 }
             },

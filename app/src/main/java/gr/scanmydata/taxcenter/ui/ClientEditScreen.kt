@@ -764,6 +764,7 @@ fun ClientEditScreen(
 
     BusyOverlay(
         visible = busy,
+        title = "Ανάγνωση από την πύλη",
         text = status.ifBlank { "Σύνδεση στην πύλη…" },
         detail = "Οι συνδέσεις γίνονται μία-μία. Μη φύγεις από την οθόνη.",
     )

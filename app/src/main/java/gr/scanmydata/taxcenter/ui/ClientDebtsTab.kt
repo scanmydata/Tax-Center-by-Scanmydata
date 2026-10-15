@@ -158,6 +158,13 @@ internal fun ClientDebtsTab(
         }
     }
 
+    FetchBusyOverlay(
+        container = container,
+        visible = refreshing,
+        title = "Ενημέρωση οφειλών",
+        text = client.displayName,
+    )
+
     Column(Modifier.padding(horizontal = 16.dp)) {
         // Έξω από τη λίστα: η πύλη που βλέπεις μένει στην οθόνη όσο κυλάς.
         Row(

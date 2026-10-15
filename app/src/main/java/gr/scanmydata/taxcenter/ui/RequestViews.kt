@@ -25,7 +25,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -347,6 +346,15 @@ internal fun RequestDialog(
     }
     val detail = loaded?.detail
 
+    FetchBusyOverlay(
+        container = container,
+        visible = refreshing,
+        title = if (detail == null) "Λήψη αιτήματος" else "Ανανέωση αιτήματος",
+        text = request.title + " — " + client.displayName,
+        detail = "Σύνδεση στην ΑΑΔΕ, ανάγνωση του αιτήματος και λήψη των συνημμένων του. " +
+            "Μετά ανοίγει χωρίς σύνδεση.",
+    )
+
     Dialog(
         onDismissRequest = { opener.close() },
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -384,8 +392,8 @@ internal fun RequestDialog(
                         )
                     }
                 }
-                if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider()
-                if (opener.status.isNotBlank()) {
+                HorizontalDivider()
+                if (opener.status.isNotBlank() && !refreshing) {
                     Text(
                         opener.status,
                         style = MaterialTheme.typography.bodySmall,

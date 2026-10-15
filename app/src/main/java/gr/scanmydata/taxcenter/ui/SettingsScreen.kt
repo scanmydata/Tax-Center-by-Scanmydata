@@ -43,11 +43,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.BuildConfig
 import gr.scanmydata.taxcenter.gdpr.Exports
-import gr.scanmydata.taxcenter.google.DriveBackup
 import gr.scanmydata.taxcenter.google.DriveSync
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
 import gr.scanmydata.taxcenter.mail.MailTemplateStore
@@ -57,7 +55,6 @@ import gr.scanmydata.taxcenter.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.system.exitProcess
 
 @Composable
 fun SettingsScreen(
@@ -70,6 +67,7 @@ fun SettingsScreen(
     val authorizer = rememberGoogleAuthorizer()
 
     var googleStatus by remember { mutableStateOf("") }
+    var googleBusy by remember { mutableStateOf(false) }
     // Ξεχωριστή κατάσταση από τις ρυθμίσεις, ώστε η κάρτα να ανανεώνεται μόλις
     // γυρίσει η σύνδεση — το `Settings` είναι SharedPreferences και δεν
     // ειδοποιεί το Compose από μόνο του.
@@ -82,23 +80,12 @@ fun SettingsScreen(
     var retention by remember { mutableStateOf(settings.retentionMonths.toString()) }
     var updateStatus by remember { mutableStateOf("") }
     var updateBusy by remember { mutableStateOf(false) }
-    var passphrase by remember { mutableStateOf("") }
-    var backupStatus by remember { mutableStateOf("") }
-    var backupBusy by remember { mutableStateOf(false) }
-    var backups by remember { mutableStateOf(emptyList<DriveBackup.Entry>()) }
-    var restoreTarget by remember { mutableStateOf<DriveBackup.Entry?>(null) }
     var includeSecrets by remember { mutableStateOf(settings.includePasswordsInClientEmail) }
     var officeName by remember { mutableStateOf(settings.officeName) }
     var signature by remember { mutableStateOf(settings.signature) }
     var signatureDocuments by remember { mutableStateOf(settings.signatureDocuments) }
     var signatureCredentials by remember { mutableStateOf(settings.signatureCredentials) }
     val templateStore = remember { MailTemplateStore(context) }
-    var driveMode by remember { mutableStateOf(settings.driveMode) }
-    var driveFolder by remember { mutableStateOf(settings.driveFolderPath) }
-    var folderStatus by remember { mutableStateOf("") }
-    var folderBusy by remember { mutableStateOf(false) }
-    var syncStatus by remember { mutableStateOf("") }
-    var syncBusy by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<TemplateKind?>(null) }
     var groupFetch by remember { mutableStateOf(settings.groupFetchByClient) }
     var theme by remember { mutableStateOf(settings.themeVariant) }
@@ -182,7 +169,7 @@ fun SettingsScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = {
                     scope.launch {
-                        googleStatus = "Σύνδεση…"
+                        googleBusy = true
                         googleStatus = try {
                             authorizer.accessToken()
                             connected = settings.googleConnected
@@ -190,6 +177,8 @@ fun SettingsScreen(
                             ""
                         } catch (e: Exception) {
                             "Απέτυχε: ${e.message}"
+                        } finally {
+                            googleBusy = false
                         }
                     }
                 }) { Text(if (connected) "Ανανέωση" else "Σύνδεση με Google") }
@@ -524,288 +513,13 @@ fun SettingsScreen(
 
         SettingsSection(
             title = "Google Drive",
-            summary = driveMode.label,
+            summary = settings.driveMode.let { mode ->
+                if (mode != DriveSync.Mode.OFF && !settings.driveReady) mode.label + " — δεν έχει στηθεί" else mode.label
+            },
             open = openSection,
             onOpen = { openSection = it },
         ) {
-            DriveSync.Mode.entries.forEach { mode ->
-                Card(
-                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (mode == driveMode) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        },
-                    ),
-                ) {
-                    Row(
-                        Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = mode == driveMode,
-                            onClick = { driveMode = mode; settings.driveMode = mode },
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(mode.label, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                mode.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (driveMode != DriveSync.Mode.OFF) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                Text("Πού θα μπουν τα αρχεία", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(4.dp))
-
-                // Η ερώτηση μπαίνει **πριν** ανέβει το πρώτο αρχείο. Μετά, μια
-                // αλλαγή διαδρομής αφήνει τα παλιά αρχεία πίσω και ο χρήστης
-                // έχει δύο φακέλους χωρίς να καταλάβει γιατί.
-                if (!settings.driveFolderChosen) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    ) {
-                        Text(
-                            "Πρώτο στήσιμο: διάλεξε τώρα τη διαδρομή. Αν δεν αλλάξεις " +
-                                "τίποτα, θα χρησιμοποιηθεί ο φάκελος «${DriveSync.ROOT}» " +
-                                "στη ρίζα του Drive σου.",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(12.dp),
-                        )
-                    }
-                }
-                Text(
-                    "Γράψε τη διαδρομή μέσα στον Drive σου. Με κάθετο `/` φτιάχνονται " +
-                        "υποφάκελοι — π.χ. «Γραφείο/TaxCenter». Ό,τι λείπει " +
-                        "δημιουργείται· δεν χρειάζεται να υπάρχει από πριν.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = driveFolder,
-                    onValueChange = { driveFolder = it },
-                    label = { Text("Φάκελος στο Drive") },
-                    singleLine = true,
-                    supportingText = {
-                        Text(
-                            "Θα γίνει: " + DriveSync.normalisePath(driveFolder),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        enabled = !folderBusy,
-                        onClick = {
-                            scope.launch {
-                                folderBusy = true
-                                folderStatus = "Δημιουργία στον Drive…"
-                                folderStatus = try {
-                                    settings.driveFolderPath = driveFolder
-                                    driveFolder = settings.driveFolderPath
-                                    val token = authorizer.accessToken()
-                                    val path = container.driveSync.ensureFolders(token)
-                                    settings.driveFolderChosen = true
-                                    "Έτοιμο: ο φάκελος «$path» υπάρχει στον Drive σου."
-                                } catch (e: Exception) {
-                                    "Απέτυχε: ${e.message}"
-                                }
-                                folderBusy = false
-                            }
-                        },
-                    ) { Text("Αποθήκευση και δημιουργία") }
-                }
-                if (folderStatus.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(folderStatus, style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Δεν υπάρχει επιλογή από τους φακέλους που ήδη έχεις, και είναι " +
-                        "σκόπιμο: η εφαρμογή ζητά το δικαίωμα «μόνο τα αρχεία που " +
-                        "δημιουργεί η ίδια», οπότε δεν μπορεί καν να δει τον υπόλοιπο " +
-                        "Drive σου. Ένας επιλογέας φακέλων θα απαιτούσε πρόσβαση σε " +
-                        "ολόκληρο τον λογαριασμό.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
-                if (settings.driveFolderChosen) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Αν αλλάξεις τη διαδρομή, ό,τι έχει ήδη ανέβει μένει στον παλιό " +
-                            "φάκελο — η εφαρμογή δεν μετακινεί αρχεία.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-
-            if (driveMode == DriveSync.Mode.SYNC) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Δομή φακέλων: " + DriveSync.normalisePath(driveFolder) +
-                        " → Πελάτες → «ΑΦΜ — Επωνυμία» → έτος. " +
-                        "Τα έντυπα ανεβαίνουν αυτόματα στο τέλος κάθε παρτίδας λήψης, " +
-                        "εφόσον υπάρχει δίκτυο.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Το τοπικό αντίγραφο μένει: χωρίς αυτό η εφαρμογή δεν θα δούλευε χωρίς " +
-                        "δίκτυο, και τα PDF στο Drive είναι ακρυπτογράφητα — δεν πρέπει να " +
-                        "γίνουν το μοναδικό αντίγραφο φορολογικών εντύπων τρίτων.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        enabled = !syncBusy,
-                        onClick = {
-                            scope.launch {
-                                syncBusy = true
-                                syncStatus = "Συγχρονισμός…"
-                                syncStatus = try {
-                                    if (!container.driveSync.online()) {
-                                        "Δεν υπάρχει σύνδεση στο διαδίκτυο."
-                                    } else {
-                                        val token = authorizer.accessToken()
-                                        val result = container.driveSync.syncAll(token) { p ->
-                                            syncStatus = "Ανέβηκαν ${p.uploaded}…"
-                                        }
-                                        "Ανέβηκαν ${result.uploaded}, ήδη συγχρονισμένα " +
-                                            "${result.skipped}" +
-                                            if (result.failed > 0) ", απέτυχαν ${result.failed}" else "."
-                                    }
-                                } catch (e: Exception) {
-                                    "Απέτυχε: ${e.message}"
-                                }
-                                syncBusy = false
-                            }
-                        },
-                    ) { Text("Συγχρονισμός τώρα") }
-
-                    OutlinedButton(
-                        enabled = !syncBusy,
-                        onClick = {
-                            scope.launch {
-                                syncBusy = true
-                                syncStatus = "Ανάκτηση αρχείων…"
-                                syncStatus = try {
-                                    val token = authorizer.accessToken()
-                                    val count = container.driveSync.pullMissing(token)
-                                    "Κατέβηκαν $count αρχεία που έλειπαν."
-                                } catch (e: Exception) {
-                                    "Απέτυχε: ${e.message}"
-                                }
-                                syncBusy = false
-                            }
-                        },
-                    ) { Text("Ανάκτηση σε νέα συσκευή") }
-                }
-                if (syncStatus.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(syncStatus, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Text("Αντίγραφο ασφαλείας της βάσης", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Προαιρετικό. Η βάση κρυπτογραφείται **πριν** ανέβει, με κλειδί που " +
-                    "παράγεται από τη δική σου passphrase (PBKDF2-HMAC-SHA256, 210.000 " +
-                    "επαναλήψεις, AES-256-GCM). Η Google βλέπει μόνο κρυπτογράφημα.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Χαμένη passphrase = χαμένο αντίγραφο. Δεν υπάρχει ανάκτηση — αυτό " +
-                    "είναι το νόημα. Κράτησέ τη στον διαχειριστή κωδικών σου.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = passphrase,
-                onValueChange = { passphrase = it },
-                label = { Text("Passphrase αντιγράφου (τουλάχιστον 12 χαρακτήρες)") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    enabled = !backupBusy && passphrase.length >= 12,
-                    onClick = {
-                        scope.launch {
-                            backupBusy = true
-                            backupStatus = "Δημιουργία και ανέβασμα…"
-                            backupStatus = try {
-                                val token = authorizer.accessToken()
-                                val entry = withContext(Dispatchers.IO) {
-                                    container.driveBackup.upload(token, passphrase)
-                                }
-                                "Ανέβηκε: ${entry.name} (${entry.size / 1024} KB)."
-                            } catch (e: Exception) {
-                                "Απέτυχε: ${e.message}"
-                            }
-                            backupBusy = false
-                        }
-                    },
-                ) { Text("Δημιουργία αντιγράφου") }
-
-                OutlinedButton(
-                    enabled = !backupBusy && passphrase.length >= 12,
-                    onClick = {
-                        scope.launch {
-                            backupBusy = true
-                            backupStatus = "Αναζήτηση αντιγράφων…"
-                            try {
-                                val token = authorizer.accessToken()
-                                backups = withContext(Dispatchers.IO) { container.driveBackup.list(token) }
-                                backupStatus = if (backups.isEmpty()) {
-                                    "Δεν βρέθηκαν αντίγραφα."
-                                } else {
-                                    "Βρέθηκαν ${backups.size} αντίγραφα."
-                                }
-                            } catch (e: Exception) {
-                                backupStatus = "Απέτυχε: ${e.message}"
-                            }
-                            backupBusy = false
-                        }
-                    },
-                ) { Text("Επαναφορά…") }
-            }
-
-            backups.take(5).forEach { entry ->
-                TextButton(onClick = { restoreTarget = entry }) {
-                    Text("${entry.name.removePrefix("taxcenter-backup-")} · ${entry.size / 1024} KB")
-                }
-            }
-
-            if (backupStatus.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(backupStatus, style = MaterialTheme.typography.bodyMedium)
-            }
+            DriveSettings(container, authorizer)
         }
 
         SettingsSection(
@@ -827,7 +541,7 @@ fun SettingsScreen(
                 onClick = {
                     scope.launch {
                         updateBusy = true
-                        updateStatus = "Έλεγχος…"
+                        updateStatus = "Ρωτάμε το GitHub ποια είναι η τελευταία έκδοση…"
                         updateStatus = try {
                             val release = withContext(Dispatchers.IO) { UpdateChecker.latest() }
                             when {
@@ -835,6 +549,7 @@ fun SettingsScreen(
                                 !UpdateChecker.isNewer(release.version) ->
                                     "Έχεις την τελευταία έκδοση (${release.tag})."
                                 else -> {
+                                    updateStatus = "Λήψη της ${release.tag}…"
                                     val apk = withContext(Dispatchers.IO) {
                                         UpdateChecker.download(context, release)
                                     }
@@ -850,7 +565,7 @@ fun SettingsScreen(
                 },
             ) { Text("Έλεγχος για ενημέρωση") }
 
-            if (updateStatus.isNotBlank()) {
+            if (updateStatus.isNotBlank() && !updateBusy) {
                 Spacer(Modifier.height(8.dp))
                 Text(updateStatus, style = MaterialTheme.typography.bodyMedium)
             }
@@ -936,44 +651,19 @@ fun SettingsScreen(
 
     if (emailHelp) EmailSettingsHelp { emailHelp = false }
 
+    BusyOverlay(
+        visible = googleBusy,
+        title = "Σύνδεση με Google",
+        text = "Αν ανοίξει παράθυρο της Google, διάλεξε τον λογαριασμό του γραφείου και πάτα «Συνέχεια».",
+    )
+    BusyOverlay(
+        visible = updateBusy,
+        title = "Ενημέρωση εφαρμογής",
+        text = updateStatus,
+    )
+
     if (showDiagnostics) {
         DiagnosticsDialog(container = container, onDismiss = { showDiagnostics = false })
-    }
-
-    restoreTarget?.let { entry ->
-        AlertDialog(
-            onDismissRequest = { restoreTarget = null },
-            title = { Text("Επαναφορά αντιγράφου") },
-            text = {
-                Text(
-                    "Θα αντικατασταθεί ΟΛΗ η τρέχουσα βάση με το αντίγραφο " +
-                        "${entry.name}.\n\nΌ,τι έχει καταχωρηθεί μετά τη δημιουργία " +
-                        "του χάνεται. Η εφαρμογή θα κλείσει αμέσως μετά — άνοιξέ την " +
-                        "ξανά για να δεις τα δεδομένα.\n\nΗ ενέργεια δεν αναιρείται.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val target = entry
-                    restoreTarget = null
-                    scope.launch {
-                        backupStatus = "Επαναφορά…"
-                        try {
-                            val token = authorizer.accessToken()
-                            withContext(Dispatchers.IO) {
-                                container.driveBackup.restore(token, target, passphrase)
-                            }
-                            // Η Room κρατά ανοιχτό handle στο παλιό αρχείο· κάθε
-                            // εγγραφή μετά την αντικατάσταση θα το κατέστρεφε.
-                            exitProcess(0)
-                        } catch (e: Exception) {
-                            backupStatus = "Απέτυχε: ${e.message}"
-                        }
-                    }
-                }) { Text("Επαναφορά") }
-            },
-            dismissButton = { TextButton(onClick = { restoreTarget = null }) { Text("Άκυρο") } },
-        )
     }
 
     editingTemplate?.let { kind ->

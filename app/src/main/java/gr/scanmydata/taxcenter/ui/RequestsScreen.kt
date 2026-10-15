@@ -58,12 +58,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.work.WorkManager
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.requests.AadeRequests
 import gr.scanmydata.taxcenter.requests.RequestBoard
 import gr.scanmydata.taxcenter.requests.RequestsStore
 import gr.scanmydata.taxcenter.sched.RequestWatch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -113,6 +115,25 @@ fun RequestsScreen(
     var filter by rememberSaveable { mutableStateOf(RequestBoard.Filter.ALL) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
+
+    // Ο «Έλεγχος τώρα» τρέχει στο WorkManager, πελάτη-πελάτη. Το παράθυρο
+    // αναμονής μένει όσο υπάρχει δουλειά στην ουρά — όχι όσο τρέχει μία λήψη,
+    // που σβήνει για μια στιγμή ανάμεσα σε δύο πελάτες.
+    var watching by remember { mutableStateOf(false) }
+    val watchInfos by remember(context) {
+        WorkManager.getInstance(context.applicationContext)
+            .getWorkInfosForUniqueWorkFlow(RequestWatch.WORK_CONTINUE)
+    }.collectAsState(initial = emptyList())
+    val watchActive = watchInfos.any { !it.state.isFinished }
+    LaunchedEffect(watching, watchActive) {
+        // Ένα περιθώριο, γιατί αμέσως μετά το πάτημα η ουρά δείχνει ακόμη τον
+        // προηγούμενο, τελειωμένο έλεγχο.
+        if (watching && !watchActive) {
+            delay(3_000)
+            watching = false
+            reload++
+        }
+    }
     // Οι πελάτες των οποίων τα αιτήματα είναι ανοιχτά από κάτω.
     val expanded = remember { mutableStateListOf<Long>() }
 
@@ -303,9 +324,8 @@ fun RequestsScreen(
                         // Αποθηκεύει και ό,τι λείπει από τη συσκευή, όχι μόνο ό,τι
                         // άλλαξε: τον ζήτησε άνθρωπος.
                         RequestWatch.runNow(context, full = true)
-                        status = "Ο έλεγχος ξεκίνησε για " +
-                            (if (watched.size == 1) "1 πελάτη" else "${watched.size} πελάτες") +
-                            ", έναν-έναν. Η λίστα ανανεώνεται καθώς προχωρά· μπορείς να φύγεις από την οθόνη."
+                        watching = true
+                        status = ""
                     },
                     onNotifications = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -375,6 +395,24 @@ fun RequestsScreen(
             },
         )
     }
+
+    FetchBusyOverlay(
+        container = container,
+        visible = watching,
+        title = "Έλεγχος αιτημάτων ΑΑΔΕ",
+        text = (if (watched.size == 1) "1 πελάτης" else "${watched.size} πελάτες") +
+            " στην παρακολούθηση, ένας-ένας.",
+        detail = "Για κάθε πελάτη: σύνδεση στην ΑΑΔΕ, η λίστα των αιτημάτων, και όσα " +
+            "λείπουν ή άλλαξαν με τα συνημμένα τους. Ο έλεγχος συνεχίζει και αν " +
+            "κλείσεις το παράθυρο ή φύγεις από την οθόνη.",
+        onHide = { watching = false },
+        onCancel = {
+            WorkManager.getInstance(context.applicationContext).cancelUniqueWork(RequestWatch.WORK_CONTINUE)
+            container.fetch.cancel()
+            watching = false
+            status = "Ο έλεγχος διακόπηκε. Ό,τι αποθηκεύτηκε μέχρι εκεί μένει."
+        },
+    )
 
     val opened = opener.opened
     if (opened != null) {

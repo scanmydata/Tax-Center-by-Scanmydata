@@ -188,7 +188,7 @@ fun DocumentsScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
     }
 
-    BusyOverlay(visible = sending, text = status.ifBlank { "Αποστολή…" })
+    BusyOverlay(visible = sending, title = "Αποστολή εντύπων", text = status.ifBlank { "Σύνδεση με Google…" })
     }
 
     if (confirmDeleteDocs) {

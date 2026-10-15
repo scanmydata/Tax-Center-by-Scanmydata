@@ -19,7 +19,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -150,14 +149,11 @@ fun ImportScreen(
             }
         }
 
-        if (busy) {
-            Spacer(Modifier.height(24.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.height(20.dp).width(20.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(12.dp))
-                Text("Ανάγνωση…")
-            }
-        }
+        BusyOverlay(
+            visible = busy,
+            title = "Ανάγνωση αρχείου",
+            text = fileName.ifBlank { "Το αρχείο διαβάζεται στη συσκευή — δεν ανεβαίνει πουθενά." },
+        )
 
         if (error.isNotBlank()) {
             Spacer(Modifier.height(16.dp))

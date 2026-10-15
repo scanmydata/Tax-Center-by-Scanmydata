@@ -94,17 +94,51 @@ class Settings(context: Context) {
      * Τι κάνει η εφαρμογή με το Google Drive.
      *
      * Αποθηκεύεται ως όνομα και όχι ως αριθμός: μια μελλοντική τιμή στη μέση της
-     * enum δεν πρέπει να αλλάξει σιωπηλά τη ρύθμιση κάποιου. Άγνωστη τιμή
-     * γυρίζει σε `BACKUP`, την πιο συντηρητική που κάνει κάτι χρήσιμο.
+     * enum δεν πρέπει να αλλάξει σιωπηλά τη ρύθμιση κάποιου.
+     *
+     * Η προεπιλογή είναι `OFF`. Ήταν `BACKUP`, όταν το αντίγραφο ήταν
+     * χειροκίνητο και η επιλογή δεν έκανε τίποτα μόνη της — με αποτέλεσμα η
+     * οθόνη να δείχνει «αντίγραφο ασφαλείας» ενώ δεν είχε ανέβει ποτέ τίποτα.
+     * Τώρα η επιλογή **ανεβάζει**, άρα ενεργοποιείται μόνο με ρητή επιλογή,
+     * που ζητά και την άδεια της Google εκείνη τη στιγμή. Άγνωστη τιμή = `OFF`.
      */
     var driveMode: gr.scanmydata.taxcenter.google.DriveSync.Mode
         get() = runCatching {
             gr.scanmydata.taxcenter.google.DriveSync.Mode.valueOf(
                 prefs.getString(KEY_DRIVE_MODE, null)
-                    ?: gr.scanmydata.taxcenter.google.DriveSync.Mode.BACKUP.name,
+                    ?: gr.scanmydata.taxcenter.google.DriveSync.Mode.OFF.name,
             )
-        }.getOrDefault(gr.scanmydata.taxcenter.google.DriveSync.Mode.BACKUP)
+        }.getOrDefault(gr.scanmydata.taxcenter.google.DriveSync.Mode.OFF)
         set(v) = prefs.edit().putString(KEY_DRIVE_MODE, v.name).apply()
+
+    /**
+     * Έχει στηθεί το Drive; Δηλαδή δόθηκε άδεια, φτιάχτηκε ο φάκελος και
+     * ορίστηκε passphrase. Μια ρύθμιση από παλιότερη έκδοση (`BACKUP` χωρίς
+     * τίποτα από αυτά) **δεν** μετρά ως στημένη, και η οθόνη το λέει.
+     */
+    var driveReady: Boolean
+        get() = prefs.getBoolean(KEY_DRIVE_READY, false)
+        set(v) = prefs.edit().putBoolean(KEY_DRIVE_READY, v).apply()
+
+    /** Πότε ανέβηκε το τελευταίο αντίγραφο της βάσης. `0` = ποτέ. */
+    var driveLastBackup: Long
+        get() = prefs.getLong(KEY_DRIVE_LAST_BACKUP, 0L)
+        set(v) = prefs.edit().putLong(KEY_DRIVE_LAST_BACKUP, v).apply()
+
+    /** Πότε έτρεξε τελευταία φορά η αυτόματη δουλειά του Drive, πετυχημένη ή όχι. */
+    var driveLastRun: Long
+        get() = prefs.getLong(KEY_DRIVE_LAST_RUN, 0L)
+        set(v) = prefs.edit().putLong(KEY_DRIVE_LAST_RUN, v).apply()
+
+    /** Τι έγινε στην τελευταία εκτέλεση, σε μία πρόταση. */
+    var driveLastSummary: String
+        get() = prefs.getString(KEY_DRIVE_LAST_SUMMARY, "").orEmpty()
+        set(v) = prefs.edit().putString(KEY_DRIVE_LAST_SUMMARY, v).apply()
+
+    /** Η τελευταία εκτέλεση απέτυχε — η οθόνη το δείχνει κόκκινο. */
+    var driveLastFailed: Boolean
+        get() = prefs.getBoolean(KEY_DRIVE_LAST_FAILED, false)
+        set(v) = prefs.edit().putBoolean(KEY_DRIVE_LAST_FAILED, v).apply()
 
     /**
      * Πού ζουν τα αρχεία μέσα στο Drive — διαδρομή με `/`, π.χ.
@@ -353,5 +387,10 @@ class Settings(context: Context) {
         const val KEY_OFFICE_NAME = "office_name"
         const val KEY_DRIVE_FOLDER = "drive_folder_path"
         const val KEY_DRIVE_FOLDER_CHOSEN = "drive_folder_chosen"
+        const val KEY_DRIVE_READY = "drive_ready"
+        const val KEY_DRIVE_LAST_BACKUP = "drive_last_backup"
+        const val KEY_DRIVE_LAST_RUN = "drive_last_run"
+        const val KEY_DRIVE_LAST_SUMMARY = "drive_last_summary"
+        const val KEY_DRIVE_LAST_FAILED = "drive_last_failed"
     }
 }
