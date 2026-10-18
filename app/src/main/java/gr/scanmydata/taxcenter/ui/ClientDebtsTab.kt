@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -145,7 +146,7 @@ internal fun ClientDebtsTab(
                 }
                 val items = DebtsRefresh.run(container.fetch, plans)
                 status = DebtsRefresh.describe(items, only).ifBlank {
-                    if (only == null) "Ενημερώθηκαν ΑΑΔΕ και ΚΕΑΟ." else "Ενημερώθηκε: ${only.label}."
+                    if (only == null) "Ενημερώθηκαν ΑΑΔΕ, ΚΕΑΟ και ΕΦΚΑ." else "Ενημερώθηκε: ${only.label}."
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -168,7 +169,7 @@ internal fun ClientDebtsTab(
     Column(Modifier.padding(horizontal = 16.dp)) {
         // Έξω από τη λίστα: η πύλη που βλέπεις μένει στην οθόνη όσο κυλάς.
         Row(
-            Modifier.fillMaxWidth().padding(top = 8.dp),
+            Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Debts.Source.entries.forEach { option ->
@@ -323,7 +324,7 @@ internal fun ClientDebtsTab(
                     Text(
                         "Πάτησε μία ή περισσότερες οφειλές για να στείλεις μήνυμα στον πελάτη. " +
                             "Η επιλογή μένει όταν αλλάζεις πύλη, οπότε ένα μήνυμα μπορεί να " +
-                            "έχει οφειλές και από τις δύο.",
+                            "έχει οφειλές από ΑΑΔΕ, ΚΕΑΟ και ΕΦΚΑ μαζί.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         modifier = Modifier.padding(top = 6.dp),
@@ -401,9 +402,29 @@ private fun SummaryCard(
                             "Δεν έχουν διαβαστεί ακόμη οφειλές από το ΚΕΑΟ για αυτόν τον " +
                                 "πελάτη. Πάτα «Ενημέρωση ΚΕΑΟ» — θέλει ΑΜΚΑ στην καρτέλα, " +
                                 "άρα γίνεται μόνο για φυσικά πρόσωπα."
+                        Debts.Source.EFKA ->
+                            "Δεν έχουν διαβαστεί ακόμη οι τρέχουσες εισφορές ΕΦΚΑ για αυτόν " +
+                                "τον πελάτη. Πάτα «Ενημέρωση ΕΦΚΑ» — θέλει ΑΜΚΑ στην καρτέλα " +
+                                "(μη μισθωτοί)."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
+
+                source == Debts.Source.EFKA -> {
+                    SourceSummary(
+                        name = "ΕΦΚΑ",
+                        at = snapshot.efkaAt,
+                        rows = buildList {
+                            val current = snapshot.inGroup(Debts.Group.EFKA_CURRENT)
+                            if (current.isEmpty()) {
+                                add("Καμία τρέχουσα εισφορά.")
+                            } else {
+                                add("Τρέχουσες εισφορές: " + snapshot.total(Debts.Group.EFKA_CURRENT) + " €")
+                                add("Με τον κωδικό πληρωμής (RF) του μήνα — άλλος από τις οφειλές του ΚΕΑΟ.")
+                            }
+                        },
+                    )
+                }
 
                 source == Debts.Source.AADE -> {
                     SourceSummary(
@@ -470,7 +491,7 @@ private fun SummaryCard(
                 OutlinedButton(onClick = onFetch) { Text("Λήψη εντύπων") }
             }
             TextButton(enabled = !busy, onClick = onRefreshAll) {
-                Text("Ενημέρωση και των δύο (ΑΑΔΕ και ΚΕΑΟ)")
+                Text("Ενημέρωση όλων (ΑΑΔΕ, ΚΕΑΟ, ΕΦΚΑ)")
             }
             Text(
                 "Η ενημέρωση διαβάζει ποσά, δόσεις και ταυτότητες — χωρίς να κατεβάσει PDF. " +
@@ -676,8 +697,12 @@ private fun DebtCard(
                 if (next != null) {
                     val expired = next.dueDate?.isBefore(today) == true
                     Text(
-                        if (expired) "Δόση ${next.amount} € · έληξε ${next.due}"
-                        else "Επόμενη δόση ${next.amount} € · λήξη ${next.due}",
+                        when {
+                            line.instalments == 0 && expired -> "Πληρωτέο ${next.amount} € · έληξε ${next.due}"
+                            line.instalments == 0 -> "Πληρωτέο ${next.amount} € · εμπρόθεσμα ως ${next.due}"
+                            expired -> "Δόση ${next.amount} € · έληξε ${next.due}"
+                            else -> "Επόμενη δόση ${next.amount} € · λήξη ${next.due}"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     )

@@ -23,6 +23,7 @@ object DebtsStore {
 
     const val CONFIG_AADE = "aade-debts"
     const val CONFIG_KEAO = "keao-debts"
+    const val CONFIG_EFKA = "efka-notices"
 
     fun load(filesDir: File, afm: String): Debts.Snapshot {
         if (afm.isBlank()) return Debts.Snapshot()
@@ -30,10 +31,13 @@ object DebtsStore {
         val keao = newest(dir(filesDir, afm, CONFIG_KEAO), "KEAO_ofeiles_")
         val aadeJson = aade?.let(::read).orEmpty()
         val keaoJson = keao?.let(::read).orEmpty()
+        val efka = newest(dir(filesDir, afm, CONFIG_EFKA), "EFKA_notices_")
+        val efkaJson = efka?.let(::read).orEmpty()
         return Debts.Snapshot(
-            lines = Debts.aade(aadeJson) + Debts.keao(keaoJson),
+            lines = Debts.aade(aadeJson) + Debts.keao(keaoJson) + Debts.efka(efkaJson),
             aadeAt = aade?.lastModified() ?: 0L,
             keaoAt = keao?.lastModified() ?: 0L,
+            efkaAt = efka?.lastModified() ?: 0L,
             keaoPartial = Debts.keaoFilter(keaoJson),
         )
     }

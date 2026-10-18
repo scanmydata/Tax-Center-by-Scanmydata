@@ -40,14 +40,20 @@ object DriveReports {
         aadeAt: String,
         keaoAt: String,
         today: LocalDate,
+        efkaAt: String = "",
     ): String = buildString {
         append("Οφειλές — ").append(clientName).append(" (ΑΦΜ ").append(afm).append(")\n")
         append("ΑΑΔΕ: ").append(if (aadeAt.isBlank()) "δεν έχει ενημερωθεί" else "ενημέρωση $aadeAt")
         append(" · ΚΕΑΟ: ").append(if (keaoAt.isBlank()) "δεν έχει ενημερωθεί" else "ενημέρωση $keaoAt")
+        append(" · ΕΦΚΑ: ").append(if (efkaAt.isBlank()) "δεν έχει ενημερωθεί" else "ενημέρωση $efkaAt")
         append("\n")
 
         for (source in Debts.Source.entries) {
-            val known = if (source == Debts.Source.AADE) aadeAt.isNotBlank() else keaoAt.isNotBlank()
+            val known = when (source) {
+                Debts.Source.AADE -> aadeAt.isNotBlank()
+                Debts.Source.KEAO -> keaoAt.isNotBlank()
+                Debts.Source.EFKA -> efkaAt.isNotBlank()
+            }
             append("\n").append("=".repeat(60)).append("\n")
             append(source.label)
             if (known) append(" — σύνολο ").append(snapshot.total(source)).append(" €")

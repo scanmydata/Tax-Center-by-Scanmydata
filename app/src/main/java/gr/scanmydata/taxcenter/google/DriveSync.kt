@@ -320,7 +320,7 @@ class DriveSync(
      */
     private suspend fun mirrorDebts(drive: DriveClient, folders: HashMap<String, String>, entity: ClientEntity): Tally {
         val snapshot = DebtsStore.load(context.filesDir, entity.afm)
-        val changedAt = maxOf(snapshot.aadeAt, snapshot.keaoAt)
+        val changedAt = maxOf(snapshot.aadeAt, snapshot.keaoAt, snapshot.efkaAt)
         if (changedAt == 0L) return Tally()
         val key = REPORT_PREFIX + "debts/" + entity.afm
         val known = db.driveFiles().byPath(key)
@@ -333,6 +333,7 @@ class DriveSync(
             aadeAt = if (snapshot.aadeAt == 0L) "" else AthensDates.stamp(snapshot.aadeAt),
             keaoAt = if (snapshot.keaoAt == 0L) "" else AthensDates.stamp(snapshot.keaoAt),
             today = LocalDate.now(AthensDates.ZONE),
+            efkaAt = if (snapshot.efkaAt == 0L) "" else AthensDates.stamp(snapshot.efkaAt),
         )
         val parent = subFolder(drive, folders, entity, clientFolder(drive, folders, entity), DEBTS)
         return uploadText(drive, key, parent, DriveReports.DEBTS_FILE, text, known)

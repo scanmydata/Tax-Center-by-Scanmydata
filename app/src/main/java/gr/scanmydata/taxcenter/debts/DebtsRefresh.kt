@@ -55,7 +55,7 @@ object DebtsRefresh {
         only: Debts.Source? = null,
     ): List<FetchController.Plan> {
         val out = ArrayList<FetchController.Plan>()
-        if (only != Debts.Source.KEAO &&
+        if ((only == null || only == Debts.Source.AADE) &&
             FetchController.missingCredentials(repository, client, DebtsStore.CONFIG_AADE).isEmpty()
         ) {
             out += FetchController.Plan(
@@ -69,7 +69,7 @@ object DebtsRefresh {
             )
         }
         val keao = DocumentCatalog.ALL.firstOrNull { it.configId == DebtsStore.CONFIG_KEAO }
-        if (only != Debts.Source.AADE && keao != null && keao.matches(client.kind) &&
+        if ((only == null || only == Debts.Source.KEAO) && keao != null && keao.matches(client.kind) &&
             FetchController.missingCredentials(repository, client, DebtsStore.CONFIG_KEAO).isEmpty()
         ) {
             out += FetchController.Plan(
@@ -79,6 +79,22 @@ object DebtsRefresh {
                     extraInputs = mapOf(DATA_ONLY to "1"),
                 ),
                 label = "Οφειλές ΚΕΑΟ — ενημέρωση καρτέλας",
+                producesDocuments = false,
+            )
+        }
+        // ΕΦΚΑ μη μισθωτού: η τρέχουσα εισφορά με τον κωδικό πληρωμής της. Ίδια
+        // σύνδεση με τα ειδοποιητήρια, χωρίς να κατεβαίνει το PDF.
+        val efka = DocumentCatalog.ALL.firstOrNull { it.configId == DebtsStore.CONFIG_EFKA }
+        if ((only == null || only == Debts.Source.EFKA) && efka != null && efka.matches(client.kind) &&
+            FetchController.missingCredentials(repository, client, DebtsStore.CONFIG_EFKA).isEmpty()
+        ) {
+            out += FetchController.Plan(
+                job = ProcessRunner.Job(
+                    client = client,
+                    configId = DebtsStore.CONFIG_EFKA,
+                    extraInputs = mapOf("pdf" to "όχι", DATA_ONLY to "1"),
+                ),
+                label = "Οφειλές ΕΦΚΑ — ενημέρωση καρτέλας",
                 producesDocuments = false,
             )
         }
@@ -130,8 +146,9 @@ object DebtsRefresh {
         items == null -> BUSY
         // Το ΚΕΑΟ δεν είναι για όλους, και το «λείπουν οι κωδικοί» θα έστελνε
         // τον λογιστή να ψάχνει κωδικούς που υπάρχουν.
-        items.isEmpty() && only == Debts.Source.KEAO ->
-            "Η ενημέρωση από το ΚΕΑΟ θέλει κωδικούς TAXISnet και ΑΜΚΑ στην καρτέλα — " +
+        items.isEmpty() && (only == Debts.Source.KEAO || only == Debts.Source.EFKA) ->
+            "Η ενημέρωση από " + (if (only == Debts.Source.EFKA) "τον ΕΦΚΑ" else "το ΚΕΑΟ") +
+                " θέλει κωδικούς TAXISnet και ΑΜΚΑ στην καρτέλα — " +
                 "γίνεται μόνο για φυσικά πρόσωπα."
         items.isEmpty() -> "Λείπουν οι κωδικοί TAXISnet του πελάτη."
         items.all { it.status == FetchController.Status.OK } -> ""
@@ -147,6 +164,7 @@ object DebtsRefresh {
     fun source(configId: String): String = when (configId) {
         DebtsStore.CONFIG_AADE -> "ΑΑΔΕ"
         DebtsStore.CONFIG_KEAO -> "ΚΕΑΟ"
+        DebtsStore.CONFIG_EFKA -> "ΕΦΚΑ"
         else -> configId
     }
 }

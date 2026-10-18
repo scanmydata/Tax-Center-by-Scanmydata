@@ -42,6 +42,13 @@ object Debts {
     enum class Source(val label: String) {
         AADE("ΑΑΔΕ"),
         KEAO("ΚΕΑΟ"),
+
+        /**
+         * Οι **τρέχουσες** εισφορές του μη μισθωτού στον e-ΕΦΚΑ — η μηνιαία
+         * εισφορά που δεν έχει ακόμη βεβαιωθεί στο ΚΕΑΟ. Άλλος κωδικός πληρωμής
+         * (RF του μήνα), άλλη πύλη, άλλη λήξη: γι' αυτό τρίτη πύλη και όχι ΚΕΑΟ.
+         */
+        EFKA("ΕΦΚΑ"),
     }
 
     /**
@@ -59,6 +66,7 @@ object Debts {
          * ο λογιστής, και **δεν μετρούν** πουθενά — βλ. [Line.active].
          */
         KEAO_INACTIVE("ΚΕΑΟ — μη ενεργές ρυθμίσεις", Source.KEAO, "Ανενεργές / απολεσθείσες ρυθμίσεις"),
+        EFKA_CURRENT("ΕΦΚΑ — τρέχουσες εισφορές", Source.EFKA, "Τρέχουσες εισφορές"),
     }
 
     /**
@@ -163,6 +171,7 @@ object Debts {
         /** Πότε γράφτηκε το JSON της κάθε πύλης. `0` = δεν έχει ληφθεί ποτέ. */
         val aadeAt: Long = 0L,
         val keaoAt: Long = 0L,
+        val efkaAt: Long = 0L,
         /**
          * Τα μητρώα ΚΕΑΟ στα οποία περιορίστηκε η τελευταία λήψη. Μη κενό
          * σημαίνει ότι η εικόνα του ΚΕΑΟ **δεν είναι πλήρης**, και η καρτέλα
@@ -178,7 +187,11 @@ object Debts {
         fun inSource(source: Source): List<Line> = lines.filter { it.source == source && it.active }
 
         /** Πότε διαβάστηκε η πύλη. `0` = ποτέ. */
-        fun at(source: Source): Long = if (source == Source.AADE) aadeAt else keaoAt
+        fun at(source: Source): Long = when (source) {
+            Source.AADE -> aadeAt
+            Source.KEAO -> keaoAt
+            Source.EFKA -> efkaAt
+        }
 
         /**
          * Τι χρωστά συνολικά σε μια πύλη.
@@ -191,6 +204,7 @@ object Debts {
         fun total(source: Source): String = when (source) {
             Source.AADE -> Money.money(Money.sum(inSource(Source.AADE).map { it.total }))
             Source.KEAO -> total(Group.KEAO_CARRIER)
+            Source.EFKA -> total(Group.EFKA_CURRENT)
         }
 
         /** Άθροισμα υπολοίπων μιας ομάδας, σε ελληνική μορφή. */
@@ -508,6 +522,62 @@ object Debts {
     }
 
     private const val CENT = 0.004
+
+    // ------------------------------------------------------------------ ΕΦΚΑ
+
+    /**
+     * Οι τρέχουσες εισφορές από το `EFKA_notices_….json` (`efka-notices`,
+     * ενότητα `CURRENT` = το tab «Τρέχουσες Οφειλές» της πύλης).
+     *
+     * Μία γραμμή ανά οφειλή: είδος, μήνας αναφοράς, πληρωτέο ποσό, εμπρόθεσμη
+     * πληρωμή και **κωδικός πληρωμής (RF)**. Οι στήλες βρίσκονται από την
+     * επικεφαλίδα, με τη σειρά της πύλης ως εφεδρεία (ζωντανά, Οκτ. 2026:
+     * «Είδος Οφειλής, Ημ. Αναφοράς, Πληρωτέο Ποσό, Εμπρόθεσμη Πληρωμή Μέχρι,
+     * Κωδικός Πληρωμής»).
+     *
+     * Η εμπρόθεσμη πληρωμή μπαίνει ως μοναδική «απλήρωτη δόση», ώστε το μήνυμα
+     * να γράφει λήξη — και «έληξε» όταν πέρασε. Δεν είναι δοσολόγιο: το
+     * [Line.instalments] μένει 0.
+     */
+    fun efka(json: String): List<Line> {
+        val root = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
+        val afm = root.optString("afm").trim()
+        val current = root.optJSONObject("sections")?.optJSONObject("CURRENT") ?: return emptyList()
+        val headers = current.optJSONArray("headers")?.let(::strings).orEmpty()
+        fun col(word: String, fallback: Int): Int =
+            headers.indexOfFirst { it.contains(word, ignoreCase = true) }.takeIf { it >= 0 } ?: fallback
+        val kindCol = col("Είδος", 0)
+        val monthCol = col("Αναφοράς", 1)
+        val amountCol = col("Πληρωτέο", 2)
+        val dueCol = col("Εμπρόθεσμη", 3)
+        val codeCol = col("Κωδικός", 4)
+        val rows = current.optJSONArray("rows") ?: return emptyList()
+        val out = ArrayList<Line>()
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONArray(i)?.let(::strings) ?: continue
+            val amount = euro(row.getOrNull(amountCol).orEmpty())
+            val code = row.getOrNull(codeCol).orEmpty().replace(" ", "").takeIf { it.startsWith("RF", ignoreCase = true) }.orEmpty()
+            if (amount.isBlank() && code.isBlank()) continue
+            val month = row.getOrNull(monthCol).orEmpty()
+            val due = DATE.find(row.getOrNull(dueCol).orEmpty())?.value.orEmpty()
+            // «9/2026» -> «2026-09», όπως ονομάζει το config το ειδοποιητήριο του μήνα.
+            val key = Regex("""(\d{1,2})/(\d{4})""").find(month)?.let { m ->
+                m.groupValues[2] + "-" + m.groupValues[1].padStart(2, '0')
+            }.orEmpty()
+            out += Line(
+                id = "efka-$i",
+                group = Group.EFKA_CURRENT,
+                title = row.getOrNull(kindCol).orEmpty().ifBlank { "Εισφορά e-ΕΦΚΑ" },
+                detail = if (month.isBlank()) "" else "μήνας $month",
+                total = amount,
+                codeLabel = "Κωδικός πληρωμής",
+                code = code,
+                unpaid = if (due.isBlank()) emptyList() else listOf(Instalment("", due, amount)),
+                files = if (afm.isBlank() || key.isBlank()) emptyList() else listOf("EFKA_EFKA_${afm}_$key.pdf"),
+            )
+        }
+        return out
+    }
 
     /** Τα μητρώα στα οποία περιορίστηκε η λήψη ΚΕΑΟ — βλ. [Snapshot.keaoPartial]. */
     fun keaoFilter(json: String): List<String> {

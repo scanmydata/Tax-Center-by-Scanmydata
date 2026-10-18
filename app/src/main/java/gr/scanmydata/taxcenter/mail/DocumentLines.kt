@@ -40,6 +40,7 @@ object DocumentLines {
     /** Οι επικεφαλίδες, με τη σειρά που εμφανίζονται. */
     const val GROUP_AADE = "Οφειλές ΑΑΔΕ"
     const val GROUP_KEAO = "Οφειλές ΚΕΑΟ"
+    const val GROUP_EFKA = "Εισφορές ΕΦΚΑ"
     const val GROUP_OTHER = "Λοιπά έντυπα"
 
     /** Διαβάζει δίσκο — όχι από το κύριο νήμα όπου μπορεί να αποφευχθεί. */
@@ -92,7 +93,7 @@ object DocumentLines {
         }
         // Οι πύλες πρώτα, με σταθερή σειρά· μέσα σε κάθε ομάδα μένει η σειρά
         // των συνημμένων.
-        val order = listOf(GROUP_AADE, GROUP_KEAO, GROUP_OTHER, "")
+        val order = listOf(GROUP_AADE, GROUP_KEAO, GROUP_EFKA, GROUP_OTHER, "")
         return out.sortedBy { order.indexOf(it.group).let { i -> if (i < 0) order.size else i } }
     }
 
@@ -102,6 +103,7 @@ object DocumentLines {
         return when {
             KEAO_PREFIXES.any { name.startsWith(it, ignoreCase = true) } -> Debts.Source.KEAO
             AADE_PREFIXES.any { name.startsWith(it, ignoreCase = true) } -> Debts.Source.AADE
+            EFKA_PREFIXES.any { name.startsWith(it, ignoreCase = true) } -> Debts.Source.EFKA
             else -> null
         }
     }
@@ -113,7 +115,11 @@ object DocumentLines {
         detailed: Boolean,
         today: LocalDate,
     ): MailTemplates.Item {
-        val group = if (source == Debts.Source.AADE) GROUP_AADE else GROUP_KEAO
+        val group = when (source) {
+            Debts.Source.AADE -> GROUP_AADE
+            Debts.Source.KEAO -> GROUP_KEAO
+            Debts.Source.EFKA -> GROUP_EFKA
+        }
         val label = DocumentNaming.label(fileName).ifBlank { "Έντυπο οφειλής" }
         val attachment = "Συνημμένο: $fileName"
 
@@ -189,4 +195,5 @@ object DocumentLines {
     // σειρά το κάνει προφανές σε όποιον προσθέσει πρόθεμα αύριο.
     private val KEAO_PREFIXES = listOf("KEAO_KARTELA", "KEAO_RYTHMISI", "KEAO_PBO")
     private val AADE_PREFIXES = listOf("OFEILI_", "RYTHMISI_", "DOSEIS_")
+    private val EFKA_PREFIXES = listOf("EFKA_EFKA_", "EFKA_TEKA_")
 }

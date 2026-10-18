@@ -1067,6 +1067,13 @@
           "env": "EFKA_AMKA",
           "hidden": false,
           "optional": false
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF; (κενό = ναι, «όχι» = μόνο τα ποσά)",
+          "env": "EFKA_PDF",
+          "hidden": false,
+          "optional": true
         }
       ]
     },

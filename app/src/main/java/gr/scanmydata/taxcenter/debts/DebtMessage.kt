@@ -48,7 +48,7 @@ object DebtMessage {
         val next = line.next
         if (template.has(DebtField.AMOUNT) && line.payable.isNotBlank()) {
             // Χωρίς δοσολόγιο δεν υπάρχει «δόση»: το ποσό είναι όλο το υπόλοιπο.
-            rows += (if (next != null) "Ποσό δόσης: " else "Ποσό: ") + line.payable + " €"
+            rows += (if (next != null && line.instalments > 0) "Ποσό δόσης: " else "Ποσό: ") + line.payable + " €"
         }
         if (template.has(DebtField.DUE) && next != null && next.due.isNotBlank()) {
             val late = next.dueDate?.isBefore(today) == true

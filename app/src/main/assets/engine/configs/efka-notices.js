@@ -68,6 +68,8 @@ module.exports = {
     { key: 'pass', label: 'TAXISnet password', env: 'EFKA_PASS', hidden: true },
     { key: 'afm', label: 'ΑΦΜ', env: 'EFKA_AFM' },
     { key: 'amka', label: 'ΑΜΚΑ', env: 'EFKA_AMKA' },
+    // «όχι» = μόνο τα ποσά και οι κωδικοί πληρωμής (ενημέρωση καρτέλας οφειλών), χωρίς PDF.
+    { key: 'pdf', label: 'Λήψη PDF; (κενό = ναι, «όχι» = μόνο τα ποσά)', env: 'EFKA_PDF', optional: true },
   ],
   monthKey, // για τα τεστ
 
@@ -85,16 +87,17 @@ module.exports = {
     http.log('[obligations] tabs: ' + tabs.map((t) => t.label + '#' + t.dataIndex).join(' | '));
     if (!tabs.length) { http.log('obligations page without tabs'); return { ok: false, reason: 'PageError' }; }
 
+    const noPdf = /^(όχι|οχι|no|0)$/i.test(String(inp.pdf || '').trim());
     const saved = [];
     const tables = { portal: this.portal, afm: inp.afm, retrievedAt: new Date().toISOString(), sections: {} };
 
     // 3a) παλιά διάταξη: ένας πίνακας ανά είδος, με «Εκτύπωση» στη γραμμή
     for (const kind of ['EFKA', 'TEKA']) {
-      const res = await this.getNotice(http, lib, ypoUrl, kind, inp.afm, tables);
+      const res = await this.getNotice(http, lib, ypoUrl, kind, inp.afm, tables, noPdf);
       if (res) saved.push(res);
     }
-    // 3b) νέα διάταξη: «Μηνιαία Ειδοποιητήρια»
-    if (!saved.length) saved.push(...await this.getMonthly(http, lib, ypoUrl, inp.afm, tables));
+    // 3b) νέα διάταξη: «Τρέχουσες Οφειλές» (ποσά, RF) + «Μηνιαία Ειδοποιητήρια» (PDF)
+    if (!saved.length) saved.push(...await this.getMonthly(http, lib, ypoUrl, inp.afm, tables, noPdf));
 
     // every runner also emits a JSON of the targeted table strings (for future use)
     const jf = path.join(http.dlDir, 'EFKA_notices_' + inp.afm + '_table.json');
@@ -125,7 +128,7 @@ module.exports = {
     return { html: lib.extractUpdate(resp.text, view), raw: resp.text, vs, view, form, tab };
   },
 
-  async getMonthly(http, lib, ypoUrl, afm, tables) {
+  async getMonthly(http, lib, ypoUrl, afm, tables, noPdf) {
     // Τρέχουσες Οφειλές: ποσά + RF, σε JSON (εδώ δεν υπάρχει εκτύπωση).
     const cur = await this.openTab(http, lib, ypoUrl, 'Τρέχουσες Οφειλές');
     if (cur) {
@@ -135,6 +138,7 @@ module.exports = {
       http.log('[notice] Τρέχουσες Οφειλές: ' + tables.sections.CURRENT.rows.length + ' γραμμές');
     }
 
+    if (noPdf) return [];
     const mon = await this.openTab(http, lib, ypoUrl, 'Μηνιαία Ειδοποιητήρια');
     if (!mon) { http.log('[notice] δεν βρέθηκε tab «Μηνιαία Ειδοποιητήρια»'); return []; }
     http.dump('06_monthly_notices.html', mon.raw);
@@ -167,7 +171,7 @@ module.exports = {
     return out;
   },
 
-  async getNotice(http, lib, ypoUrl, kind, afm, tables) {
+  async getNotice(http, lib, ypoUrl, kind, afm, tables, noPdf) {
     http.log('[notice:' + kind + '] GET obligations (fresh ViewState)');
     const page = (await http.follow('GET', ypoUrl)).text;
     const vs = lib.viewState(page);
@@ -194,6 +198,7 @@ module.exports = {
     }
     if (!rows) { http.log('[notice:' + kind + '] no ' + kind + ' notice (datatable absent)'); return null; }
     if (rows.length === 0) { http.log('[notice:' + kind + '] datatable empty'); return null; }
+    if (noPdf) return null;
     const tds = rows[0];
     const td4 = tds[4] || '';
     const bm = td4.match(/<button\b([^>]*)>([\s\S]*?)<\/button>/i);

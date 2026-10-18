@@ -427,8 +427,56 @@ class DebtsTest {
         assertFalse(before.fingerprint == changed.fingerprint)
     }
 
+    // ------------------------------------------------------------------ ΕΦΚΑ
+
+    /**
+     * Η ενότητα `CURRENT` του `efka-notices`: ο πίνακας «Τρέχουσες Οφειλές»
+     * όπως τον έδωσε ζωντανά η πύλη (Οκτ. 2026). Ποσό και RF συνθετικά.
+     */
+    private val efka = """
+    {
+      "afm": "123456783",
+      "sections": {
+        "CURRENT": {
+          "headers": ["Είδος Οφειλής", "Ημ. Αναφοράς", "Πληρωτέο Ποσό", "Εμπρόθεσμη Πληρωμή Μέχρι", "Κωδικός Πληρωμής"],
+          "rows": [["Μηνιαία Εισφορά e-ΕΦΚΑ", "9/2026", "254,16 €", "30/10/2026", "RF00000000000000000000001"]]
+        }
+      }
+    }
+    """.trimIndent()
+
+    @Test
+    fun `η τρέχουσα εισφορά ΕΦΚΑ γίνεται γραμμή με τον κωδικό πληρωμής της`() {
+        val line = Debts.efka(efka).single()
+        assertEquals(Debts.Group.EFKA_CURRENT, line.group)
+        assertEquals(Debts.Source.EFKA, line.source)
+        assertEquals("Μηνιαία Εισφορά e-ΕΦΚΑ", line.title)
+        assertEquals("μήνας 9/2026", line.detail)
+        assertEquals("254,16", line.total)
+        assertEquals("RF00000000000000000000001", line.code)
+        // Η εμπρόθεσμη πληρωμή είναι η «λήξη» του μηνύματος· δοσολόγιο δεν υπάρχει.
+        assertEquals("30/10/2026", line.next?.due)
+        assertEquals(0, line.instalments)
+        assertEquals(listOf("EFKA_EFKA_123456783_2026-09.pdf"), line.files)
+
+        val snapshot = Debts.Snapshot(lines = Debts.efka(efka), efkaAt = 5L)
+        assertEquals("254,16", snapshot.total(Debts.Source.EFKA))
+        assertEquals(5L, snapshot.at(Debts.Source.EFKA))
+    }
+
+    @Test
+    fun `το μήνυμα της εισφοράς ΕΦΚΑ γράφει ποσό, λήξη και RF`() {
+        val text = message(lines = Debts.efka(efka))
+        assertTrue(text, text.contains("Ποσό: 254,16 €"))
+        assertFalse("δεν είναι δόση ρύθμισης", text.contains("Ποσό δόσης"))
+        assertTrue(text, text.contains("Λήξη: 30/10/2026"))
+        assertTrue(text, text.contains("RF00000000000000000000001"))
+    }
+
     @Test
     fun `άδειο ή χαλασμένο JSON δεν σκάει`() {
+        assertTrue(Debts.efka("").isEmpty())
+        assertTrue(Debts.efka("""{"sections":{}}""").isEmpty())
         assertTrue(Debts.aade("").isEmpty())
         assertTrue(Debts.aade("{").isEmpty())
         assertTrue(Debts.aade("""{"sections":{}}""").isEmpty())
