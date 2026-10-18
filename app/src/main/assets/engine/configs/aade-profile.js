@@ -89,7 +89,59 @@ function pickMobile(xml) {
   return { mobile: '', source: '' };
 }
 
+/*
+ * Καθεστώς ΦΠΑ από το μητρώο επιχείρησης — ίδια ερμηνεία με το ScanmyData
+ * (_ar_detect_vat_profile_for_afm) και το taxis_rest_api (vatProfileFromRegistry):
+ *  - απαλλαγή μικρών επιχειρήσεων, απαλλασσόμενο ή ειδικό αγροτών: ΜΗ υπόχρεος,
+ *    ακόμη κι αν η «υπαγωγή» γράφει ΝΑΙ·
+ *  - συχνότητα από το κείμενο της κατηγορίας βιβλίων («…ΜΕ ΜΗΝΙΑΙΑ ΠΕΡΙΟΔΟ ΦΠΑ»
+ *    έχει φανεί σε Β κατηγορίας) — ΤΡΙΜΗΝ ελέγχεται πριν από ΜΗΝΙΑ, γιατί το
+ *    «ΤΡΙΜΗΝΙΑΙΑ» περιέχει το «ΜΗΝΙΑ»·
+ *  - αλλιώς Γ (διπλογραφικά) = μηνιαία, Β (απλογραφικά) = τριμηνιαία.
+ */
+// Το μητρώο γράφει συχνά με **λατινικά** γράμματα που μοιάζουν ελληνικά: ζωντανά
+// (Οκτ. 2026) `<ypagwghfpa>NAI</ypagwghfpa>` — N, A, I λατινικά. Χωρίς αυτόν τον
+// πίνακα το «ΝΑΙ» δεν ταιριάζει ποτέ και η υπαγωγή βγαίνει άγνωστη.
+const LATIN_LOOKALIKE = { A: 'Α', B: 'Β', E: 'Ε', H: 'Η', I: 'Ι', K: 'Κ', M: 'Μ', N: 'Ν', O: 'Ο', P: 'Ρ', T: 'Τ', X: 'Χ', Y: 'Υ', Z: 'Ζ' };
+const up = (v) => String(v == null ? '' : v).trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[A-Z]/g, (c) => LATIN_LOOKALIKE[c] || c);
+
+function booksLetter(raw) {
+  const b = up(raw);
+  if (b.startsWith('Γ') || b.startsWith('G') || b.includes('ΔΙΠΛΟΓΡΑΦ')) return 'Γ';
+  if (b.startsWith('Β') || b.startsWith('B') || b.includes('ΑΠΛΟΓΡΑΦ')) return 'Β';
+  return '';
+}
+
+function vatProfile(epix) {
+  const flag = up(tag(epix, 'ypagwghfpa'));
+  const regime = tag(epix, 'kathestwsfpa');
+  const entryMode = tag(epix, 'troposentaxhsfpa');
+  const books = tag(epix, 'kathgoriabibliwn');
+  const R = up(regime);
+  let subject = flag === 'ΝΑΙ' ? true : (flag === 'ΟΧΙ' ? false : null);
+  const smallBusiness = R.includes('ΜΙΚΡΩΝ ΕΠΙΧΕΙΡΗΣΕΩΝ') || (R.includes('ΑΠΑΛΛΑΣΣΟΜΕΝ') && up(entryMode).includes('ΠΡΟΑΙΡΕΤΙΚ'));
+  const exempt = R.includes('ΑΠΑΛΛΑΣΣΟΜΕΝ') || R.includes('ΜΙΚΡΩΝ ΕΠΙΧΕΙΡΗΣΕΩΝ');
+  const farmers = R.includes('ΑΓΡΟΤ');
+  if (exempt || farmers) subject = false;
+  const B = up(books);
+  const letter = booksLetter(books);
+  let period = '';
+  if (subject !== false) {
+    if (B.includes('ΤΡΙΜΗΝ')) period = 'ΤΡΙΜΗΝΙΑΙΑ';
+    else if (B.includes('ΜΗΝΙΑ')) period = 'ΜΗΝΙΑΙΑ';
+    else if (letter === 'Γ') period = 'ΜΗΝΙΑΙΑ';
+    else if (letter === 'Β') period = 'ΤΡΙΜΗΝΙΑΙΑ';
+  }
+  // Μία γραμμή για την καρτέλα: «Υπόχρεος ΦΠΑ — μηνιαία δήλωση».
+  let label = '';
+  if (subject === true) label = 'Υπόχρεος ΦΠΑ' + (period ? ' — ' + (period === 'ΜΗΝΙΑΙΑ' ? 'μηνιαία' : 'τριμηνιαία') + ' δήλωση' : '');
+  else if (subject === false) label = 'Μη υπόχρεος ΦΠΑ' + (smallBusiness ? ' (απαλλαγή μικρών επιχειρήσεων)' : farmers ? ' (ειδικό καθεστώς αγροτών)' : exempt ? ' (απαλλασσόμενες δραστηριότητες)' : '');
+  return { subject, period, label, regime, entryMode, books, booksLetter: letter, smallBusiness, farmers };
+}
+
 module.exports = {
+  vatProfile, // για τα τεστ
   id: 'aade-profile',
   title: 'Άντληση στοιχείων πελάτη από το TAXIS (ονοματεπώνυμο, ΑΦΜ, ΔΟΥ)',
   portal: 'AADE myAADE comregistry (GSIS OAM)',
@@ -249,13 +301,17 @@ module.exports = {
       spouseAfm: spouse.afm,
       spouseName: spouse.name,
       spouseSince: spouse.since,
+      // Καθεστώς ΦΠΑ — μόνο για επιχείρηση που ζει. Η κλειστή δεν δηλώνει ΦΠΑ,
+      // και ο ιδιώτης δεν έχει καθόλου μητρώο επιχείρησης.
+      vat: businessOpen ? vatProfile(epix) : null,
       retrievedAt: new Date().toISOString(),
     };
 
     const file = 'AADE_profile_' + afm + '.json';
     fs.writeFileSync(path.join(http.dlDir, file), JSON.stringify(out, null, 2));
     http.log('[profile] ✅ ' + afm + ' · ' + kind + ' · ΔΟΥ ' + (doy || '—') +
-      (out.formerBusiness ? ' · επιχείρηση σε διακοπή από ' + businessEnd : ''));
+      (out.formerBusiness ? ' · επιχείρηση σε διακοπή από ' + businessEnd : '') +
+      (out.vat && out.vat.label ? ' · ' + out.vat.label : ''));
     return { ok: true, files: [file], out };
   },
 };

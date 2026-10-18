@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 32,
+  "count": 33,
   "configs": [
     {
       "id": "aade-debts",
@@ -1364,6 +1364,55 @@
           "env": "KEAO_PDF",
           "hidden": false,
           "optional": true
+        }
+      ]
+    },
+    {
+      "id": "efka-employer-card-ssp",
+      "file": "efka-employer-card-ssp.js",
+      "owner": "app",
+      "title": "Οικονομική καρτέλα εργοδότη ΕΦΚΑ (νέα υπηρεσία, κινήσεις τρεχουσών εισφορών)",
+      "portal": "e-EFKA services.e-efka.gov.gr ssp.efka.emp-transactions-ext",
+      "subsystem": "server",
+      "actions": [
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username (εργοδότη)",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ εργοδότη",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "ame",
+          "label": "Αρ. Μητρώου Εργοδότη (10 ψηφία)",
+          "env": "EFKA_AME",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
+          "env": "EFKA_YEAR",
+          "hidden": false,
+          "optional": false
         }
       ]
     }

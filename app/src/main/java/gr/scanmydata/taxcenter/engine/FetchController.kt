@@ -117,6 +117,7 @@ class FetchController(
         AMKA("ΑΜΚΑ"),
         MARITAL("Οικογενειακή κατάσταση"),
         MOBILE("Κινητό ΑΑΔΕ"),
+        VAT("Καθεστώς ΦΠΑ"),
     }
 
     data class Change(val field: UpdateField, val before: String, val after: String)
@@ -592,6 +593,7 @@ class FetchController(
                 formerBusiness = json.optBoolean("formerBusiness", false),
                 businessEnd = json.optString("businessEnd").trim(),
                 businessEndReason = json.optString("businessEndReason").trim(),
+                vatStatus = vatLabel(json),
             )
         } catch (e: Exception) {
             return Profile(error = "Η απάντηση του Μητρώου δεν διαβάστηκε.")
@@ -673,6 +675,8 @@ class FetchController(
         val formerBusiness: Boolean = false,
         val businessEnd: String = "",
         val businessEndReason: String = "",
+        /** Καθεστώς ΦΠΑ σε μία γραμμή — βλ. `ClientEntity.vatStatus`. Κενό σε ιδιώτη. */
+        val vatStatus: String = "",
         val error: String = "",
     ) {
         val ok: Boolean get() = error.isBlank()
@@ -822,6 +826,7 @@ class FetchController(
                     client.mobile,
                     Normalize.mobile(json.optString("mobile")),
                 )
+                propose(UpdateField.VAT, client.vatStatus, vatLabel(json))
                 noteSpouseFromRegistry(job, json)
             }
 
@@ -878,8 +883,13 @@ class FetchController(
             emailAade = value[UpdateField.EMAIL_AADE],
             maritalStatus = value[UpdateField.MARITAL],
             mobile = value[UpdateField.MOBILE],
+            vatStatus = value[UpdateField.VAT],
         )
     }
+
+    /** «Υπόχρεος ΦΠΑ — μηνιαία δήλωση» από το `vat` του `aade-profile`· κενό όπου δεν υπάρχει. */
+    private fun vatLabel(json: JSONObject): String =
+        json.optJSONObject("vat")?.optString("label").orEmpty().trim()
 
     /**
      * Ο σύζυγος από τις **σχέσεις μητρώου** — η αξιόπιστη πηγή.

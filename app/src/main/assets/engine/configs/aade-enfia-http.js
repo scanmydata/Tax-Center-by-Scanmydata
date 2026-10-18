@@ -130,6 +130,7 @@ module.exports = {
       const wantEkk = /EKK/.test(wantDocs);
       const wantPer = /PERIOUSIAKI|ΠΕΡΙΟΥΣ/.test(wantDocs);
       const files = [];
+      const perFallback = []; // έτη χωρίς λίστα «Περιουσιακή Κατάσταση» στο ETAK -> myPROPERTY
 
       const report = { portal: this.portal, afm, checkedAt: new Date().toISOString(), years: [] };
       for (const year of years) {
@@ -182,17 +183,33 @@ module.exports = {
           } else http.log('[enfia] εκκαθαριστικό ' + year + ': δεν υπάρχει σύνδεσμος (χωρίς εκκαθάριση για το έτος)');
         }
         // Περιουσιακή Κατάσταση: ακολουθεί το επιλεγμένο έτος -> ανά έτος.
-        if (wantPer) {
-          const perId = (main.match(/id="(pt1:iterPerStatus:\d+:cl24)"/) || [])[1] || 'pt1:iterPerStatus:0:cl24';
+        // Η λίστα iterPerStatus εμφανίζεται ΜΟΝΟ όταν ο υπόχρεος έχει υποβάλει Ε9 (ζωντανά, Οκτ. 2026).
+        // Χωρίς αυτήν, το προεπιλεγμένο id :0: γυρίζει τη σελίδα HTML — όχι PDF. Τότε δεν το στέλνουμε:
+        // το έτος πάει στο myPROPERTY (getPrintPeriousiaki), που δίνει PDF για κάθε έτος.
+        const perId = wantPer ? (main.match(/id="(pt1:iterPerStatus:\d+:cl24)"/) || [])[1] : '';
+        if (wantPer && !perId) {
+          yr.periousiakiPdf = { status: 'NO_LIST' };
+          perFallback.push(yr);
+          http.log('[enfia] περιουσιακή ' + year + ': χωρίς λίστα στο ETAK -> myPROPERTY');
+        }
+        if (wantPer && perId) {
           const form = Object.assign(evt(perId, vs, ACTION, afrWindowId), { 'pt1:yearSelect': opt.value || '' });
           const pdf = await http.postForPdf(new URL(ctrlstate, AADE).toString(), form);
           if (pdf && pdf.length > 500) {
             const fn = 'PERIOUSIAKI_' + afm + '_' + year + '.pdf'; fs.writeFileSync(path.join(http.dlDir, fn), pdf);
             files.push(fn); yr.periousiakiPdf = { file: fn, bytes: pdf.length };
             http.log('[enfia] ✅ περιουσιακή PDF ' + year + ' -> ' + fn + ' (' + pdf.length + ' b)');
-          } else http.log('[enfia] περιουσιακή ' + year + ': δεν επεστράφη PDF μέσω HTTP');
+          } else {
+            http.log('[enfia] περιουσιακή ' + year + ': δεν επεστράφη PDF μέσω HTTP -> myPROPERTY');
+            perFallback.push(yr);
+          }
         }
         report.years.push(yr);
+      }
+
+      if (perFallback.length) {
+        try { files.push(...await this.myPropertyPdfs(http, AADE, perFallback)); }
+        catch (e) { http.log('[enfia] myPROPERTY error: ' + e.message); }
       }
 
       const jf = path.join(http.dlDir, 'AADE_enfia_e9_' + afm + '.json');
@@ -200,5 +217,32 @@ module.exports = {
       http.log('[aade-enfia-http] ✅ saved -> ' + path.basename(jf) + (files.length ? ' (+' + files.length + ' PDF)' : ''));
       return { ok: true, files: [path.basename(jf), ...files], summary: report.years.map(y => ({ year: y.year, status: y.status })) };
     } catch (e) { http.log('[enfia] ADF flow error: ' + e.message); return { ok: false, reason: 'AdfFlow:' + e.message }; }
+  },
+
+  // Περιουσιακή κατάσταση από το myPROPERTY (ίδια συνεδρία GSIS OAM) — όπως το aade-property:
+  // GET SPA -> getuserdata (ΑΦΜ) -> ανά έτος getPrintPeriousiaki/{afm}/{year}/{afm} -> PDF.
+  async myPropertyPdfs(http, AADE, rows) {
+    const APP = new URL('/saadeapps3/myPROPERTY', AADE).toString();
+    const W = APP + '/webresources/capitalcommon';
+    await http.follow('GET', APP + '?');
+    const ud = await http.api('GET', W + '/getuserdata/username', undefined, {});
+    let afm = '';
+    try { afm = JSON.parse(ud.text).afm; } catch (e) {}
+    if (!afm) { http.dump('property_userdata.txt', ud.text); http.log('[enfia] myPROPERTY: δεν βρέθηκε ΑΦΜ'); return []; }
+    const out = [];
+    for (const yr of rows) {
+      const doc = await http.getDoc(W + '/getPrintPeriousiaki/' + afm + '/' + yr.year + '/' + afm);
+      if (!doc.buffer) {
+        yr.periousiakiPdf = Object.assign({ status: 'NoPDF' }, yr.periousiakiPdf, { myProperty: 'NoPDF' });
+        http.log('[enfia] myPROPERTY ' + yr.year + ': χωρίς PDF');
+        continue;
+      }
+      const fn = 'PERIOUSIAKI_' + afm + '_' + yr.year + '.pdf';
+      fs.writeFileSync(path.join(http.dlDir, fn), doc.buffer);
+      out.push(fn);
+      yr.periousiakiPdf = { file: fn, bytes: doc.buffer.length, via: 'myPROPERTY' };
+      http.log('[enfia] ✅ περιουσιακή PDF ' + yr.year + ' (myPROPERTY) -> ' + fn + ' (' + doc.buffer.length + ' b)');
+    }
+    return out;
   },
 };

@@ -210,6 +210,16 @@ class ProcessRunner(
             }
             inputs["amka"] = amka
         }
+        if (requirement.needsAme) {
+            val ame = credential(Field.EMPLOYER_AME).filter { it.isDigit() }
+            if (ame.length != 10) {
+                throw MissingCredentials(
+                    "Λείπει ο ΑΜΕ (Αριθμός Μητρώου Εργοδότη, 10 ψηφία) για τον πελάτη ${job.client.afm} — " +
+                        "συμπλήρωσέ τον στους κωδικούς της καρτέλας.",
+                )
+            }
+            inputs["ame"] = ame
+        }
         // Το ΑΦΜ-στόχος για τις διαδικασίες μητρώου.
         inputs.putIfAbsent("vat", job.client.afm)
         inputs.putAll(job.extraInputs)

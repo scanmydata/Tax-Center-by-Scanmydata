@@ -112,7 +112,7 @@ object FetchOutcome {
             "Δεν υπάρχουν ειδοποιητήρια εισφορών προς λήψη."
         "efka-teka-certificate" ->
             "Δεν έχει εκδοθεί βεβαίωση για αυτό το έτος."
-        "efka-employer-card" ->
+        "efka-employer-card", "efka-employer-card-ssp" ->
             "Δεν υπάρχει καρτέλα εργοδότη για αυτό το έτος."
         "aade-enfia-http", "aade-enfia" ->
             "Δεν υπάρχει εκκαθάριση ΕΝΦΙΑ ή περιουσιακή κατάσταση για τα έτη που ζητήθηκαν."

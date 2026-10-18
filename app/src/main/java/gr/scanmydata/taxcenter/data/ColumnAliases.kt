@@ -26,6 +26,9 @@ object ColumnAliases {
         TAXIS_USER, TAXIS_PASS, TAXIS_KLIDARITHMOS,
         IKA_EMPLOYER_USER, IKA_EMPLOYER_PASS,
         IKA_INSURED_USER, IKA_INSURED_PASS,
+
+        /** Αριθμός Μητρώου Εργοδότη (10 ψηφία): η νέα καρτέλα εργοδότη ΕΦΚΑ μπαίνει με TAXISnet + ΑΜΕ. */
+        EMPLOYER_AME,
     }
 
     /**
@@ -49,6 +52,7 @@ object ColumnAliases {
         Field.IKA_EMPLOYER_PASS to setOf("συνθηματικο εργοδοτη ικα"),
         Field.IKA_INSURED_USER to setOf("ονομα χρηστη ασφαλισμενου ικα"),
         Field.IKA_INSURED_PASS to setOf("συνθηματικο ασφαλισμενου ικα"),
+        Field.EMPLOYER_AME to setOf("αμε", "αριθμοσ μητρωου εργοδοτη", "αρ μητρωου εργοδοτη", "αμ εργοδοτη"),
 
     )
 

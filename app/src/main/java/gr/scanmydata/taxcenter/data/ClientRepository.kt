@@ -177,6 +177,7 @@ class ClientRepository(
         emailAade: String? = null,
         maritalStatus: String? = null,
         mobile: String? = null,
+        vatStatus: String? = null,
     ) {
         val existing = db.clients().byId(clientId) ?: return
         db.clients().update(
@@ -189,6 +190,7 @@ class ClientRepository(
                 emailAade = emailAade ?: existing.emailAade,
                 maritalStatus = maritalStatus ?: existing.maritalStatus,
                 mobile = mobile?.let { Normalize.mobile(it) } ?: existing.mobile,
+                vatStatus = vatStatus ?: existing.vatStatus,
                 updatedAt = System.currentTimeMillis(),
             ),
         )
@@ -205,6 +207,7 @@ class ClientRepository(
                     amka?.let { "ΑΜΚΑ" },
                     emailAade?.let { "email" },
                     mobile?.let { "κινητό" },
+                    vatStatus?.let { "ΦΠΑ" },
                 ).joinToString(", "),
             ),
         )
@@ -322,6 +325,7 @@ class ClientRepository(
             Field.TAXIS_USER, Field.TAXIS_PASS, Field.TAXIS_KLIDARITHMOS,
             Field.IKA_EMPLOYER_USER, Field.IKA_EMPLOYER_PASS,
             Field.IKA_INSURED_USER, Field.IKA_INSURED_PASS,
+            Field.EMPLOYER_AME,
         )
     }
     /**

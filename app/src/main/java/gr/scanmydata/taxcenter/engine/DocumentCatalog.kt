@@ -252,7 +252,8 @@ object DocumentCatalog {
             "aade-enfia-http", mapOf("docs" to "PERIOUSIAKI"), needsYear = true, batchYears = true,
             mergeInput = "docs",
             note = "Πολλά έτη με μία σύνδεση. Το έτος N αφορά την περιουσία της " +
-                "1ης Ιανουαρίου N — οι μεταβολές του 2026 φαίνονται στο 2027."),
+                "1ης Ιανουαρίου N — οι μεταβολές του 2026 φαίνονται στο 2027. Όπου το " +
+                "ETAK δεν έχει λίστα (πελάτης χωρίς υποβληθέν Ε9), το PDF έρχεται από το myPROPERTY."),
         Item("property", "Περιουσιακή κατάσταση (myPROPERTY)", GROUP_PROPERTY,
             "aade-property", needsYear = true),
         Item("lease", "Μισθωτήρια — πληροφοριακά στοιχεία μισθώσεων", GROUP_PROPERTY,
@@ -298,10 +299,13 @@ object DocumentCatalog {
             "atlas-insurance-history", applies = Applies.NATURAL_ONLY),
 
         // --------------------------------------------------------- εργοδότης
+        // Η παλιά εφαρμογή (apps.e-efka.gov.gr/eEmployerTransactions) απαντά 404
+        // από τον Οκτώβριο 2026· η καρτέλα ΕΦΚΑ ζει πια στο νέο SSP, που μπαίνει με
+        // TAXISnet της επιχείρησης και ρόλο εργοδότη (ΑΦΜ + ΑΜΕ). Η ΤΕΚΑ μένει ως είχε.
         Item("employer-efka", "Οικονομική καρτέλα εργοδότη — ΕΦΚΑ", GROUP_EMPLOYER,
-            "efka-employer-card", mapOf("which" to "EFKA"), needsYear = true,
+            "efka-employer-card-ssp", needsYear = true,
             applies = Applies.BUSINESS_ONLY,
-            note = "Θέλει κωδικούς ΙΚΑ εργοδότη, όχι TAXISnet."),
+            note = "Θέλει TAXISnet της επιχείρησης και ΑΜΕ (Αριθμό Μητρώου Εργοδότη) στην καρτέλα."),
         Item("employer-teka", "Οικονομική καρτέλα εργοδότη — ΤΕΚΑ", GROUP_EMPLOYER,
             "efka-employer-card", mapOf("which" to "TEKA"), needsYear = true,
             applies = Applies.BUSINESS_ONLY,

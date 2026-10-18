@@ -42,3 +42,6 @@ ios/build/
 *.mobileprovision
 *.cer
 xcuserdata/
+
+# --- Ζωντανές δοκιμές (tools/live-run.cjs): στοιχεία λογαριασμού -------------
+.live/

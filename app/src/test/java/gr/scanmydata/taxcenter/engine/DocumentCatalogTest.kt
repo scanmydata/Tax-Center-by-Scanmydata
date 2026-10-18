@@ -1,6 +1,7 @@
 package gr.scanmydata.taxcenter.engine
 
 import gr.scanmydata.taxcenter.data.ClientKind
+import gr.scanmydata.taxcenter.data.ColumnAliases
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -223,16 +224,19 @@ class DocumentCatalogTest {
     }
 
     @Test
-    fun `η καρτέλα εργοδότη θέλει κωδικούς ΙΚΑ, όχι TAXISnet`() {
+    fun `η καρτέλα ΤΕΚΑ θέλει κωδικούς ΙΚΑ, η ΕΦΚΑ TAXISnet και ΑΜΕ`() {
         // Αν μπερδευτούν, η σύνδεση αποτυγχάνει με «InvalidCredentials» και
         // μοιάζει με λάθος κωδικό του πελάτη.
-        for (id in listOf("employer-efka", "employer-teka")) {
-            val item = DocumentCatalog.byId(id)!!
-            assertEquals(
-                CredentialMap.Login.IKA_EMPLOYER,
-                CredentialMap.forConfig(item.configId)?.login,
-            )
-        }
+        val teka = CredentialMap.forConfig(DocumentCatalog.byId("employer-teka")!!.configId)!!
+        assertEquals(CredentialMap.Login.IKA_EMPLOYER, teka.login)
+
+        // Η ΕΦΚΑ μεταφέρθηκε στο νέο SSP: ρόλος εργοδότη με ΑΦΜ + ΑΜΕ.
+        val efkaId = DocumentCatalog.byId("employer-efka")!!.configId
+        assertEquals("efka-employer-card-ssp", efkaId)
+        val efka = CredentialMap.forConfig(efkaId)!!
+        assertEquals(CredentialMap.Login.TAXISNET, efka.login)
+        assertTrue(efka.needsAfm && efka.needsAme)
+        assertTrue(ColumnAliases.Field.EMPLOYER_AME in CredentialMap.requiredFields(efkaId))
     }
 
     @Test

@@ -29,7 +29,8 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-notices` | `EFKA_<EFKA\|TEKA>_<meta>.pdf` |
  * | `efka-teka-certificate` | `VEV_<EFKA\|TEKA>_<ΑΦΜ>_<έτος>.pdf` |
- * | `efka-employer-card` | `KARTELA_ERGODOTI_<EFKA\|TEKA>_<χρήστης>[_<έτος>].pdf` |
+ * | `efka-employer-card` | `KARTELA_ERGODOTI_TEKA_<χρήστης>[_<έτος>].pdf` |
+ * | `efka-employer-card-ssp` | `KARTELA_ERGODOTI_EFKA_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-obligations` | `KEAO_PBO_<ΑΦΜ>_<αριθμός>.pdf` |
  * | `keao-debts` | `KEAO_KARTELA_<ΑΦΜ>_<ΑΜΟ>.pdf`, `KEAO_RYTHMISI_<ΑΦΜ>_<ΑΜΟ>_<απόφαση>.pdf` — τα φτιάχνει η εφαρμογή |
  *

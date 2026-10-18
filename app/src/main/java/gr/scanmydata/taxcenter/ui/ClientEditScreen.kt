@@ -90,6 +90,7 @@ fun ClientEditScreen(
     var amka by remember { mutableStateOf("") }
     var doy by remember { mutableStateOf("") }
     var maritalStatus by remember { mutableStateOf("") }
+    var vatStatus by remember { mutableStateOf("") }
     var spouseAfm by remember { mutableStateOf("") }
     // Η καρτέλα του συζύγου, αν υπάρχει — και το όνομα που ήρθε από την
     // άντληση, που μπορεί να υπάρχει **πριν** από την καρτέλα.
@@ -142,6 +143,7 @@ fun ClientEditScreen(
         "ΑΜΚΑ" to amka,
         "ΔΟΥ" to doy,
         "Οικογενειακή κατάσταση" to maritalStatus,
+        "Καθεστώς ΦΠΑ" to vatStatus,
         "ΑΦΜ συζύγου" to Normalize.afm(spouseAfm),
         "Ενεργός" to active.toString(),
         "Email ΑΑΔΕ" to emailAade,
@@ -207,6 +209,7 @@ fun ClientEditScreen(
             mobile = Normalize.mobile(mobile),
             emailPreferred = if (preferManual) emailManual.trim() else "",
             maritalStatus = maritalStatus.trim(),
+            vatStatus = vatStatus.trim(),
             // Η αμοιβαία σύνδεση γίνεται μετά την αποθήκευση, από το
             // repository: εδώ γράφεται μόνο η δική μας πλευρά.
             spouseAfm = Normalize.afm(spouseAfm),
@@ -259,6 +262,7 @@ fun ClientEditScreen(
         amka = withContext(Dispatchers.IO) { container.repository.amka(client) }
         doy = client.doy
         maritalStatus = client.maritalStatus
+        vatStatus = client.vatStatus
         spouseAfm = client.spouseAfm
         active = client.active
         emailAade = client.emailAade
@@ -371,6 +375,8 @@ fun ClientEditScreen(
                                     if (profile.maritalStatus.isNotBlank()) {
                                         maritalStatus = profile.maritalStatus
                                     }
+                                    // Από το ίδιο μητρώο επιχείρησης, χωρίς άλλη σύνδεση.
+                                    if (profile.vatStatus.isNotBlank()) vatStatus = profile.vatStatus
                                     // Ο ΑΦΜ συζύγου έρχεται από τις σχέσεις
                                     // μητρώου, στην ίδια σύνδεση.
                                     if (profile.spouseAfm.isNotBlank()) {
@@ -477,6 +483,11 @@ fun ClientEditScreen(
         }
 
         FormField("ΔΟΥ", doy) { doy = it }
+
+        // Ο ιδιώτης δεν δηλώνει ΦΠΑ — το πεδίο δεν υφίσταται, όπως ο ΑΜΕ.
+        if (canBeEmployer) {
+            FormField("Καθεστώς ΦΠΑ (από το Μητρώο)", vatStatus) { vatStatus = it }
+        }
 
         // Οικογενειακή κατάσταση και σύζυγος — μόνο όπου υπάρχει φυσικό
         // πρόσωπο από πίσω. Σε νομικό πρόσωπο δεν είναι κενά πεδία, δεν
@@ -692,6 +703,9 @@ fun ClientEditScreen(
         if (canBeEmployer) {
             SecretField("Όνομα χρήστη ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_USER, reveal = true)
             SecretField("Συνθηματικό ΙΚΑ εργοδότη", credentials, Field.IKA_EMPLOYER_PASS, revealSecrets)
+            // Δεν είναι μυστικό, αλλά ζει με τους κωδικούς: χωρίς αυτό η νέα
+            // καρτέλα εργοδότη ΕΦΚΑ (TAXISnet + ΑΜΕ) δεν ανοίγει.
+            SecretField("ΑΜΕ — Αριθμός Μητρώου Εργοδότη (10 ψηφία)", credentials, Field.EMPLOYER_AME, reveal = true)
         }
 
         // Η «Εντολή πελάτη» έφυγε από την καρτέλα.
@@ -880,5 +894,6 @@ private fun credentialLabel(field: Field): String = when (field) {
     Field.IKA_EMPLOYER_PASS -> "Συνθηματικό ΙΚΑ εργοδότη"
     Field.IKA_INSURED_USER -> "Όνομα χρήστη ΙΚΑ ασφαλισμένου"
     Field.IKA_INSURED_PASS -> "Συνθηματικό ΙΚΑ ασφαλισμένου"
+    Field.EMPLOYER_AME -> "ΑΜΕ εργοδότη"
     else -> field.name
 }

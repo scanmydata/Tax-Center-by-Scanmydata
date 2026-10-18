@@ -8,8 +8,10 @@ import gr.scanmydata.taxcenter.data.ColumnAliases.Field
  * Τα configs ζητούν πάντα `user`/`pass`, αλλά **δεν εννοούν το ίδιο πράγμα**:
  *
  *  * οι ΑΑΔΕ και οι μη-μισθωτοί του ΕΦΚΑ θέλουν **TAXISnet**,
- *  * η Οικονομική Καρτέλα Εργοδότη θέλει κωδικούς **ΙΚΑ εργοδότη** — άλλο ζεύγος,
- *    άλλη πύλη, χωρίς GSIS.
+ *  * η Οικονομική Καρτέλα Εργοδότη **ΤΕΚΑ** θέλει κωδικούς **ΙΚΑ εργοδότη** —
+ *    άλλο ζεύγος, άλλη πύλη, χωρίς GSIS·
+ *  * η καρτέλα εργοδότη **ΕΦΚΑ** μεταφέρθηκε στο νέο SSP (Οκτ. 2026) και θέλει
+ *    TAXISnet της επιχείρησης **και** ΑΜΕ — τους κωδικούς ΙΚΑ δεν τους δέχεται.
  *
  * Αν μπερδευτούν, η σύνδεση αποτυγχάνει με `InvalidCredentials` και μοιάζει με
  * λάθος κωδικό του πελάτη. Γι' αυτό η αντιστοίχιση είναι ρητή και ανά config,
@@ -28,11 +30,14 @@ object CredentialMap {
         val needsAfm: Boolean = false,
         /** Χρειάζεται ΑΜΚΑ — τα logins του νέου ΟΠΣ e-ΕΦΚΑ το ζητούν στη φόρμα ρόλου. */
         val needsAmka: Boolean = false,
+        /** Χρειάζεται τον Αριθμό Μητρώου Εργοδότη — ο ρόλος external-employer τον ζητά. */
+        val needsAme: Boolean = false,
     )
 
     private val TAXIS = Requirement(Login.TAXISNET)
     private val TAXIS_AFM_AMKA = Requirement(Login.TAXISNET, needsAfm = true, needsAmka = true)
     private val IKA = Requirement(Login.IKA_EMPLOYER)
+    private val TAXIS_AFM_AME = Requirement(Login.TAXISNET, needsAfm = true, needsAme = true)
 
     private val BY_CONFIG: Map<String, Requirement> = mapOf(
         // ΑΑΔΕ — GSIS OAM, μόνο TAXISnet
@@ -69,8 +74,10 @@ object CredentialMap {
         // MyAMKA — TAXISnet, χωρίς άλλα
         "amka-retrieve" to TAXIS,
 
-        // ΕΦΚΑ εργοδότη — κωδικοί ΙΚΑ, ΟΧΙ TAXISnet
+        // ΤΕΚΑ εργοδότη — κωδικοί ΙΚΑ, ΟΧΙ TAXISnet
         "efka-employer-card" to IKA,
+        // ΕΦΚΑ εργοδότη, νέο SSP — TAXISnet της επιχείρησης + ΑΦΜ + ΑΜΕ
+        "efka-employer-card-ssp" to TAXIS_AFM_AME,
     )
 
     fun forConfig(configId: String): Requirement? = BY_CONFIG[configId]
@@ -84,6 +91,7 @@ object CredentialMap {
             Login.IKA_EMPLOYER -> { out += Field.IKA_EMPLOYER_USER; out += Field.IKA_EMPLOYER_PASS }
         }
         if (req.needsAmka) out += Field.AMKA
+        if (req.needsAme) out += Field.EMPLOYER_AME
         return out
     }
 
