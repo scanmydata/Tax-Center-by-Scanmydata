@@ -9,8 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -21,6 +27,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -36,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -44,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.data.ClientKind
 import gr.scanmydata.taxcenter.data.ColumnAliases.Field
 import gr.scanmydata.taxcenter.data.Normalize
+import gr.scanmydata.taxcenter.data.RegistryDetails
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.gdpr.Exports
 import kotlinx.coroutines.Dispatchers
@@ -119,6 +126,16 @@ fun ClientEditScreen(
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
+    // Τα πλήρη στοιχεία Μητρώου (JSON ενοτήτων) — κλειστά εξ ορισμού.
+    var registry by remember { mutableStateOf("") }
+    var registryAt by remember { mutableStateOf(0L) }
+    var showRegistry by remember { mutableStateOf(false) }
+
+    // Το TAXISnet απέρριψε τους κωδικούς: παράθυρο με οδηγίες, και τα δύο
+    // πεδία κόκκινα μέχρι να αλλάξει κάποιο.
+    var wrongCredentials by remember { mutableStateOf(false) }
+    var credentialsHelp by remember { mutableStateOf(false) }
+
     /**
      * Το αποτύπωμα της φόρμας — ό,τι μπορεί να αλλάξει ο χρήστης, σε μία λίστα.
      *
@@ -149,6 +166,7 @@ fun ClientEditScreen(
         "Email ΑΑΔΕ" to emailAade,
         "Email γραφείου" to emailManual,
         "Κινητό" to mobile,
+        "Στοιχεία Μητρώου" to registry,
         "Προτιμώμενο email" to preferManual.toString(),
     ) + credentials.entries
         .sortedBy { entry -> entry.key.name }
@@ -210,6 +228,8 @@ fun ClientEditScreen(
             emailPreferred = if (preferManual) emailManual.trim() else "",
             maritalStatus = maritalStatus.trim(),
             vatStatus = vatStatus.trim(),
+            registryDetailsEnc = container.repository.encryptRegistry(registry),
+            registryAt = registryAt,
             // Η αμοιβαία σύνδεση γίνεται μετά την αποθήκευση, από το
             // repository: εδώ γράφεται μόνο η δική μας πλευρά.
             spouseAfm = Normalize.afm(spouseAfm),
@@ -263,6 +283,8 @@ fun ClientEditScreen(
         doy = client.doy
         maritalStatus = client.maritalStatus
         vatStatus = client.vatStatus
+        registry = container.repository.registryDetails(client)
+        registryAt = client.registryAt
         spouseAfm = client.spouseAfm
         active = client.active
         emailAade = client.emailAade
@@ -303,6 +325,8 @@ fun ClientEditScreen(
     val canBeEmployer = ClientKind.normalise(kind) != ClientKind.PRIVATE
     val taxisUser = credentials[Field.TAXIS_USER].orEmpty()
     val taxisPass = credentials[Field.TAXIS_PASS].orEmpty()
+    // Μόλις αλλάξει κάτι στους κωδικούς, το «λάθος» δεν ισχύει πια.
+    LaunchedEffect(taxisUser, taxisPass) { wrongCredentials = false }
 
     Box(modifier) {
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
@@ -326,8 +350,15 @@ fun ClientEditScreen(
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
                 )
                 Spacer(Modifier.height(8.dp))
-                SecretField("Όνομα χρήστη", credentials, Field.TAXIS_USER, reveal = true)
-                SecretField("Συνθηματικό", credentials, Field.TAXIS_PASS, revealTaxisPass)
+                SecretField("Όνομα χρήστη", credentials, Field.TAXIS_USER, reveal = true, isError = wrongCredentials)
+                SecretField("Συνθηματικό", credentials, Field.TAXIS_PASS, revealTaxisPass, isError = wrongCredentials)
+                if (wrongCredentials) {
+                    Text(
+                        "Το TAXISnet δεν δέχτηκε αυτούς τους κωδικούς.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { revealTaxisPass = !revealTaxisPass }) {
                         Text(if (revealTaxisPass) "Απόκρυψη" else "Εμφάνιση")
@@ -353,6 +384,14 @@ fun ClientEditScreen(
                                     afm = if (isNew) "" else afmClean,
                                 )
                                 busy = false
+                                if (!profile.ok && profile.wrongCredentials) {
+                                    wrongCredentials = true
+                                    credentialsHelp = true
+                                }
+                                if (profile.ok && profile.details.isNotBlank()) {
+                                    registry = profile.details
+                                    registryAt = System.currentTimeMillis()
+                                }
                                 status = if (!profile.ok) {
                                     profile.error
                                 } else {
@@ -586,6 +625,14 @@ fun ClientEditScreen(
             Text("  Ενεργός", style = MaterialTheme.typography.bodyMedium)
         }
 
+        Spacer(Modifier.height(8.dp))
+        RegistryDetailsBlock(
+            json = registry,
+            at = registryAt,
+            open = showRegistry,
+            onToggle = { showRegistry = !showRegistry },
+        )
+
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
         Spacer(Modifier.height(16.dp))
@@ -784,6 +831,38 @@ fun ClientEditScreen(
     )
     }
 
+    if (credentialsHelp) {
+        val spaces = taxisUser != taxisUser.trim() || taxisPass != taxisPass.trim()
+        val greekInUser = taxisUser.any { it in '\u0370'..'\u03FF' }
+        AlertDialog(
+            onDismissRequest = { credentialsHelp = false },
+            title = { Text("Λάθος κωδικοί TAXISnet") },
+            text = {
+                Text(
+                    buildString {
+                        append("Το TAXISnet δεν δέχτηκε το όνομα χρήστη ή το συνθηματικό αυτού του ")
+                        append("πελάτη — ή ο λογαριασμός του είναι κλειδωμένος. Δεν διαβάστηκε τίποτα ")
+                        append("και τίποτα δεν άλλαξε στην καρτέλα.\n\n")
+                        if (spaces) append("• Υπάρχει κενό στην αρχή ή στο τέλος ενός πεδίου — σβήσ' το.\n")
+                        if (greekInUser) append("• Το όνομα χρήστη έχει ελληνικούς χαρακτήρες· συνήθως είναι λατινικά.\n")
+                        append("• Έλεγξε κεφαλαία/πεζά και ελληνικά/λατινικά (πάτα «Εμφάνιση»).\n")
+                        append("• Αν ο πελάτης άλλαξε πρόσφατα κωδικό, ζήτα του τον νέο.\n\n")
+                        append("Μην ξαναδοκιμάσεις πολλές φορές με τους ίδιους κωδικούς: μετά από ")
+                        append("αλλεπάλληλες αποτυχίες το GSIS κλειδώνει τον λογαριασμό του πελάτη, και ")
+                        append("το ξεκλείδωμα το κάνει μόνο ο ίδιος.")
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    credentialsHelp = false
+                    revealTaxisPass = true
+                }) { Text("Εμφάνιση και διόρθωση") }
+            },
+            dismissButton = { TextButton(onClick = { credentialsHelp = false }) { Text("Κλείσιμο") } },
+        )
+    }
+
     if (confirmDelete) {
         val client = existing
         AlertDialog(
@@ -864,18 +943,73 @@ private fun FormField(label: String, value: String, onChange: (String) -> Unit) 
     )
 }
 
+/**
+ * «Περισσότερα στοιχεία Μητρώου»: ό,τι έφερε η άντληση πέρα από τα πεδία της
+ * φόρμας — πατρώνυμο, ταυτότητα, διευθύνσεις, ΓΕΜΗ, ΚΑΔ, μέλη. Κλειστό εξ
+ * ορισμού, για να μη γεμίζει την καρτέλα· ανοίγει με ένα κουμπί.
+ *
+ * Μόνο για ανάγνωση: είναι το Μητρώο όπως το έδωσε η ΑΑΔΕ. Αλλάζει με νέα άντληση.
+ */
+@Composable
+private fun RegistryDetailsBlock(json: String, at: Long, open: Boolean, onToggle: () -> Unit) {
+    val sections = remember(json) { RegistryDetails.parse(json) }
+    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    if (sections.isEmpty()) {
+        Text(
+            "Πατρώνυμο, ταυτότητα, διεύθυνση, ΓΕΜΗ, ΚΑΔ και τα υπόλοιπα στοιχεία Μητρώου έρχονται " +
+                "με την «Άντληση στοιχείων».",
+            style = MaterialTheme.typography.bodySmall,
+            color = dim,
+        )
+        return
+    }
+    OutlinedButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
+        Icon(
+            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = null,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            (if (open) "Λιγότερα στοιχεία" else "Περισσότερα στοιχεία Μητρώου") +
+                " (${RegistryDetails.count(sections)})",
+        )
+    }
+    if (!open) return
+    Spacer(Modifier.height(6.dp))
+    if (at != 0L) {
+        Text("Από το Μητρώο ΑΑΔΕ, ${AthensDates.stamp(at)}", style = MaterialTheme.typography.labelSmall, color = dim)
+    }
+    sections.forEach { section ->
+        Spacer(Modifier.height(8.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(section.title, style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                section.rows.forEach { (label, value) ->
+                    Column(Modifier.padding(vertical = 3.dp)) {
+                        Text(label, style = MaterialTheme.typography.labelSmall, color = dim)
+                        SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SecretField(
     label: String,
     values: MutableMap<Field, String>,
     field: Field,
     reveal: Boolean,
+    isError: Boolean = false,
 ) {
     OutlinedTextField(
         value = values[field].orEmpty(),
         onValueChange = { values[field] = it },
         label = { Text(label) },
         singleLine = true,
+        isError = isError,
         visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
     )

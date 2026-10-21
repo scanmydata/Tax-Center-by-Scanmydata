@@ -113,11 +113,13 @@ jobs:
           if [ -n "${KEYSTORE_PATH:-}" ]; then
             SIGNED_NOTE="✅ Release-signed με το production keystore."
           fi
-          IOS_NOTE="📱 iOS: το .ipa προστίθεται εδώ λίγα λεπτά μετά το APK. Είναι ανυπόγραφο — η Apple δεν επιτρέπει εγκατάσταση σε iPhone χωρίς υπογραφή από λογαριασμό Apple Developer."
+          # Πρώτα οι αλλαγές, μετά τα τεχνικά: η εφαρμογή δείχνει τις πρώτες
+          # γραμμές στο «Διαθέσιμη ενημέρωση», και εκεί πρέπει να διαβάζεται τι
+          # άλλαξε — όχι πώς χτίστηκε.
           gh release create "${{ steps.version.outputs.tag }}" \
             dist/* \
             --title "ScanMyData Tax Center ${{ steps.version.outputs.tag }}" \
-            --notes "$(printf '%s\n\n%s\n\n%s\n\n%s' "Αυτόματο build από commit ${GITHUB_SHA:0:7}." "$SIGNED_NOTE" "$IOS_NOTE" "$(git log -1 --pretty=%B)")" \
+            --notes "$(printf '%s\n\n---\n%s · commit %s' "$(git log -1 --pretty=%B)" "$SIGNED_NOTE" "${GITHUB_SHA:0:7}")" \
             || gh release upload "${{ steps.version.outputs.tag }}" dist/* --clobber
 
   # Η εφαρμογή iOS, στο ίδιο release. Τρέχει **μετά** το Android και χωριστά από

@@ -51,6 +51,9 @@ object FetchOutcome {
     }
 
     /** Η εξήγηση ενός λόγου αποτυχίας, όπως τον έδωσε ο engine. */
+    /** Η αποτυχία οφείλεται σε λάθος όνομα χρήστη / συνθηματικό TAXISnet. */
+    fun wrongCredentials(reason: String): Boolean = reason.trim() == "InvalidCredentials"
+
     fun explain(reason: String): Explained {
         val raw = reason.trim()
         KNOWN[raw]?.let { return it }
@@ -145,9 +148,9 @@ object FetchOutcome {
     private val KNOWN: Map<String, Explained> = mapOf(
         // ------------------------------------------------------- σύνδεση
         "InvalidCredentials" to login(
-            "Το TAXISnet απέρριψε το όνομα χρήστη ή το συνθηματικό. Διόρθωσέ τα στην καρτέλα " +
-                "πριν ξαναδοκιμάσεις: μετά από αλλεπάλληλες αποτυχίες το GSIS κλειδώνει τον " +
-                "λογαριασμό του πελάτη.",
+            "Λάθος κωδικοί TAXISnet: η πύλη δεν δέχτηκε το όνομα χρήστη ή το συνθηματικό " +
+                "(ή ο λογαριασμός είναι κλειδωμένος). Διόρθωσέ τα στην καρτέλα του πελάτη πριν " +
+                "ξαναδοκιμάσεις — μετά από αλλεπάλληλες αποτυχίες το GSIS κλειδώνει τον λογαριασμό.",
         ),
         "GSIS login failed" to login(
             "Η σύνδεση στο GSIS δεν ολοκληρώθηκε. Έλεγξε τους κωδικούς TAXISnet στην καρτέλα.",

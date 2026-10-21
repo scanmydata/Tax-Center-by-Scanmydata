@@ -138,6 +138,9 @@ object Exports {
             put("είδος", client.kind)
             put("αμκα", repository.amka(client))
             put("δου", client.doy)
+            repository.registryDetails(client).takeIf { it.isNotBlank() }?.let {
+                put("στοιχείαΜητρώου", org.json.JSONArray(it))
+            }
             put("ενεργός", client.active)
             put("emailΑΑΔΕ", client.emailAade)
             put("emailΧειροκίνητο", client.emailManual)

@@ -575,7 +575,12 @@ class FetchController(
             credentialsOverride = user.trim() to pass,
         )
         val outcome = runner.run(listOf(job)).first()
-        if (!outcome.ok) return Profile(error = describe(outcome.reason))
+        if (!outcome.ok) {
+            return Profile(
+                error = describe(outcome.reason),
+                wrongCredentials = FetchOutcome.wrongCredentials(outcome.reason),
+            )
+        }
         val profile = try {
             val json = JSONObject(outcome.out.orEmpty())
             Profile(
@@ -594,6 +599,7 @@ class FetchController(
                 businessEnd = json.optString("businessEnd").trim(),
                 businessEndReason = json.optString("businessEndReason").trim(),
                 vatStatus = vatLabel(json),
+                details = json.optJSONArray("details")?.toString().orEmpty(),
             )
         } catch (e: Exception) {
             return Profile(error = "Η απάντηση του Μητρώου δεν διαβάστηκε.")
@@ -677,7 +683,11 @@ class FetchController(
         val businessEndReason: String = "",
         /** Καθεστώς ΦΠΑ σε μία γραμμή — βλ. `ClientEntity.vatStatus`. Κενό σε ιδιώτη. */
         val vatStatus: String = "",
+        /** Τα πλήρη στοιχεία Μητρώου, JSON ενοτήτων — βλ. `RegistryDetails`. */
+        val details: String = "",
         val error: String = "",
+        /** Το TAXISnet απέρριψε όνομα χρήστη ή συνθηματικό — θέλει άλλη αντιμετώπιση από ένα timeout. */
+        val wrongCredentials: Boolean = false,
     ) {
         val ok: Boolean get() = error.isBlank()
     }
@@ -827,6 +837,9 @@ class FetchController(
                     Normalize.mobile(json.optString("mobile")),
                 )
                 propose(UpdateField.VAT, client.vatStatus, vatLabel(json))
+                // Τα πλήρη στοιχεία γράφονται κατευθείαν: είναι στιγμιότυπο του
+                // Μητρώου, όχι πεδία που διόρθωσε ο λογιστής.
+                json.optJSONArray("details")?.let { repository.saveRegistryDetails(client.id, it.toString()) }
                 noteSpouseFromRegistry(job, json)
             }
 

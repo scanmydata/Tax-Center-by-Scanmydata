@@ -160,6 +160,22 @@ class ClientRepository(
 
     suspend fun amka(client: ClientEntity): String = crypto.dec(client.amkaEnc)
 
+    /** Τα πλήρη στοιχεία Μητρώου, αποκρυπτογραφημένα (JSON). Κενό = δεν υπάρχουν. */
+    fun registryDetails(client: ClientEntity): String =
+        if (client.registryDetailsEnc.isBlank()) "" else runCatching { crypto.dec(client.registryDetailsEnc) }.getOrDefault("")
+
+    fun encryptRegistry(json: String): String = if (json.isBlank()) "" else crypto.enc(json)
+
+    /**
+     * Γράφει τα πλήρη στοιχεία Μητρώου **χωρίς έγκριση**, σε αντίθεση με τα
+     * πεδία της καρτέλας: δεν αντικαθιστούν κάτι που πληκτρολόγησε ο λογιστής,
+     * είναι το στιγμιότυπο του Μητρώου όπως το έδωσε η ΑΑΔΕ εκείνη τη μέρα.
+     */
+    suspend fun saveRegistryDetails(clientId: Long, json: String) {
+        if (clientId == 0L || json.isBlank()) return
+        db.clients().setRegistryDetails(clientId, crypto.enc(json), System.currentTimeMillis())
+    }
+
     /**
      * Γράφει ό,τι ήρθε από άντληση (Μητρώο ΑΑΔΕ, MyAMKA) **αφού** το ενέκρινε
      * ο χρήστης.

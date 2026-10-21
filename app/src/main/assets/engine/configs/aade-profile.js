@@ -140,8 +140,119 @@ function vatProfile(epix) {
   return { subject, period, label, regime, entryMode, books, booksLetter: letter, smallBusiness, farmers };
 }
 
+/*
+ * ΠΛΗΡΗ ΣΤΟΙΧΕΙΑ ΜΗΤΡΩΟΥ — ό,τι δείχνει το «Μητρώο & Επικοινωνία» της ΑΑΔΕ.
+ *
+ * Τα πεδία επαληθεύτηκαν ζωντανά (Οκτ. 2026) σε ιδιώτη με διακομμένη ατομική
+ * και σε ΟΕ. Πηγαίνουν στην καρτέλα ως **ενότητες με ετικέτες**, ώστε η
+ * εφαρμογή να τα δείχνει χωρίς να ξέρει ένα-ένα τα ονόματα της ΑΑΔΕ: ένα νέο
+ * πεδίο εδώ φαίνεται στο κινητό χωρίς νέα έκδοση της οθόνης.
+ *
+ * Τι ΔΕΝ μπαίνει, σκόπιμα (ελαχιστοποίηση, άρθρο 5 παρ. 1 στοιχ. γ): IBAN,
+ * «συσχετιζόμενοι ΑΦΜ» (τρίτοι που δεν είναι πελάτες), ιστορικά μεταβολών.
+ * Μέλη και σχέσεις μπαίνουν μόνο **ενεργά**.
+ */
+const FYSIKO_FIELDS = [
+  ['Ονοματεπώνυμο', 'epwnymoa'],
+  ['Πατρώνυμο', 'epwnymob'],
+  ['Μητρώνυμο', 'epwnymoc'],
+  ['Ημερομηνία γέννησης', 'hmgennhshs'],
+  ['Τόπος / χώρα γέννησης', 'xwragennhshs'],
+  ['Υπηκοότητα', 'yphkoothta'],
+  ['Είδος ταυτότητας', 'eidostaytothtas'],
+  ['Αριθμός ταυτότητας', 'artaytothtas'],
+  ['Εκδούσα αρχή', 'ekdoysaarxh'],
+  ['Ημερομηνία έκδοσης', 'hmekdoshs'],
+  ['Διεύθυνση κατοικίας', 'dieykatoikias'],
+  ['Αρμόδια ΔΟΥ', 'armodiadoy'],
+  ['Κατάσταση φορολογούμενου', 'katastashforologoumenoy'],
+  ['Οικογενειακή κατάσταση', 'oikogkatastash'],
+];
+const EPIX_FIELDS = [
+  ['Νομική μορφή', 'nomikhmorfh'],
+  ['Κατάσταση', 'katastashepixeirhshs'],
+  ['Έναρξη εργασιών', 'hmenarxhs'],
+  ['Διακοπή εργασιών', 'hmdiakophs'],
+  ['Αιτία διακοπής', 'aitiadiakophs'],
+  ['Διεύθυνση έδρας', 'dieyaskhshsdrasthrio'],
+  ['ΔΟΥ', 'doydescription'],
+  ['Αρ. ΓΕΜΗ', 'arithmoseggrafhsgemh'],
+  ['Εγγραφή στο ΓΕΜΗ', 'hmeggrafhsgemh'],
+  ['Επιμελητήριο', 'epimelhthriosyllogos'],
+  ['Εκπρόσωπος', 'ekprosoposnp'],
+  ['Κεφάλαιο', 'kefalaio'],
+  ['Αρ. καταστατικού', 'arithmoskatastatikoy'],
+  ['Αρχή επικύρωσης', 'arxhepikyrwshs'],
+  ['Ημερομηνία επικύρωσης', 'hmepikyrwshs'],
+  ['Λήξη διάρκειας', 'lhxhdiarkeias'],
+  ['Κατηγορία μη φυσικού προσώπου', 'kathgoriamhfp'],
+  ['Κατηγορία βιβλίων', 'kathgoriabibliwn'],
+  ['Καθεστώς ΦΠΑ', 'kathestwsfpa'],
+  ['Υπαγωγή σε ΦΠΑ', 'ypagwghfpa'],
+  ['Τρόπος ένταξης σε ΦΠΑ', 'troposentaxhsfpa'],
+  ['Ενδοκοινοτικές συναλλαγές', 'endokoinotikessynallages'],
+  ['Τρόπος άσκησης δραστηριότητας', 'troposaskhshsdrasthriothtas'],
+  ['Τρόπος ένταξης', 'troposentaxhs'],
+  ['Προέλευση', 'firmorigin'],
+  ['Λήξη διαχειριστικής περιόδου', 'lhxhdiaxeiristikhsperiodoy'],
+  ['Λήξη πρώτης διαχειριστικής περιόδου', 'lhxhprwthsdiax'],
+];
+
+function fieldRows(xml, fields) {
+  return fields.map(([label, name]) => [label, tag(xml, name)]).filter(([, v]) => v);
+}
+
+/** Μια λίστα JSON της ΑΑΔΕ. Ό,τι δεν διαβάζεται είναι άδεια λίστα — ποτέ σφάλμα. */
+function rowsOf(raw) {
+  try {
+    const v = JSON.parse(raw || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+const s = (v) => (v == null ? '' : String(v).trim());
+const live = (r) => !s(r && r.hmdiakophs);
+const join = (...parts) => parts.map(s).filter(Boolean).join(' · ');
+const share = (p) => (s(p) ? s(p).replace('.', ',') + '%' : '');
+
+/** Οι ενότητες του «Περισσότερα στοιχεία» της καρτέλας. */
+async function registryDetails(G, W, afm, ctx) {
+  const sections = [];
+  const add = (title, rows) => { if (rows.length) sections.push({ title, rows }); };
+  const list = async (name) => {
+    try { return rowsOf(await G(W + '/' + name + '/' + encodeURIComponent(afm))); } catch (e) { return []; }
+  };
+
+  if (ctx.hasFysiko) add('Φυσικό πρόσωπο', fieldRows(ctx.fysiko, FYSIKO_FIELDS));
+  if (ctx.hasEpix) {
+    const rows = fieldRows(ctx.epix, EPIX_FIELDS);
+    if (ctx.longName) rows.unshift(['Επωνυμία', ctx.longName]);
+    add(ctx.hasFysiko ? 'Ατομική επιχείρηση' : 'Επιχείρηση', rows);
+
+    // ΚΑΔ: κύρια πρώτη, και μόνο όσες ασκούνται (χωρίς ημερομηνία διακοπής).
+    const kad = (await list('getMhtrwoDrastiriothtesEpixeir')).filter(live)
+      .sort((a, b) => (/ΚΥΡΙΑ/i.test(s(b.eidos)) ? 1 : 0) - (/ΚΥΡΙΑ/i.test(s(a.eidos)) ? 1 : 0));
+    add('Δραστηριότητες (ΚΑΔ)', kad.map((r) => [s(r.kwdikos), join(r.drasthriothta, r.eidos, s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs))]));
+
+    if (!ctx.hasFysiko) {
+      const members = (await list('getMelh')).filter(live);
+      add('Μέλη', members.map((r) => [s(r.epwnymia), join('ΑΦΜ ' + s(r.afmmelous), r.eidossymmetoxhs, share(r.percentage), s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs))]));
+    }
+    const roles = (await list('getSxeseisEpixeirhshs')).filter(live);
+    add('Εκπρόσωποι και σχέσεις επιχείρησης', roles.map((r) => [s(r.epwnymia), join('ΑΦΜ ' + s(r.afmsxeshs), r.eidossxeshs, s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs))]));
+  }
+  if (ctx.hasFysiko) {
+    const holdings = (await list('getSymmetoxesNomikaProswpa')).filter(live);
+    add('Συμμετοχές σε νομικά πρόσωπα', holdings.map((r) => [s(r.epwnymiaepixeirhshs), join('ΑΦΜ ' + s(r.afmepixeirhshs), r.eidossymmetoxhs, share(r.percentage), s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs))]));
+  }
+  return sections;
+}
+
 module.exports = {
   vatProfile, // για τα τεστ
+  registryDetails, // για τα τεστ
   id: 'aade-profile',
   title: 'Άντληση στοιχείων πελάτη από το TAXIS (ονοματεπώνυμο, ΑΦΜ, ΔΟΥ)',
   portal: 'AADE myAADE comregistry (GSIS OAM)',
@@ -304,6 +415,11 @@ module.exports = {
       // Καθεστώς ΦΠΑ — μόνο για επιχείρηση που ζει. Η κλειστή δεν δηλώνει ΦΠΑ,
       // και ο ιδιώτης δεν έχει καθόλου μητρώο επιχείρησης.
       vat: businessOpen ? vatProfile(epix) : null,
+      // Τα πλήρη στοιχεία μητρώου, σε ενότητες — βλ. registryDetails.
+      details: await registryDetails(G, W, afm, {
+        hasFysiko, hasEpix, fysiko, epix,
+        longName: sameAccount && kind === 'ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ' ? tag(userdata, 'longepwnymia') : '',
+      }).catch((e) => { http.log('[profile] στοιχεία: ' + (e && e.message ? e.message : e)); return []; }),
       retrievedAt: new Date().toISOString(),
     };
 

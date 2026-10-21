@@ -33,10 +33,34 @@ object UpdateChecker {
      * να βρεθεί το ίδιο το APK: δείχνει πάντα την τελευταία έκδοση χωρίς να
      * χρειάζεται να ξέρει κανείς τον αριθμό της, οπότε δεν παλιώνει ποτέ.
      */
+    /**
+     * Τι άλλαξε, χωρίς τις γραμμές του build.
+     *
+     * Οι παλιές εκδόσεις έγραφαν πρώτα «Αυτόματο build…», την υπογραφή και μια
+     * παράγραφο για το iOS, και οι αλλαγές έμεναν κάτω από τις οκτώ γραμμές που
+     * χωρούσε το παράθυρο. Οι νέες γράφουν πρώτα τις αλλαγές και τα τεχνικά
+     * μετά από «---». Πιάνει και τα δύο.
+     */
+    fun changesOf(notes: String): String {
+        val body = notes.replace("\r\n", "\n").substringBefore("\n---\n")
+        return body.lines()
+            .filterNot { line ->
+                val t = line.trim()
+                t.startsWith("Αυτόματο build") || t.startsWith("⚠️ Debug-signed") ||
+                    t.startsWith("✅ Release-signed") || t.startsWith("📱 iOS")
+            }
+            .joinToString("\n")
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+    }
+
     const val RELEASES_PAGE =
         "https://github.com/scanmydata/Tax-Center-by-Scanmydata/releases/latest"
 
     data class Release(val tag: String, val apkUrl: String, val notes: String) {
+        /** Οι σημειώσεις χωρίς τα τεχνικά του build — βλ. [changesOf]. */
+        val changes: String get() = changesOf(notes)
+
         /** Η έκδοση χωρίς το `v` του tag, για σύγκριση. */
         val version: String get() = tag.removePrefix("v")
     }

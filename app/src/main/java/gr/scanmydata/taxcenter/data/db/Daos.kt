@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ClientDao {
 
+    @Query("UPDATE clients SET registryDetailsEnc = :enc, registryAt = :at WHERE id = :id")
+    suspend fun setRegistryDetails(id: Long, enc: String, at: Long)
+
     @Query("SELECT * FROM clients WHERE deleted = 0 ORDER BY name, firstName")
     fun observeAll(): Flow<List<ClientEntity>>
 
@@ -74,6 +77,8 @@ interface ClientDao {
             spouseAfm = incoming.spouseAfm.ifBlank { existing.spouseAfm },
             mobile = incoming.mobile.ifBlank { existing.mobile },
             vatStatus = incoming.vatStatus.ifBlank { existing.vatStatus },
+            registryDetailsEnc = incoming.registryDetailsEnc.ifBlank { existing.registryDetailsEnc },
+            registryAt = if (incoming.registryAt != 0L) incoming.registryAt else existing.registryAt,
             // Το «ανενεργός» είναι πληροφορία, όχι κενό — περνά όπως έρχεται.
             active = incoming.active,
             sourceFile = incoming.sourceFile.ifBlank { existing.sourceFile },
