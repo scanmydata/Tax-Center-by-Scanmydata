@@ -23,6 +23,27 @@ class RegistryDetailsTest {
     }
 
     @Test
+    fun `rows already shown in the form are left out`() {
+        val sections = listOf(
+            RegistryDetails.Section(
+                "Φυσικό πρόσωπο",
+                listOf("Ονοματεπώνυμο" to "ΧΧΧ", "Πατρώνυμο" to "ΓΕΩΡΓΙΟΣ", "Αρμόδια ΔΟΥ" to "Α' ΑΘΗΝΩΝ"),
+            ),
+            RegistryDetails.Section("Ατομική επιχείρηση", listOf("ΔΟΥ" to "ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ")),
+            RegistryDetails.Section("Μόνο κρυμμένα", listOf("Επωνυμία" to "ΑΒΓ")),
+        )
+        val shown = RegistryDetails.withoutShown(
+            sections,
+            hidden = setOf("Ονοματεπώνυμο", "Επωνυμία"),
+            sameAs = mapOf("Αρμόδια ΔΟΥ" to "α' αθηνών", "ΔΟΥ" to "α' αθηνών"),
+        )
+        // Ίδια ΔΟΥ (χωρίς διάκριση πεζών/τόνων) κρύβεται· διαφορετική μένει.
+        assertEquals(listOf("Πατρώνυμο" to "ΓΕΩΡΓΙΟΣ"), shown[0].rows)
+        assertEquals(listOf("ΔΟΥ" to "ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ"), shown[1].rows)
+        assertEquals(2, shown.size)
+    }
+
+    @Test
     fun `unreadable input is no sections`() {
         assertTrue(RegistryDetails.parse("").isEmpty())
         assertTrue(RegistryDetails.parse("{not json").isEmpty())

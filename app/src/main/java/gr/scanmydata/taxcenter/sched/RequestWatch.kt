@@ -16,8 +16,14 @@ import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 /**
- * Η **καθημερινή παρακολούθηση των αιτημάτων ΑΑΔΕ**: μία φορά τη μέρα, για
- * όσους πελάτες έχουν διαλεχτεί, και ειδοποίηση όταν απαντηθεί κάτι.
+ * Η **καθημερινή παρακολούθηση των αιτημάτων ΑΑΔΕ**: όσες φορές τη μέρα και
+ * όποιες ώρες διαλέξει ο χρήστης ([Settings.requestWatchHours]), για όσους
+ * πελάτες έχουν διαλεχτεί, και ειδοποίηση όταν απαντηθεί ή αλλάξει κάτι.
+ *
+ * Κάθε ώρα είναι **δική της** ημερήσια εργασία (`request-watch-09`,
+ * `request-watch-14`…). Μία εργασία που ξαναπρογραμματίζει τον εαυτό της θα
+ * έχανε όλες τις επόμενες ώρες την πρώτη φορά που το σύστημα δεν θα την
+ * ξυπνούσε· έτσι, μια χαμένη ώρα δεν παίρνει μαζί της τις υπόλοιπες.
  *
  * Ίδια μηχανική και ίδιοι περιορισμοί με το [DebtWatch] — η ώρα είναι «περίπου»,
  * κάθε εκτέλεση του συστήματος έχει όριο δέκα λεπτών, και η δουλειά κόβεται σε
@@ -45,21 +51,39 @@ object RequestWatch {
      */
     const val KEY_FULL = "full"
 
+    /** Το όνομα της εργασίας μιας ώρας. */
+    fun slot(hour: Int): String = WORK + "-" + hour.toString().padStart(2, '0')
+
+    /** «09:00, 14:00». */
+    fun hoursLabel(hours: List<Int>): String = hours.joinToString(", ") { it.toString().padStart(2, '0') + ":00" }
+
+    /** «1 φορά», «3 φορές». */
+    fun timesLabel(count: Int): String = if (count == 1) "1 φορά" else "$count φορές"
+
+    /** Πόσες ώρες το πολύ: κάθε έλεγχος είναι μία σύνδεση στο TAXISnet ανά πελάτη. */
+    const val MAX_TIMES = 6
+
     /** Μπαίνει στο πρόγραμμα, ή βγαίνει. Καλείται σε κάθε αλλαγή ρύθμισης. */
     fun apply(context: Context, settings: Settings) {
         val manager = WorkManager.getInstance(context.applicationContext)
-        if (!settings.requestWatchDaily || settings.requestWatchClients.isEmpty()) {
-            manager.cancelUniqueWork(WORK)
+        // Η παλιά, μοναδική εργασία — από εκδόσεις με μία ώρα.
+        manager.cancelUniqueWork(WORK)
+        val on = settings.requestWatchDaily && settings.requestWatchClients.isNotEmpty()
+        val hours = if (on) settings.requestWatchHours.take(MAX_TIMES) else emptyList()
+        for (hour in 0..23) if (hour !in hours) manager.cancelUniqueWork(slot(hour))
+        if (!on) {
             manager.cancelUniqueWork(WORK_CONTINUE)
             return
         }
-        val delay = DebtWatch.initialDelay(ZonedDateTime.now(ZONE), settings.requestWatchHour)
-        val request = PeriodicWorkRequestBuilder<RequestWatchWorker>(1, TimeUnit.DAYS)
-            .setInitialDelay(delay.toMillis(), TimeUnit.MILLISECONDS)
-            .setConstraints(online())
-            .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.MINUTES)
-            .build()
-        manager.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE, request)
+        for (hour in hours) {
+            val delay = DebtWatch.initialDelay(ZonedDateTime.now(ZONE), hour)
+            val request = PeriodicWorkRequestBuilder<RequestWatchWorker>(1, TimeUnit.DAYS)
+                .setInitialDelay(delay.toMillis(), TimeUnit.MILLISECONDS)
+                .setConstraints(online())
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.MINUTES)
+                .build()
+            manager.enqueueUniquePeriodicWork(slot(hour), ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE, request)
+        }
     }
 
     /** «Έλεγχος τώρα»: ο ίδιος κώδικας με τον προγραμματισμένο, χωρίς αναμονή. */
@@ -114,16 +138,25 @@ object RequestWatch {
         /** Βγήκαν από την παρακολούθηση επειδή οι κωδικοί τους απορρίφθηκαν. */
         val dropped: Int = 0,
         val skipped: Int = 0,
+        /** Μπήκαν «σε εκκρεμότητα από τον συναλλασσόμενο» — θέλουν τον πελάτη. */
+        val waiting: Int = 0,
+        /** Μπήκαν «σε επεξεργασία». */
+        val processing: Int = 0,
     ) {
-        fun toArray(): IntArray = intArrayOf(checked, answered, moved, clients, failed, dropped, skipped)
+        fun toArray(): IntArray =
+            intArrayOf(checked, answered, moved, clients, failed, dropped, skipped, waiting, processing)
 
         /** Υπάρχει κάτι που αξίζει ειδοποίηση; */
-        val news: Boolean get() = answered > 0 || moved > 0
+        val news: Boolean get() = answered > 0 || moved > 0 || waiting > 0 || processing > 0
 
-        /** Ο τίτλος της ειδοποίησης. */
+        /** Ο τίτλος της ειδοποίησης: το πιο επείγον πρώτο. */
         fun headline(): String = when {
             answered == 1 -> "Απαντήθηκε 1 αίτημα ΑΑΔΕ"
             answered > 1 -> "Απαντήθηκαν $answered αιτήματα ΑΑΔΕ"
+            waiting == 1 -> "Αίτημα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη"
+            waiting > 1 -> "$waiting αιτήματα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη"
+            processing == 1 -> "Αίτημα ΑΑΔΕ μπήκε σε επεξεργασία"
+            processing > 1 -> "$processing αιτήματα ΑΑΔΕ μπήκαν σε επεξεργασία"
             moved > 0 -> "Αλλαγή σε αιτήματα ΑΑΔΕ"
             else -> "Αιτήματα ΑΑΔΕ"
         }
@@ -137,6 +170,12 @@ object RequestWatch {
                 },
             )
             if (news) append(if (clients == 1) " σε 1 πελάτη" else " σε $clients πελάτες")
+            if (waiting > 0) {
+                append(if (waiting == 1) " · 1 σε εκκρεμότητα από τον πελάτη" else " · $waiting σε εκκρεμότητα από τον πελάτη")
+            }
+            if (processing > 0) {
+                append(if (processing == 1) " · 1 μπήκε σε επεξεργασία" else " · $processing μπήκαν σε επεξεργασία")
+            }
             if (moved > 0) append(if (moved == 1) " · 1 αλλαγή κατάστασης" else " · $moved αλλαγές κατάστασης")
             append(if (checked == 1) " · ελέγχθηκε 1 πελάτης" else " · ελέγχθηκαν $checked πελάτες")
             if (failed > 0) append(" · $failed απέτυχαν")
@@ -145,9 +184,13 @@ object RequestWatch {
         }
 
         companion object {
+            /** Δέχεται και τον παλιό πίνακα των 7, από εργασία που μπήκε στην ουρά πριν την ενημέρωση. */
             fun of(raw: IntArray?): Tally =
                 if (raw == null || raw.size < 7) Tally()
-                else Tally(raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6])
+                else Tally(
+                    raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6],
+                    raw.getOrElse(7) { 0 }, raw.getOrElse(8) { 0 },
+                )
         }
     }
 }

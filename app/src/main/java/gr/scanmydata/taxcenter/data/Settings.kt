@@ -325,6 +325,27 @@ class Settings(context: Context) {
         get() = prefs.getInt(KEY_REQUEST_WATCH_HOUR, 9).coerceIn(0, 23)
         set(v) = prefs.edit().putInt(KEY_REQUEST_WATCH_HOUR, v.coerceIn(0, 23)).apply()
 
+    /**
+     * **Ποιες ώρες** της ημέρας γίνεται ο έλεγχος — μία ή περισσότερες, ώρα
+     * Αθηνών, ταξινομημένες, χωρίς διπλές. Το πλήθος τους είναι το «πόσες
+     * φορές την ημέρα».
+     *
+     * Όσοι είχαν ρυθμίσει μία ώρα ([requestWatchHour]) τη βρίσκουν εδώ.
+     */
+    var requestWatchHours: List<Int>
+        get() {
+            val raw = prefs.getString(KEY_REQUEST_WATCH_HOURS, null)
+            val parsed = raw?.split(',')?.mapNotNull { it.trim().toIntOrNull() }?.filter { it in 0..23 }
+            return parsed?.distinct()?.sorted()?.takeIf { it.isNotEmpty() } ?: listOf(requestWatchHour)
+        }
+        set(v) {
+            val clean = v.filter { it in 0..23 }.distinct().sorted().ifEmpty { listOf(requestWatchHour) }
+            prefs.edit()
+                .putString(KEY_REQUEST_WATCH_HOURS, clean.joinToString(","))
+                .putInt(KEY_REQUEST_WATCH_HOUR, clean.first())
+                .apply()
+        }
+
     /** Ποιοι πελάτες παρακολουθούνται, ως `id` της βάσης — βλ. [debtWatchClients]. */
     var requestWatchClients: Set<Long>
         get() = longs(KEY_REQUEST_WATCH_CLIENTS)
@@ -388,6 +409,7 @@ class Settings(context: Context) {
         const val KEY_DRIVE_PENDING_ERASE = "drive_pending_erase"
         const val KEY_REQUEST_WATCH_DAILY = "request_watch_daily"
         const val KEY_REQUEST_WATCH_HOUR = "request_watch_hour"
+        const val KEY_REQUEST_WATCH_HOURS = "request_watch_hours"
         const val KEY_REQUEST_WATCH_CLIENTS = "request_watch_clients"
         const val KEY_REQUEST_WATCH_FRESH = "request_watch_fresh"
         const val KEY_REQUEST_WATCH_LAST_RUN = "request_watch_last_run"

@@ -631,6 +631,17 @@ fun ClientEditScreen(
             at = registryAt,
             open = showRegistry,
             onToggle = { showRegistry = !showRegistry },
+            // Ό,τι έχει ήδη δικό του πεδίο πιο πάνω δεν ξαναγράφεται εδώ.
+            hidden = buildSet {
+                add("Ονοματεπώνυμο")
+                add("Επωνυμία")
+                if (hasAmka) add("Οικογενειακή κατάσταση")
+                if (canBeEmployer) {
+                    add("Καθεστώς ΦΠΑ")
+                    add("Υπαγωγή σε ΦΠΑ")
+                }
+            },
+            sameAs = mapOf("Αρμόδια ΔΟΥ" to doy, "ΔΟΥ" to doy),
         )
 
         Spacer(Modifier.height(16.dp))
@@ -951,8 +962,17 @@ private fun FormField(label: String, value: String, onChange: (String) -> Unit) 
  * Μόνο για ανάγνωση: είναι το Μητρώο όπως το έδωσε η ΑΑΔΕ. Αλλάζει με νέα άντληση.
  */
 @Composable
-private fun RegistryDetailsBlock(json: String, at: Long, open: Boolean, onToggle: () -> Unit) {
-    val sections = remember(json) { RegistryDetails.parse(json) }
+private fun RegistryDetailsBlock(
+    json: String,
+    at: Long,
+    open: Boolean,
+    onToggle: () -> Unit,
+    hidden: Set<String> = emptySet(),
+    sameAs: Map<String, String> = emptyMap(),
+) {
+    val sections = remember(json, hidden, sameAs) {
+        RegistryDetails.withoutShown(RegistryDetails.parse(json), hidden, sameAs)
+    }
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
     if (sections.isEmpty()) {
         Text(

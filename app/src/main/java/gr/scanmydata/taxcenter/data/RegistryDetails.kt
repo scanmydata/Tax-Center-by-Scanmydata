@@ -37,6 +37,38 @@ object RegistryDetails {
         return out
     }
 
+    /**
+     * Οι ενότητες **χωρίς** ό,τι φαίνεται ήδη στα πεδία της καρτέλας, για να
+     * μη γράφεται δύο φορές στην ίδια οθόνη.
+     *
+     * @param hidden ετικέτες που έχουν δικό τους πεδίο πάντα (π.χ. «Ονοματεπώνυμο»)
+     * @param sameAs ετικέτα -> τιμή πεδίου· η γραμμή κρύβεται μόνο αν λέει **το ίδιο**.
+     *   Η ΔΟΥ της επιχείρησης μετά τη διακοπή διαφέρει από τη ΔΟΥ της καρτέλας,
+     *   και τότε πρέπει να φαίνεται.
+     *
+     * Τα αποθηκευμένα στοιχεία μένουν ολόκληρα (και στην εξαγωγή)· κρύβονται
+     * μόνο στην οθόνη.
+     */
+    fun withoutShown(
+        sections: List<Section>,
+        hidden: Set<String>,
+        sameAs: Map<String, String> = emptyMap(),
+    ): List<Section> = sections
+        .map { section ->
+            section.copy(
+                rows = section.rows.filterNot { (label, value) ->
+                    label in hidden || sameAs[label]?.let { fold(it) == fold(value) && it.isNotBlank() } == true
+                },
+            )
+        }
+        .filter { it.rows.isNotEmpty() }
+
+    private fun fold(raw: String): String = java.text.Normalizer
+        .normalize(raw.trim(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .replace(Regex("\\s+"), " ")
+        .uppercase()
+
     /** Πόσα πεδία συνολικά — για το «Περισσότερα στοιχεία (32)». */
     fun count(sections: List<Section>): Int = sections.sumOf { it.rows.size }
 }

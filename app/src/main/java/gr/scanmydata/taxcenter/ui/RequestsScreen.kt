@@ -308,7 +308,7 @@ fun RequestsScreen(
                 CheckCard(
                     watched = watched.size,
                     daily = settings.requestWatchDaily,
-                    hour = settings.requestWatchHour,
+                    hours = settings.requestWatchHours,
                     // Διαβάζεται ξανά όταν τελειώνει ένας έλεγχος: τον γράφει το παρασκήνιο.
                     lastRun = remember(reload, fetchState.running) { settings.requestWatchLastRun },
                     lastSummary = remember(reload, fetchState.running) { settings.requestWatchLastSummary },
@@ -577,7 +577,7 @@ private fun statusOf(request: AadeRequests.Request): String = when {
 private fun CheckCard(
     watched: Int,
     daily: Boolean,
-    hour: Int,
+    hours: List<Int>,
     lastRun: Long,
     lastSummary: String,
     unwatched: Int,
@@ -600,7 +600,7 @@ private fun CheckCard(
                 when {
                     watched == 0 -> "Κανένας πελάτης στην παρακολούθηση — διάλεξε από τις Ρυθμίσεις."
                     !daily -> "Καθημερινός έλεγχος κλειστός · $who στη λίστα"
-                    else -> "Καθημερινός έλεγχος " + hour.toString().padStart(2, '0') + ":00 · $who"
+                    else -> "Καθημερινός έλεγχος " + RequestWatch.hoursLabel(hours) + " · $who"
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )

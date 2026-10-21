@@ -242,6 +242,26 @@ async function registryDetails(G, W, afm, ctx) {
     }
     const roles = (await list('getSxeseisEpixeirhshs')).filter(live);
     add('Εκπρόσωποι και σχέσεις επιχείρησης', roles.map((r) => [s(r.epwnymia), join('ΑΦΜ ' + s(r.afmsxeshs), r.eidossxeshs, s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs))]));
+
+    // Εγκαταστάσεις — τα ονόματα των πεδίων είναι αυτά που δείχνει η ίδια η
+    // σελίδα της ΑΑΔΕ (views/mhtrwoepixeirhshs). Κανένας λογαριασμός δοκιμής
+    // δεν είχε εγκατάσταση, οπότε η μορφή δεν έχει φανεί με πραγματικά δεδομένα:
+    // ό,τι πεδίο λείπει απλώς δεν γράφεται.
+    const branches = (await list('getEgkatastasewnEswterikoy')).filter(live);
+    const branchKad = (await list('getDrasthriothtesEgkatastash')).filter(live);
+    add('Εγκαταστάσεις', branches.map((r) => {
+      const no = s(r.aregkatastashseswterikoy);
+      const kad = branchKad.filter((d) => no && s(d.id) === no).map((d) => s(d.kwdikos)).filter(Boolean);
+      return [
+        join(s(r.eidosegkatastashs) || 'Εγκατάσταση', no && 'α/α ' + no),
+        join(r.titlosegkatastashs, r.dieythynsh, s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs), kad.length ? 'ΚΑΔ ' + kad.join(', ') : ''),
+      ];
+    }));
+    const abroad = (await list('getEgkatastasewnExwterikoy')).filter(live);
+    add('Εγκαταστάσεις εξωτερικού', abroad.map((r) => [
+      join(s(r.eidosegkatastashs) || 'Εγκατάσταση', r.xwra),
+      join(r.epwnymiaegkatastashs, r.dieythynshexwterikoy, s(r.afmabroad) && 'ΑΦΜ ' + s(r.afmabroad), s(r.hmenarxhs) && 'από ' + s(r.hmenarxhs)),
+    ]));
   }
   if (ctx.hasFysiko) {
     const holdings = (await list('getSymmetoxesNomikaProswpa')).filter(live);

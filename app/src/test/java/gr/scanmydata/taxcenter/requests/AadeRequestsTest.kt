@@ -154,6 +154,33 @@ class AadeRequestsTest {
     }
 
     @Test
+    fun `σε επεξεργασία και σε εκκρεμότητα από τον συναλλασσόμενο ονομάζονται`() {
+        assertEquals(Kind.PROCESSING, diff(stamps(item(1, "Υποβληθέν", 1)), pending).single().kind)
+        val waiting = item(1, "Σε εκκρεμότητα από τον συναλλασσόμενο", 5)
+        assertEquals(Kind.WAITING_CLIENT, diff(stamps(pending), waiting).single().kind)
+        // Και ξανά, όταν επιστρέψει σε επεξεργασία και ξαναζητηθεί κάτι.
+        assertEquals(Kind.PROCESSING, diff(stamps(waiting), pending).single().kind)
+        assertEquals(Kind.WAITING_CLIENT, diff(stamps(pending), waiting).single().kind)
+        // Νέο αίτημα που εμφανίζεται ήδη σε εκκρεμότητα: κι αυτό είναι είδηση.
+        assertEquals(
+            Kind.WAITING_CLIENT,
+            diff(stamps(answered), answered, item(2, "Σε εκκρεμότητα από τον συναλλασσόμενο", 5)).single().kind,
+        )
+        // Ίδια κατάσταση, μόνο απόρριψη: απλή αλλαγή, όχι ξανά «σε επεξεργασία».
+        assertEquals(Kind.STATUS, diff(stamps(pending), item(1, "Σε επεξεργασία", 2, rejected = true)).single().kind)
+        assertEquals(null, AadeRequests.stage("Απαντημένο"))
+    }
+
+    @Test
+    fun `η ειδοποίηση λέει πρώτα το πιο επείγον`() {
+        assertEquals("Αίτημα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη", RequestWatch.Tally(checked = 1, waiting = 1, clients = 1).headline())
+        assertEquals("2 αιτήματα ΑΑΔΕ μπήκαν σε επεξεργασία", RequestWatch.Tally(checked = 1, processing = 2, clients = 1).headline())
+        assertTrue(RequestWatch.Tally(processing = 1).news)
+        val full = RequestWatch.Tally(1, 0, 0, 1, 0, 0, 0, 2, 3)
+        assertEquals(full, RequestWatch.Tally.of(full.toArray()))
+    }
+
+    @Test
     fun `δεύτερη απάντηση στο ίδιο αίτημα αναφέρεται ξανά`() {
         val again = item(1, "Απαντημένο", 3, answer = "Συμπληρωματικά: προσκομίστε το έντυπο.")
         assertEquals(Kind.ANSWERED, diff(stamps(answered), again).single().kind)
@@ -163,7 +190,7 @@ class AadeRequestsTest {
 
     @Test
     fun `αλλαγή κατάστασης χωρίς απάντηση είναι αλλαγή, όχι απάντηση`() {
-        assertEquals(Kind.STATUS, diff(stamps(item(1, "Υποβληθέν", 1)), pending).single().kind)
+        assertEquals(Kind.STATUS, diff(stamps(item(1, "Υποβληθέν", 1)), item(1, "Ελέγχεται", 2)).single().kind)
         val closed = item(1, "Ολοκληρωμένο", 4, answer = "Η δήλωσή σας εκκαθαρίστηκε.")
         assertEquals(Kind.STATUS, diff(stamps(answered), closed).single().kind)
         val rejected = item(1, "Σε επεξεργασία", 2, rejected = true)

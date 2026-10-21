@@ -187,7 +187,12 @@ internal fun RequestCard(
         Column(Modifier.padding(12.dp)) {
             if (fresh) {
                 Text(
-                    if (request.answered) "ΝΕΑ ΑΠΑΝΤΗΣΗ" else "ΑΛΛΑΓΗ ΚΑΤΑΣΤΑΣΗΣ",
+                    when {
+                        request.answered -> "ΝΕΑ ΑΠΑΝΤΗΣΗ"
+                        AadeRequests.stage(request.status) == AadeRequests.Kind.WAITING_CLIENT -> "ΘΕΛΕΙ ΕΝΕΡΓΕΙΑ ΤΟΥ ΠΕΛΑΤΗ"
+                        AadeRequests.stage(request.status) == AadeRequests.Kind.PROCESSING -> "ΣΕ ΕΠΕΞΕΡΓΑΣΙΑ"
+                        else -> "ΑΛΛΑΓΗ ΚΑΤΑΣΤΑΣΗΣ"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )

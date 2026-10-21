@@ -31,7 +31,8 @@ fun requestWatchSummary(settings: Settings): String {
     return when {
         !settings.requestWatchDaily -> "καθημερινή παρακολούθηση κλειστή"
         clients == 0 -> "κάθε μέρα · κανένας πελάτης"
-        else -> "κάθε μέρα, " + settings.requestWatchHour.toString().padStart(2, '0') + ":00 · " +
+        else -> RequestWatch.timesLabel(settings.requestWatchHours.size) + " τη μέρα, " +
+            RequestWatch.hoursLabel(settings.requestWatchHours) + " · " +
             (if (clients == 1) "1 πελάτης" else "$clients πελάτες")
     }
 }
@@ -53,7 +54,7 @@ fun RequestWatchSettings(
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
 
     var daily by remember { mutableStateOf(settings.requestWatchDaily) }
-    var hour by remember { mutableStateOf(settings.requestWatchHour) }
+    var hours by remember { mutableStateOf(settings.requestWatchHours) }
     var watched by remember { mutableStateOf(settings.requestWatchClients) }
     var picking by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -72,7 +73,7 @@ fun RequestWatchSettings(
 
     fun commit() {
         settings.requestWatchDaily = daily
-        settings.requestWatchHour = hour
+        settings.requestWatchHours = hours
         settings.requestWatchClients = watched
         RequestWatch.apply(context, settings)
         onChanged()
@@ -80,11 +81,12 @@ fun RequestWatchSettings(
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("Καθημερινή άντληση από την ΑΑΔΕ", style = MaterialTheme.typography.titleSmall)
+            Text("Αυτόματη άντληση από την ΑΑΔΕ", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Η εφαρμογή συνδέεται μία φορά τη μέρα στην ΑΑΔΕ για τους πελάτες που " +
-                    "διαλέγεις, διαβάζει «Τα Αιτήματά μου» και, αν απαντήθηκε κάτι, στέλνει " +
-                    "ειδοποίηση στο κινητό. Δεν υποβάλλει και δεν απαντά τίποτα.",
+                "Η εφαρμογή συνδέεται στην ΑΑΔΕ τις ώρες που ορίζεις, για τους πελάτες που " +
+                    "διαλέγεις, διαβάζει «Τα Αιτήματά μου» και στέλνει ειδοποίηση στο κινητό " +
+                    "όταν ένα αίτημα απαντηθεί, μπει σε επεξεργασία ή σε εκκρεμότητα από τον " +
+                    "συναλλασσόμενο. Δεν υποβάλλει και δεν απαντά τίποτα.",
                 style = MaterialTheme.typography.bodySmall,
                 color = dim,
             )
@@ -102,12 +104,53 @@ fun RequestWatchSettings(
     }
 
     Spacer(Modifier.height(8.dp))
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Ώρα", style = MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick = { hour = (hour + 23) % 24; commit() }) { Text("−") }
-        Text(hour.toString().padStart(2, '0') + ":00", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = { hour = (hour + 1) % 24; commit() }) { Text("+") }
+    Text(
+        "Πόσες φορές την ημέρα: " + hours.size + " — " + RequestWatch.hoursLabel(hours),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Spacer(Modifier.height(4.dp))
+    // Μία γραμμή ανά ώρα: −/+ την αλλάζει, × τη βγάζει. Δύο ίδιες ώρες δεν
+    // γίνονται — η αλλαγή πηδά πάνω από όσες υπάρχουν ήδη.
+    hours.forEachIndexed { index, hour ->
+        fun move(step: Int) {
+            var next = hour
+            repeat(24) {
+                next = (next + step + 24) % 24
+                if (next !in hours) {
+                    hours = hours.toMutableList().also { it[index] = next }.sorted()
+                    commit()
+                    return
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("${index + 1}η", style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { move(-1) }) { Text("−") }
+            Text(hour.toString().padStart(2, '0') + ":00", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = { move(+1) }) { Text("+") }
+            if (hours.size > 1) {
+                OutlinedButton(tone = Tone.DELETE, onClick = {
+                    hours = hours.filterIndexed { i, _ -> i != index }
+                    commit()
+                }) { Text("×") }
+            }
+        }
     }
+    if (hours.size < RequestWatch.MAX_TIMES) {
+        OutlinedButton(tone = Tone.ADD, onClick = {
+            // Η νέα ώρα πάει τέσσερις ώρες μετά την τελευταία, στην πρώτη ελεύθερη.
+            var next = (hours.last() + 4) % 24
+            while (next in hours) next = (next + 1) % 24
+            hours = (hours + next).sorted()
+            commit()
+        }) { Text("+ Προσθήκη ώρας") }
+    }
+    Text(
+        "Κάθε ώρα είναι ένας ακόμη έλεγχος — μία σύνδεση στο TAXISnet για κάθε πελάτη της " +
+            "λίστας. Έως " + RequestWatch.MAX_TIMES + " φορές τη μέρα.",
+        style = MaterialTheme.typography.bodySmall,
+        color = dim,
+    )
     Text(
         "Ώρα Ελλάδας, και περίπου — το Android εκτελεί τις εργασίες παρασκηνίου όταν " +
             "υπάρχει δίκτυο και η συσκευή δεν κοιμάται βαθιά. Αν την ίδια ώρα τρέχει η " +
@@ -131,14 +174,14 @@ fun RequestWatchSettings(
     }
     Text(
         "Προστίθενται και από την καρτέλα «Αιτήματα» του κάθε πελάτη. Βάλε όσους έχουν " +
-            "αίτημα σε εκκρεμότητα — κάθε πελάτης στη λίστα είναι μία σύνδεση τη μέρα.",
+            "αίτημα σε εκκρεμότητα — κάθε πελάτης στη λίστα είναι μία σύνδεση ανά έλεγχο.",
         style = MaterialTheme.typography.bodySmall,
         color = dim,
     )
 
     Spacer(Modifier.height(10.dp))
     Text(
-        "Η ειδοποίηση γράφει μόνο πόσα αιτήματα απαντήθηκαν, όχι σε ποιους: φαίνεται και " +
+        "Η ειδοποίηση γράφει μόνο πόσα αιτήματα απαντήθηκαν ή άλλαξαν, όχι σε ποιους: φαίνεται και " +
             "στην οθόνη κλειδώματος. Τα ονόματα εμφανίζονται στην κορυφή της λίστας " +
             "πελατών μόλις ανοίξεις την εφαρμογή. Αν οι κωδικοί ενός πελάτη απορριφθούν, " +
             "βγαίνει μόνος του από την παρακολούθηση, για να μην κλειδωθεί ο λογαριασμός του.",

@@ -46,12 +46,14 @@ object RequestSends {
         delivered: Boolean,
     ): SendEntity {
         val answered = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
+        val waiting = changes.count { it.kind == AadeRequests.Kind.WAITING_CLIENT }
         return SendEntity(
             clientId = clientId,
             afm = afm,
             clientName = clientName,
             toEmail = TO_DEVICE,
             subject = when {
+                waiting > 0 && answered == 0 && changes.size == 1 -> "Αίτημα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη"
                 answered == 1 && changes.size == 1 -> "Νέα απάντηση της ΑΑΔΕ σε αίτημα"
                 answered == changes.size -> "Νέες απαντήσεις της ΑΑΔΕ σε $answered αιτήματα"
                 answered == 0 && changes.size == 1 -> "Αλλαγή κατάστασης σε αίτημα ΑΑΔΕ"
@@ -73,6 +75,8 @@ object RequestSends {
         val what = when (change.kind) {
             AadeRequests.Kind.ANSWERED -> "νέα απάντηση"
             AadeRequests.Kind.STATUS -> "κατάσταση: " + request.status.ifBlank { "άλλαξε" }
+            AadeRequests.Kind.PROCESSING -> "σε επεξεργασία"
+            AadeRequests.Kind.WAITING_CLIENT -> "σε εκκρεμότητα από τον συναλλασσόμενο — θέλει ενέργεια του πελάτη"
         }
         return request.title + " — " + what +
             if (request.caseNumber.isBlank()) "" else " (Αρ. " + request.caseNumber + ")"

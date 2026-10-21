@@ -240,9 +240,8 @@ internal fun ClientRequestsTab(
                                 "Ο πελάτης είναι στη λίστα, αλλά η παρακολούθηση είναι κλειστή — " +
                                     "άνοιξέ την από Ρυθμίσεις → Αιτήματα ΑΑΔΕ."
                             else ->
-                                "Κάθε μέρα, περίπου στις " +
-                                    settings.requestWatchHour.toString().padStart(2, '0') +
-                                    ":00. Αν απαντηθεί κάτι, έρχεται ειδοποίηση."
+                                "Κάθε μέρα, περίπου στις " + RequestWatch.hoursLabel(settings.requestWatchHours) +
+                                    ". Αν απαντηθεί ή αλλάξει κάτι, έρχεται ειδοποίηση."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = dim,

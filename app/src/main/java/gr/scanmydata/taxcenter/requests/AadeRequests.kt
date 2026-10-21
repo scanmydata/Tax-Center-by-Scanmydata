@@ -73,7 +73,34 @@ object AadeRequests {
             ).joinToString("|")
     }
 
-    enum class Kind { ANSWERED, STATUS }
+    /**
+     * Τι είδους αλλαγή.
+     *
+     * Δύο καταστάσεις έχουν δικό τους είδος, γιατί ο λογιστής θέλει να τις
+     * μάθει **με το όνομά τους** και όχι ως «αλλαγή κατάστασης»:
+     *
+     *  * [WAITING_CLIENT] — «Σε εκκρεμότητα από τον συναλλασσόμενο»: η ΑΑΔΕ
+     *    περιμένει κάτι από τον πελάτη (έγγραφο, διευκρίνιση). Χωρίς ενέργεια το
+     *    αίτημα δεν προχωρά — και συχνά έχει προθεσμία.
+     *  * [PROCESSING] — «Σε επεξεργασία»: κάποιος το ανέλαβε.
+     */
+    enum class Kind { ANSWERED, STATUS, PROCESSING, WAITING_CLIENT }
+
+    /**
+     * Η κατάσταση ως [Kind], όταν είναι μία από τις δύο που ονομάζονται ρητά.
+     *
+     * Με λέξεις και όχι με τον αριθμό `messageStatus`: τον αριθμό τον είδαμε
+     * ζωντανά μόνο για «απαντημένο», ενώ το κείμενο το γράφει η πύλη με τον
+     * ίδιο τρόπο που το βλέπει ο χρήστης.
+     */
+    fun stage(status: String): Kind? {
+        val f = fold(status)
+        return when {
+            f.contains("εκκρεμ") && f.contains("συναλλασσ") -> Kind.WAITING_CLIENT
+            f.contains("επεξεργασ") -> Kind.PROCESSING
+            else -> null
+        }
+    }
 
     data class Change(val request: Request, val kind: Kind)
 
@@ -130,7 +157,8 @@ object AadeRequests {
      *
      * Ένα αίτημα που **δεν υπήρχε** και βρέθηκε ήδη απαντημένο μετρά ως νέα
      * απάντηση: υποβλήθηκε και απαντήθηκε ανάμεσα σε δύο ελέγχους. Ένα νέο
-     * αίτημα που ακόμη περιμένει δεν είναι είδηση — ο λογιστής το υπέβαλε.
+     * αίτημα που ακόμη περιμένει δεν είναι είδηση — ο λογιστής το υπέβαλε· εκτός αν
+     * είναι ήδη σε επεξεργασία ή σε εκκρεμότητα από τον πελάτη (βλ. [stage]).
      */
     fun diff(known: Map<String, String>?, now: List<Request>): List<Change> {
         if (known == null) return emptyList()
@@ -141,6 +169,10 @@ object AadeRequests {
             when {
                 request.answered && (before == null || answerOf(before) != answerOf(request.stamp)) ->
                     out += Change(request, Kind.ANSWERED)
+                // Μπήκε τώρα σε επεξεργασία ή σε εκκρεμότητα από τον πελάτη —
+                // και όταν το αίτημα εμφανίζεται πρώτη φορά ήδη έτσι.
+                stage(request.status) != null && (before == null || statusOf(before) != fold(request.status)) ->
+                    out += Change(request, stage(request.status)!!)
                 // Απαντημένο και πριν, με την ίδια απάντηση: άλλαξε μόνο η
                 // κατάσταση (π.χ. έκλεισε). Και αυτό το θέλει ο λογιστής.
                 before != null -> out += Change(request, Kind.STATUS)
@@ -148,6 +180,8 @@ object AadeRequests {
         }
         return out
     }
+
+    private fun statusOf(stamp: String): String = stamp.split('|').firstOrNull().orEmpty()
 
     /** `id -> stamp`, για το αρχείο κατάστασης. */
     fun stamps(requests: List<Request>): Map<String, String> = requests.associate { it.id to it.stamp }

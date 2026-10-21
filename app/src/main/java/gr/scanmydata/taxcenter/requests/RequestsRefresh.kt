@@ -221,13 +221,17 @@ object RequestsRefresh {
 
     fun describe(changes: List<AadeRequests.Change>): String {
         val answered = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
-        val moved = changes.size - answered
+        val waiting = changes.count { it.kind == AadeRequests.Kind.WAITING_CLIENT }
+        val processing = changes.count { it.kind == AadeRequests.Kind.PROCESSING }
+        val moved = changes.size - answered - waiting - processing
         return when {
             changes.isEmpty() -> "Ενημερώθηκε — καμία αλλαγή από την προηγούμενη φορά."
             else -> buildString {
                 append("Ενημερώθηκε — ")
                 val parts = ArrayList<String>()
                 if (answered > 0) parts += if (answered == 1) "1 νέα απάντηση" else "$answered νέες απαντήσεις"
+                if (waiting > 0) parts += if (waiting == 1) "1 σε εκκρεμότητα από τον πελάτη" else "$waiting σε εκκρεμότητα από τον πελάτη"
+                if (processing > 0) parts += if (processing == 1) "1 μπήκε σε επεξεργασία" else "$processing μπήκαν σε επεξεργασία"
                 if (moved > 0) parts += if (moved == 1) "1 αλλαγή κατάστασης" else "$moved αλλαγές κατάστασης"
                 append(parts.joinToString(" · ")).append('.')
             }
