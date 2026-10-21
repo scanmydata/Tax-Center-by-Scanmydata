@@ -245,6 +245,6 @@ class AadeRequestsTest {
             RequestsRefresh.describe(emptyList()),
         )
         val changes = diff(stamps(pending, item(2, "Υποβληθέν", 1)), answered, item(2, "Σε επεξεργασία", 2))
-        assertEquals("Ενημερώθηκε — 1 νέα απάντηση · 1 αλλαγή κατάστασης.", RequestsRefresh.describe(changes))
+        assertEquals("Ενημερώθηκε — 1 νέα απάντηση · 1 μπήκε σε επεξεργασία.", RequestsRefresh.describe(changes))
     }
 }
