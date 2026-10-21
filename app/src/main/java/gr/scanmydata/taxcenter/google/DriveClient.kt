@@ -28,7 +28,8 @@ import java.util.concurrent.TimeUnit
  */
 class DriveClient(private val accessToken: String) {
 
-    class DriveFailed(message: String) : Exception(message)
+    /** @param code ο κωδικός HTTP — `404` σημαίνει «δεν υπάρχει πια». */
+    class DriveFailed(message: String, val code: Int = 0) : Exception(message)
 
     data class Entry(
         val id: String,
@@ -176,7 +177,7 @@ class DriveClient(private val accessToken: String) {
     private fun call(request: Request): JSONObject {
         http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw DriveFailed(errorOf(text, response.code))
+            if (!response.isSuccessful) throw DriveFailed(errorOf(text, response.code), response.code)
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         }
     }

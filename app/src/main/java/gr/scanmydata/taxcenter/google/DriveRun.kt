@@ -69,6 +69,10 @@ class DriveRun(
         var entry: DriveBackup.Entry? = null
         var files: DriveSync.Progress? = null
 
+        // Πρώτα ό,τι χρωστάμε από διαγραφές πελατών: δεν έχει νόημα να
+        // ανεβαίνουν αρχεία ενώ εκκρεμεί η διαγραφή άλλων.
+        runCatching { sync.erasePending(token) }
+
         if (Stage.FOLDER in stages || Stage.BACKUP in stages) {
             onStage(Stage.FOLDER, sync.folderPath)
             try {

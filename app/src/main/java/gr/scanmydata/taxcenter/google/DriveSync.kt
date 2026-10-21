@@ -309,6 +309,72 @@ class DriveSync(
         restored
     }
 
+    /**
+     * Εκτελεί την ουρά διαγραφών ([Settings.drivePendingErase]).
+     *
+     * Ο φάκελος ενός πελάτη βρίσκεται με το **ΑΦΜ** στην αρχή του ονόματος, σε
+     * όλο τον Drive που βλέπει η εφαρμογή — όχι μόνο στη σημερινή διαδρομή:
+     * αν ο φάκελος άλλαξε κάποτε, ή αν άλλαξε η επωνυμία του πελάτη, υπάρχουν
+     * φάκελοι και εκεί. Το scope `drive.file` εγγυάται ότι η αναζήτηση δεν
+     * αγγίζει τίποτα που δεν έφτιαξε η ίδια η εφαρμογή.
+     *
+     * Ό,τι δεν υπάρχει πια (404) μετρά ως διαγραμμένο. Ό,τι αποτύχει για άλλο
+     * λόγο μένει στην ουρά για την επόμενη φορά.
+     *
+     * @return πόσα ολοκληρώθηκαν, πόσα μένουν
+     */
+    suspend fun erasePending(accessToken: String): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        val pending = settings.drivePendingErase
+        if (pending.isEmpty()) return@withContext 0 to 0
+        val drive = DriveClient(accessToken)
+        val done = ArrayList<String>()
+        var folders = 0
+        var files = 0
+        for (entry in pending) {
+            try {
+                when {
+                    entry.startsWith(ERASE_CLIENT) -> {
+                        val afm = entry.removePrefix(ERASE_CLIENT).filter { it.isDigit() }
+                        if (afm.isNotEmpty()) {
+                            val query = "mimeType = '" + DriveClient.FOLDER_MIME + "' and name contains '" + afm +
+                                "' and trashed = false"
+                            for (folder in drive.list(query).filter { it.name.startsWith(afm) }) {
+                                trashQuietly(drive, folder.id)
+                                folders++
+                            }
+                        }
+                    }
+                    entry.startsWith(ERASE_FILE) -> {
+                        trashQuietly(drive, entry.removePrefix(ERASE_FILE))
+                        files++
+                    }
+                }
+                done += entry
+            } catch (e: Exception) {
+                // Μένει στην ουρά.
+            }
+        }
+        settings.settleDriveErase(done)
+        if (done.isNotEmpty()) {
+            db.audit().log(
+                AuditEntity(
+                    ts = System.currentTimeMillis(),
+                    action = "DRIVE_ERASE",
+                    detail = "$folders φάκελοι πελατών και $files αρχεία στον κάδο του Drive",
+                ),
+            )
+        }
+        done.size to (pending.size - done.size)
+    }
+
+    private fun trashQuietly(drive: DriveClient, id: String) {
+        try {
+            drive.trash(id)
+        } catch (e: DriveClient.DriveFailed) {
+            if (e.code != 404) throw e
+        }
+    }
+
     private data class Tally(val uploaded: Int = 0, val skipped: Int = 0, val failed: Int = 0) {
         operator fun plus(o: Tally) = Tally(uploaded + o.uploaded, skipped + o.skipped, failed + o.failed)
     }
@@ -486,6 +552,10 @@ class DriveSync(
          * διαδρομή του `filesDir`.
          */
         const val REPORT_PREFIX = "@report/"
+
+        /** Οι εγγραφές της ουράς διαγραφών — βλ. [erasePending]. */
+        const val ERASE_CLIENT = "client:"
+        const val ERASE_FILE = "file:"
 
         /**
          * Καθαρίζει μια διαδρομή που πληκτρολόγησε άνθρωπος.

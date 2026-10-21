@@ -365,7 +365,12 @@ fun ClientsScreen(
                         container.repository.deleteClients(selected)
                     }
                     picked.clear()
-                    status = "Διαγράφηκαν $count πελάτες."
+                    status = "Διαγράφηκαν $count πελάτες." +
+                        if (container.settings.drivePendingErase.isNotEmpty()) {
+                            " Οι φάκελοί τους στο Drive πηγαίνουν στον κάδο μόλις υπάρχει σύνδεση."
+                        } else {
+                            ""
+                        }
                 }
             },
             onDeleteDocuments = {

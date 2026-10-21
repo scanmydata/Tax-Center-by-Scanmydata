@@ -349,6 +349,33 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_REQUEST_WATCH_LAST_SUMMARY, "").orEmpty()
         set(v) = prefs.edit().putString(KEY_REQUEST_WATCH_LAST_SUMMARY, v).apply()
 
+    /**
+     * Διαγραφές που χρωστάμε στο Drive: `client:<ΑΦΜ>` (ο φάκελος του πελάτη)
+     * ή `file:<id>` (ένα αρχείο). Γράφονται **πριν** σβηστεί οτιδήποτε στη
+     * συσκευή και φεύγουν μόνο όταν το Drive επιβεβαιώσει — ώστε μια διαγραφή
+     * πελάτη να μη χάνεται επειδή εκείνη τη στιγμή δεν υπήρχε δίκτυο.
+     */
+    val drivePendingErase: Set<String>
+        get() = synchronized(ERASE_LOCK) { prefs.getStringSet(KEY_DRIVE_PENDING_ERASE, emptySet()).orEmpty().toSet() }
+
+    fun queueDriveErase(entries: Collection<String>) {
+        if (entries.isEmpty()) return
+        synchronized(ERASE_LOCK) {
+            val now = prefs.getStringSet(KEY_DRIVE_PENDING_ERASE, emptySet()).orEmpty().toHashSet()
+            now.addAll(entries)
+            prefs.edit().putStringSet(KEY_DRIVE_PENDING_ERASE, now).commit()
+        }
+    }
+
+    fun settleDriveErase(entries: Collection<String>) {
+        if (entries.isEmpty()) return
+        synchronized(ERASE_LOCK) {
+            val now = prefs.getStringSet(KEY_DRIVE_PENDING_ERASE, emptySet()).orEmpty().toHashSet()
+            now.removeAll(entries.toSet())
+            prefs.edit().putStringSet(KEY_DRIVE_PENDING_ERASE, now).commit()
+        }
+    }
+
     private fun longs(key: String): Set<Long> =
         prefs.getStringSet(key, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
 
@@ -356,6 +383,9 @@ class Settings(context: Context) {
         prefs.edit().putStringSet(key, value.map { it.toString() }.toHashSet()).apply()
 
     private companion object {
+        /** Κοινό για όλα τα `Settings`: η ουρά γράφεται από οθόνη και παρασκήνιο. */
+        val ERASE_LOCK = Any()
+        const val KEY_DRIVE_PENDING_ERASE = "drive_pending_erase"
         const val KEY_REQUEST_WATCH_DAILY = "request_watch_daily"
         const val KEY_REQUEST_WATCH_HOUR = "request_watch_hour"
         const val KEY_REQUEST_WATCH_CLIENTS = "request_watch_clients"

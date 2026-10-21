@@ -7,6 +7,8 @@ import gr.scanmydata.taxcenter.data.db.AuditEntity
 import gr.scanmydata.taxcenter.data.db.ClientEntity
 import gr.scanmydata.taxcenter.data.db.TaxCenterDatabase
 import kotlinx.coroutines.flow.Flow
+import gr.scanmydata.taxcenter.google.DriveSync
+import gr.scanmydata.taxcenter.sched.DriveWork
 import java.io.File
 
 /**
@@ -233,6 +235,7 @@ class ClientRepository(
     suspend fun deleteClient(client: ClientEntity) {
         val now = System.currentTimeMillis()
         backupDatabase("delete")
+        queueDriveErase(listOf(client))
         File(context.filesDir, "runs/${client.afm}").deleteRecursively()
         db.clients().hardDelete(client.id) // τα credentials/documents φεύγουν με CASCADE
         db.audit().log(AuditEntity(ts = now, action = "DELETE", afm = client.afm, detail = "οριστική διαγραφή"))
@@ -249,6 +252,7 @@ class ClientRepository(
         if (clients.isEmpty()) return 0
         val now = System.currentTimeMillis()
         backupDatabase("delete-bulk")
+        queueDriveErase(clients)
         for (client in clients) {
             File(context.filesDir, "runs/${client.afm}").deleteRecursively()
             db.clients().hardDelete(client.id)
@@ -273,6 +277,7 @@ class ClientRepository(
         for (client in clients) {
             val documents = db.documents().forClient(client.id)
             if (documents.isEmpty()) continue
+            queueDriveFiles(documents.map { it.relativePath })
             for (document in documents) {
                 File(context.filesDir, document.relativePath).delete()
             }
@@ -287,7 +292,46 @@ class ClientRepository(
                 ),
             )
         }
+        if (removed > 0) DriveWork.erase(context)
         return removed
+    }
+
+    // --------------------------------------------------------------- Drive
+
+    /**
+     * Ό,τι έχει ανέβει στο Drive για αυτούς τους πελάτες μπαίνει στην ουρά
+     * διαγραφής, και η ουρά ξεκινά στο παρασκήνιο μόλις υπάρχει δίκτυο.
+     *
+     * Η διαγραφή του άρθρου 17 δεν είναι πλήρης αν τα έντυπα, οι οφειλές και τα
+     * αιτήματα του πελάτη μένουν στο Drive του γραφείου. Ο φάκελός του πηγαίνει
+     * στον **κάδο** του Drive, που η Google αδειάζει μόνη της σε 30 ημέρες.
+     *
+     * Μπαίνει στην ουρά **πριν** σβηστεί οτιδήποτε τοπικά, και μόνο αν το Drive
+     * έχει χρησιμοποιηθεί ποτέ — αλλιώς δεν υπάρχει τίποτα εκεί να σβηστεί.
+     */
+    private suspend fun queueDriveErase(clients: List<ClientEntity>) {
+        val settings = Settings(context)
+        val used = settings.driveFolderChosen || settings.driveReady || db.driveFiles().all().isNotEmpty()
+        if (!used) return
+        settings.queueDriveErase(clients.filter { it.afm.isNotBlank() }.map { DriveSync.ERASE_CLIENT + it.afm })
+        for (client in clients) {
+            if (client.afm.isBlank()) continue
+            db.driveFiles().removeMatching("runs/" + client.afm + "/%")
+            db.driveFiles().removeMatching(DriveSync.REPORT_PREFIX + "%" + client.afm + "%")
+        }
+        DriveWork.erase(context)
+    }
+
+    /** Για «μόνο τα έγγραφα»: τα συγκεκριμένα αρχεία, όχι όλος ο φάκελος. */
+    private suspend fun queueDriveFiles(paths: List<String>) {
+        val settings = Settings(context)
+        val ids = ArrayList<String>()
+        for (path in paths) {
+            val mapped = db.driveFiles().byPath(path) ?: continue
+            ids += DriveSync.ERASE_FILE + mapped.driveId
+            db.driveFiles().remove(path)
+        }
+        settings.queueDriveErase(ids)
     }
 
     // --------------------------------------------------------------- backup

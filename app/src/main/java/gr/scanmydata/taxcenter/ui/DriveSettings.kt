@@ -180,6 +180,56 @@ internal fun DriveSettings(container: AppContainer, authorizer: GoogleAuthorizer
         settings = settings,
     )
 
+    // Διαγραφές πελατών που δεν έχουν φτάσει ακόμη στο Drive (χωρίς δίκτυο ή
+    // χωρίς άδεια τη στιγμή της διαγραφής). Φαίνονται, και τελειώνουν με ένα πάτημα.
+    val pendingErase = remember(tick) { settings.drivePendingErase.size }
+    if (pendingErase > 0) {
+        Spacer(Modifier.height(8.dp))
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    if (pendingErase == 1) "1 διαγραφή περιμένει το Drive" else "$pendingErase διαγραφές περιμένουν το Drive",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    "Πελάτες ή έγγραφα που σβήστηκαν από τη συσκευή, ενώ τα αντίγραφά τους είναι ακόμη " +
+                        "στο Drive. Γίνεται μόνο του μόλις υπάρχει σύνδεση· αν η Google ζητά ξανά άδεια, " +
+                        "πάτα εδώ.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(6.dp))
+                Button(tone = Tone.DELETE, onClick = {
+                    scope.launch {
+                        workTitle = "Διαγραφή από το Drive"
+                        workSteps = emptyList()
+                        workText = "Οι φάκελοι και τα αρχεία πηγαίνουν στον κάδο του Drive…"
+                        try {
+                            val token = authorizer.accessToken()
+                            val (done, left) = container.driveSync.erasePending(token)
+                            failed = left > 0
+                            message = if (left == 0) {
+                                "Ολοκληρώθηκαν $done διαγραφές στο Drive (στον κάδο, που αδειάζει σε 30 ημέρες)."
+                            } else {
+                                "Ολοκληρώθηκαν $done· $left δεν έγιναν — θα ξαναδοκιμαστούν."
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            failed = true
+                            message = "Απέτυχε: ${e.message}"
+                        } finally {
+                            workTitle = ""
+                            tick++
+                        }
+                    }
+                }) { Text("Ολοκλήρωση τώρα") }
+            }
+        }
+    }
+
     Spacer(Modifier.height(12.dp))
     Text("Τι ανεβαίνει", style = MaterialTheme.typography.titleSmall)
     Spacer(Modifier.height(4.dp))

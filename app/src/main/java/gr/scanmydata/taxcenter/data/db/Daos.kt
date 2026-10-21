@@ -228,6 +228,12 @@ interface DriveFileDao {
     @Query("DELETE FROM drive_files WHERE relativePath = :relativePath")
     suspend fun remove(relativePath: String)
 
+    @Query("SELECT * FROM drive_files WHERE relativePath LIKE :pattern")
+    suspend fun matching(pattern: String): List<DriveFileEntity>
+
+    @Query("DELETE FROM drive_files WHERE relativePath LIKE :pattern")
+    suspend fun removeMatching(pattern: String)
+
     @Query("DELETE FROM drive_files")
     suspend fun clear()
 }

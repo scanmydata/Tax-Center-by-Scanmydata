@@ -1,10 +1,13 @@
 package gr.scanmydata.taxcenter.sched
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -56,7 +59,47 @@ object DriveWork {
         manager.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
+    /**
+     * Η ουρά διαγραφών, **αμέσως** μόλις υπάρχει δίκτυο — χωρίς να περιμένει
+     * το νυχτερινό αντίγραφο. Τρέχει και με το Drive ανενεργό: μια διαγραφή
+     * πελάτη οφείλεται ακόμη κι αν ο λογιστής σταμάτησε να ανεβάζει.
+     */
+    fun erase(context: Context) {
+        val request = OneTimeWorkRequestBuilder<DriveEraseWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(context.applicationContext)
+            .enqueueUniqueWork(WORK_ERASE, ExistingWorkPolicy.REPLACE, request)
+    }
+
+    const val WORK_ERASE = "drive-erase"
+
     private val ZONE = java.time.ZoneId.of("Europe/Athens")
+}
+
+class DriveEraseWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as TaxCenterApp).container
+        if (container.settings.drivePendingErase.isEmpty()) return Result.success()
+        val token = try {
+            GoogleAuthorizer(applicationContext, null, arrayOfNulls(1)).accessToken()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: GoogleAuthorizer.ConsentRequired) {
+            // Χωρίς άνθρωπο δεν δίνεται άδεια· η ουρά μένει, και οι Ρυθμίσεις
+            // δείχνουν «εκκρεμούν διαγραφές» με κουμπί.
+            return Result.success()
+        } catch (e: Exception) {
+            return if (runAttemptCount < 5) Result.retry() else Result.success()
+        }
+        val (_, left) = container.driveSync.erasePending(token)
+        return if (left > 0 && runAttemptCount < 5) Result.retry() else Result.success()
+    }
 }
 
 class DriveWorker(
