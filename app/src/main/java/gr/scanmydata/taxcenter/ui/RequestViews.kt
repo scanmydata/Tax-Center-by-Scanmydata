@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -189,8 +190,9 @@ internal fun RequestCard(
                 Text(
                     when {
                         request.answered -> "ΝΕΑ ΑΠΑΝΤΗΣΗ"
-                        AadeRequests.stage(request.status) == AadeRequests.Kind.WAITING_CLIENT -> "ΘΕΛΕΙ ΕΝΕΡΓΕΙΑ ΤΟΥ ΠΕΛΑΤΗ"
-                        AadeRequests.stage(request.status) == AadeRequests.Kind.PROCESSING -> "ΣΕ ΕΠΕΞΕΡΓΑΣΙΑ"
+                        request.waitingClient && request.ask.isNotBlank() -> "Η ΑΑΔΕ ΖΗΤΑ ΚΑΤΙ ΑΠΟ ΤΟΝ ΠΕΛΑΤΗ"
+                        request.waitingClient -> "ΘΕΛΕΙ ΕΝΕΡΓΕΙΑ ΤΟΥ ΠΕΛΑΤΗ"
+                        AadeRequests.stage(request.status, request.statusCode) == AadeRequests.Kind.PROCESSING -> "ΣΕ ΕΠΕΞΕΡΓΑΣΙΑ"
                         else -> "ΑΛΛΑΓΗ ΚΑΤΑΣΤΑΣΗΣ"
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -226,13 +228,32 @@ internal fun RequestCard(
                         Text(request.topic, style = MaterialTheme.typography.bodySmall, color = dim)
                     }
                 }
-                StatusPill(request)
+                // Σύντομη κατάσταση και όριο πλάτους: η πλήρης («Σε εκκρεμότητα
+                // από τον συναλλασσόμενο») έσπρωχνε τον τίτλο εκτός κάρτας.
+                StatusPill(request, Modifier.widthIn(max = 150.dp))
+            }
+
+            // Το ζητούμενο της ΑΑΔΕ, πάνω από όλα τα υπόλοιπα: είναι ο λόγος που
+            // ανοίγει κανείς την κάρτα.
+            if (request.ask.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                AskBox(request.ask, request.askDate, lines = 3)
             }
 
             Spacer(Modifier.height(10.dp))
             Row {
                 DateCell("Υποβολή", request.submitted, Modifier.weight(1f))
-                DateCell("Ενημέρωση", request.updated, Modifier.weight(1f))
+                DateCell("Τελευταία ενημέρωση", request.updated, Modifier.weight(1f))
+            }
+            if (request.handling.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text("Διεκπεραίωση", style = MaterialTheme.typography.labelSmall, color = dim)
+                Text(
+                    request.handling,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
 
             Spacer(Modifier.height(8.dp))
@@ -283,28 +304,64 @@ private fun DateCell(label: String, raw: String, modifier: Modifier = Modifier) 
  * του θέματος όταν απαντήθηκε, ουδέτερο όσο περιμένει.
  */
 @Composable
-internal fun StatusPill(request: AadeRequests.Request) {
+internal fun StatusPill(request: AadeRequests.Request, modifier: Modifier = Modifier, full: Boolean = false) {
     val color: Color = when {
         request.rejected -> MaterialTheme.colorScheme.error
+        // Θέλει τον πελάτη: το χρώμα που τραβά το μάτι, όχι το «λάθος».
+        request.waitingClient -> MaterialTheme.colorScheme.tertiary
         request.answered -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
     }
     val shape = RoundedCornerShape(50)
     Box(
-        Modifier
+        modifier
             .border(1.dp, color.copy(alpha = 0.7f), shape)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
         Text(
-            when {
-                request.rejected -> "Απορρίφθηκε"
-                request.status.isNotBlank() -> request.status
-                request.answered -> "Απαντημένο"
-                else -> "Σε αναμονή"
+            if (full) {
+                request.status.ifBlank { AadeRequests.statusLabel(request.statusCode) }
+                    .ifBlank { AadeRequests.shortStatus(request) }
+            } else {
+                AadeRequests.shortStatus(request)
             },
             style = MaterialTheme.typography.labelMedium,
             color = color,
+            maxLines = if (full) 3 else 2,
+            overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** «Η ΑΑΔΕ ζητά»: το μήνυμα της ενδιάμεσης επικοινωνίας που περιμένει τον πελάτη. */
+@Composable
+private fun AskBox(text: String, date: String, lines: Int = Int.MAX_VALUE) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Text(
+                "Η ΑΑΔΕ ζητά" + if (date.isBlank()) "" else " · " + AadeRequests.date(date),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Spacer(Modifier.height(2.dp))
+            if (lines == Int.MAX_VALUE) {
+                SelectionContainer {
+                    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+            } else {
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    maxLines = lines,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -411,8 +468,25 @@ internal fun RequestDialog(
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 ) {
                     Spacer(Modifier.height(12.dp))
+                    // Ό,τι ζητά τώρα η ΑΑΔΕ, πριν από οτιδήποτε άλλο.
+                    val ask = detail?.pendingAsk
+                    if (ask != null) {
+                        AskBox(ask.text, RequestDetail.stamp(ask.date))
+                        if (ask.files.isNotEmpty()) {
+                            Text(
+                                "Με συνημμένα: " + ask.files.joinToString(", "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = dim,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    } else if (request.ask.isNotBlank()) {
+                        AskBox(request.ask, request.askDate)
+                        Spacer(Modifier.height(10.dp))
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusPill(request)
+                        StatusPill(request, Modifier.weight(1f, fill = false), full = true)
                         if (detail?.archived == true) {
                             Spacer(Modifier.width(10.dp))
                             Text("αρχειοθετημένο", style = MaterialTheme.typography.labelMedium, color = dim)
@@ -432,10 +506,14 @@ internal fun RequestDialog(
                     }
                     Field("Είδος αιτήματος", request.title)
                     if (request.topic != request.title) Field("Θεματική ενότητα", request.topic)
-                    Field("Υπηρεσία", request.service)
                     Field("Αριθμός υπόθεσης", request.caseNumber)
                     Field("Υποβολή", AadeRequests.date(request.submitted))
                     Field("Τελευταία ενημέρωση", AadeRequests.date(request.updated))
+                    // Η ανάθεση: ποιος το χειρίζεται τώρα. Από το αποθηκευμένο
+                    // αίτημα όταν είναι νεότερο από τη λίστα — βλ. RequestDetail.merge.
+                    Field("Υπηρεσία Διεκπεραίωσης Αιτήματος", request.handlingService)
+                    Field("Τμήμα Υπηρεσίας Διεκπεραίωσης", request.handlingDept.takeIf { it != request.handlingService }.orEmpty())
+                    Field("Υπηρεσία Υποβολής", request.service)
                     Field("Σχετίζεται με το αίτημα", detail?.reference.orEmpty())
 
                     Section("Το αίτημα")
@@ -483,17 +561,23 @@ internal fun RequestDialog(
                         )
 
                         if (detail.thread.isNotEmpty() || detail.threadFiles.isNotEmpty()) {
-                            Section("Μετέπειτα αλληλογραφία")
-                            detail.thread.forEach { note ->
-                                if (note.date.isNotBlank()) {
+                            Section("Ενδιάμεση επικοινωνία")
+                            // Νεότερη πρώτα, με το ποιος μίλησε — όπως η πύλη.
+                            detail.timeline.forEach { note ->
+                                Text(
+                                    note.label + if (note.date.isBlank()) "" else " · " + AadeRequests.date(RequestDetail.stamp(note.date)),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (note.fromAade) MaterialTheme.colorScheme.tertiary else dim,
+                                )
+                                if (note.text.isNotBlank()) Body(note.text)
+                                if (note.files.isNotEmpty()) {
                                     Text(
-                                        AadeRequests.date(note.date),
-                                        style = MaterialTheme.typography.labelSmall,
+                                        "Συνημμένα: " + note.files.joinToString(", "),
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = dim,
                                     )
                                 }
-                                Body(note.text)
-                                Spacer(Modifier.height(6.dp))
+                                Spacer(Modifier.height(8.dp))
                             }
                             Attachments(
                                 title = "",

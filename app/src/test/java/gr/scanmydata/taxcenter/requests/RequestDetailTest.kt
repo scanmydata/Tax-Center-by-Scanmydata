@@ -151,6 +151,79 @@ class RequestDetailTest {
         assertTrue(RequestDetail.parse(sample("null"))!!.thread.isEmpty())
     }
 
+    /**
+     * Το σχήμα που φάνηκε ζωντανά στις 23 Οκτωβρίου 2026 (κείμενα και αριθμοί
+     * συνθετικοί): αίτημα σε κωδικό 4 με ερώτηση της ΑΑΔΕ στην ενδιάμεση επικοινωνία.
+     */
+    private val pendingComm = """
+        [
+          { "id": 501, "messageText": "Προσκομίστε το συμβόλαιο.", "type": "CLAR_REQ",
+            "createdAt": "2026-10-20T09:15:00.000", "messageFiles": [], "isIncoming": 0, "messageId": 4242 },
+          { "id": 500, "messageText": "Στέλνω ξανά την αίτηση.", "type": "CITIZEN",
+            "createdAt": "2026-10-10T08:00:00.000", "messageFiles": [{ "fileId": 9010, "fileName": "αίτηση.pdf" }],
+            "isIncoming": 1, "messageId": 4242 }
+        ]
+    """.trimIndent()
+
+    private val pendingExtra = """, "processGroupText": "ΚΕ.Φ.Ο.ΔΕ. ΔΟΚΙΜΗΣ", "processGroupProtipoTmimaText": "ΤΜΗΜΑ ΕΛΕΓΧΟΥ""""
+
+    @Test
+    fun `η ενδιάμεση επικοινωνία διαβάζεται με τύπο, ημερομηνία και συνημμένα`() {
+        val detail = RequestDetail.parse(sample(pendingComm, pendingExtra).replace("\"messageStatus\": 3", "\"messageStatus\": 4"))!!
+        assertEquals(4, detail.statusCode)
+        assertEquals("ΚΕ.Φ.Ο.ΔΕ. ΔΟΚΙΜΗΣ", detail.handlingService)
+        assertEquals("ΤΜΗΜΑ ΕΛΕΓΧΟΥ", detail.handlingDept)
+        // Νεότερη πρώτα.
+        assertEquals(listOf("CLAR_REQ", "CITIZEN"), detail.timeline.map { it.type })
+        assertTrue(detail.timeline[0].fromAade)
+        assertEquals("Η ΑΑΔΕ ζητά διευκρινίσεις", detail.timeline[0].label)
+        assertEquals(listOf("αίτηση.pdf"), detail.timeline[1].files)
+        // Το ζητούμενο: η ερώτηση της ΑΑΔΕ που δεν έχει απαντηθεί.
+        assertEquals("Προσκομίστε το συμβόλαιο.", detail.pendingAsk?.text)
+        assertEquals("2026-10-20 09:15:00", detail.lastActivity)
+        assertEquals("2|2026-10-20 09:15:00", detail.commSignature)
+    }
+
+    @Test
+    fun `απάντηση του πελάτη μετά την ερώτηση κλείνει το ζητούμενο`() {
+        val answered = pendingComm.replaceFirst(
+            "[",
+            """[ { "id": 502, "messageText": "Το επισυνάπτω.", "type": "CLAR_ANS", "createdAt": "2026-10-21T10:00:00.000", "messageFiles": [] },""",
+        )
+        val detail = RequestDetail.parse(sample(answered).replace("\"messageStatus\": 3", "\"messageStatus\": 2"))!!
+        assertNull(detail.pendingAsk)
+        assertFalse(detail.timeline[0].fromAade)
+    }
+
+    /**
+     * Η λίστα είναι παλαιότερη από το αποθηκευμένο αίτημα (ανανέωση μέσα από
+     * αυτό): η κατάσταση, η ανάθεση και το ζητούμενο έρχονται από το αίτημα, και
+     * η «τελευταία ενημέρωση» είναι η ερώτηση της ΑΑΔΕ — που η λίστα δεν βλέπει.
+     */
+    @Test
+    fun `το αποθηκευμένο αίτημα ενημερώνει τη γραμμή της λίστας`() {
+        val detail = RequestDetail.parse(sample(pendingComm, pendingExtra).replace("\"messageStatus\": 3", "\"messageStatus\": 4"))!!
+        val listed = AadeRequests.Request(
+            id = "4242", status = "Σε επεξεργασία", statusCode = 2, updated = "2026-10-01 10:00:00",
+            handlingService = "ΠΑΛΙΑ ΥΠΗΡΕΣΙΑ",
+        )
+        val older = detail.retrievedAt - 60_000
+        val merged = RequestDetail.merge(listed, detail, listAt = older)
+        assertEquals(4, merged.statusCode)
+        assertEquals("Σε εκκρεμότητα από τον συναλλασσόμενο", merged.status)
+        assertTrue(merged.waitingClient)
+        assertFalse(merged.answered)
+        assertEquals("ΚΕ.Φ.Ο.ΔΕ. ΔΟΚΙΜΗΣ", merged.handlingService)
+        assertEquals("2026-10-20 09:15:00", merged.updated)
+        assertEquals("Προσκομίστε το συμβόλαιο.", merged.ask)
+        assertEquals("Εκκρεμεί ο πελάτης", AadeRequests.shortStatus(merged))
+
+        // Νεότερη λίστα: η κατάσταση μένει της λίστας· η ημερομηνία παίρνει τη νεότερη.
+        val newer = RequestDetail.merge(listed, detail, listAt = detail.retrievedAt + 60_000)
+        assertEquals(2, newer.statusCode)
+        assertEquals("2026-10-20 09:15:00", newer.updated)
+    }
+
     @Test
     fun `ό,τι δεν είναι αίτημα δίνει null και όχι άδειο αίτημα`() {
         assertNull(RequestDetail.parse(""))

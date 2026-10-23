@@ -514,10 +514,12 @@ private fun ClientGroupCard(
                             modifier = Modifier.weight(1f).padding(end = 8.dp),
                         )
                         Text(
-                            statusOf(row.request),
+                            AadeRequests.shortStatus(row.request),
                             style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
                             color = when {
                                 row.request.rejected -> MaterialTheme.colorScheme.error
+                                row.request.waitingClient -> MaterialTheme.colorScheme.tertiary
                                 row.request.answered -> MaterialTheme.colorScheme.primary
                                 else -> dim
                             },
@@ -559,12 +561,6 @@ private fun ClientGroupCard(
 private const val LINES = 4
 
 /** Η κατάσταση με τα λόγια της πύλης — ίδιος κανόνας με το [StatusPill]. */
-private fun statusOf(request: AadeRequests.Request): String = when {
-    request.rejected -> "Απορρίφθηκε"
-    request.status.isNotBlank() -> request.status
-    request.answered -> "Απαντημένο"
-    else -> "Σε αναμονή"
-}
 
 // ------------------------------------------------------------- ο έλεγχος
 

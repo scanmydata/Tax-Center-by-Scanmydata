@@ -120,7 +120,10 @@ object RequestBoard {
         val fresh: Int get() = rows.count { it.fresh }
         val rejected: Int get() = rows.count { it.request.rejected }
         val answered: Int get() = rows.count { !it.request.rejected && it.request.answered }
-        val waiting: Int get() = rows.count { !it.request.rejected && !it.request.answered }
+        val waiting: Int get() = rows.count { !it.request.rejected && !it.request.answered && !it.request.waitingClient }
+
+        /** Περιμένουν τον πελάτη (η ΑΑΔΕ ζήτησε κάτι). */
+        val client: Int get() = rows.count { !it.request.rejected && it.request.waitingClient }
 
         /** Πότε κινήθηκε τελευταία φορά οποιοδήποτε αίτημά του. */
         val updated: String get() = rows.maxOfOrNull { updated(it) }.orEmpty()
@@ -134,6 +137,7 @@ object RequestBoard {
          */
         val statuses: String
             get() = listOfNotNull(
+                when (client) { 0 -> null; 1 -> "1 θέλει ενέργεια του πελάτη"; else -> "$client θέλουν ενέργεια του πελάτη" },
                 when (waiting) { 0 -> null; else -> "$waiting σε αναμονή" },
                 when (rejected) { 0 -> null; 1 -> "1 απορρίφθηκε"; else -> "$rejected απορρίφθηκαν" },
                 when (answered) { 0 -> null; 1 -> "1 απαντημένο"; else -> "$answered απαντημένα" },

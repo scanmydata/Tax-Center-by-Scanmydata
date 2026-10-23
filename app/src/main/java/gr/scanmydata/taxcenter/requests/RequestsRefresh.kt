@@ -64,6 +64,8 @@ object RequestsRefresh {
         val message: String = "",
         /** Πόσα αιτήματα αποθηκεύτηκαν ολόκληρα σε αυτή την εκτέλεση. */
         val saved: Int = 0,
+        /** Αιτήματα με νέο μήνυμα της ΑΑΔΕ στην ενδιάμεση επικοινωνία. */
+        val messages: List<String> = emptyList(),
     ) {
         val answered: Int get() = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
     }
@@ -129,18 +131,35 @@ object RequestsRefresh {
         // Η λίστα διαβάστηκε. Ό,τι ακολουθεί είναι επιπλέον: αν δεν γίνει, ο
         // έλεγχος **πέτυχε** — απλώς κάποια αιτήματα δεν ανοίγουν ακόμη χωρίς
         // σύνδεση, και το μήνυμα το λέει.
+        //
+        // Και τα **ανοιχτά** αιτήματα, κάθε φορά: η ΑΑΔΕ στέλνει ερώτηση ή αλλάζει
+        // ανάθεση χωρίς να αλλάξει τίποτα στη λίστα, και αυτό φαίνεται μόνο στο
+        // ίδιο το αίτημα. Τα συνημμένα που υπάρχουν ήδη δεν ξανακατεβαίνουν.
+        val open = if (details == Details.NONE) emptyList() else withContext(Dispatchers.IO) {
+            RequestsStore.openIds(filesDir, client.afm)
+        }
         val ids = when (details) {
             Details.NONE -> emptyList()
-            Details.CHANGED -> changes.map { it.request.id }.distinct().take(RequestDetail.MAX_BATCH)
-            Details.MISSING -> withContext(Dispatchers.IO) { RequestsStore.wanted(filesDir, client.afm) }
-        }
+            Details.CHANGED -> changes.map { it.request.id } + open
+            Details.MISSING -> withContext(Dispatchers.IO) { RequestsStore.wanted(filesDir, client.afm) } + open
+        }.distinct().take(RequestDetail.MAX_BATCH)
         if (ids.isEmpty()) return Result(Outcome.OK, changes, describe(changes))
 
         val full = fetchDetails(filesDir, fetch, repository, client, ids, ownsBatch)
+        // Νέο μήνυμα της ΑΑΔΕ — εκτός αν το ίδιο αίτημα έχει ήδη αλλαγή από τη
+        // λίστα (συνήθως «σε εκκρεμότητα»): μία ειδοποίηση ανά αίτημα.
+        val already = changes.map { it.request.id }.toSet()
+        val messages = withContext(Dispatchers.IO) {
+            full.messages.filter { it !in already }
+                .mapNotNull { id -> RequestsStore.listed(filesDir, client.afm, id) }
+                .map { AadeRequests.Change(it, AadeRequests.Kind.MESSAGE) }
+        }
+        if (messages.isNotEmpty()) settings.requestWatchFresh = settings.requestWatchFresh + client.id
+        val all = changes + messages
         return Result(
             Outcome.OK,
-            changes,
-            message = (describe(changes) + " " + when {
+            all,
+            message = (describe(all) + " " + when {
                 full.outcome != Outcome.OK ->
                     "Τα πλήρη αιτήματα δεν κατέβηκαν (" + full.message.trimEnd('.') + ") — πάτα ξανά «Έλεγχος»."
                 full.saved == ids.size -> saved(full.saved)
@@ -215,21 +234,25 @@ object RequestsRefresh {
                 message = item?.detail.orEmpty().ifBlank { "Η λήψη του αιτήματος δεν ολοκληρώθηκε." },
             )
         }
-        val saved = withContext(Dispatchers.IO) { RequestsStore.markDetailed(filesDir, client.afm, ids, since) }
-        return Result(Outcome.OK, saved = saved)
+        val (saved, messages) = withContext(Dispatchers.IO) {
+            RequestsStore.markDetailedWithMessages(filesDir, client.afm, ids, since)
+        }
+        return Result(Outcome.OK, saved = saved, messages = messages)
     }
 
     fun describe(changes: List<AadeRequests.Change>): String {
         val answered = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
         val waiting = changes.count { it.kind == AadeRequests.Kind.WAITING_CLIENT }
         val processing = changes.count { it.kind == AadeRequests.Kind.PROCESSING }
-        val moved = changes.size - answered - waiting - processing
+        val messages = changes.count { it.kind == AadeRequests.Kind.MESSAGE }
+        val moved = changes.size - answered - waiting - processing - messages
         return when {
             changes.isEmpty() -> "Ενημερώθηκε — καμία αλλαγή από την προηγούμενη φορά."
             else -> buildString {
                 append("Ενημερώθηκε — ")
                 val parts = ArrayList<String>()
                 if (answered > 0) parts += if (answered == 1) "1 νέα απάντηση" else "$answered νέες απαντήσεις"
+                if (messages > 0) parts += if (messages == 1) "1 νέο μήνυμα της ΑΑΔΕ" else "$messages νέα μηνύματα της ΑΑΔΕ"
                 if (waiting > 0) parts += if (waiting == 1) "1 σε εκκρεμότητα από τον πελάτη" else "$waiting σε εκκρεμότητα από τον πελάτη"
                 if (processing > 0) parts += if (processing == 1) "1 μπήκε σε επεξεργασία" else "$processing μπήκαν σε επεξεργασία"
                 if (moved > 0) parts += if (moved == 1) "1 αλλαγή κατάστασης" else "$moved αλλαγές κατάστασης"

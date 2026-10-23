@@ -42,11 +42,15 @@ object RequestsStore {
      *   διαφέρει από το τωρινό, το αποθηκευμένο αίτημα είναι παλαιότερο από τη
      *   λίστα. Αποτύπωμα και όχι ημερομηνία: η σύγκριση δεν πρέπει να εξαρτάται
      *   από το ρολόι της συσκευής ή τη ζώνη ώρας της πύλης.
+     * @param comm `id -> αποτύπωμα της ενδιάμεσης επικοινωνίας` (βλ.
+     *   [RequestDetail.Detail.commSignature]) την τελευταία φορά που κατέβηκε. Η
+     *   λίστα δεν αλλάζει όταν η ΑΑΔΕ στέλνει ερώτηση· μόνο έτσι φαίνεται.
      */
     internal data class State(
         val known: Map<String, String>? = null,
         val fresh: Set<String> = emptySet(),
         val detailed: Map<String, String> = emptyMap(),
+        val comm: Map<String, String> = emptyMap(),
     )
 
     data class Snapshot(
@@ -76,9 +80,13 @@ object RequestsStore {
         val requests = AadeRequests.parse(json)
         val state = state(dir)
         val have = saved(filesDir, afm)
+        val listAt = file.lastModified()
         return Snapshot(
-            requests = requests.orEmpty(),
-            at = file.lastModified(),
+            // Κάθε γραμμή με ό,τι νεότερο ξέρει το αποθηκευμένο αίτημα — βλ. [RequestDetail.merge].
+            requests = requests.orEmpty()
+                .map { r -> if (r.id in have) RequestDetail.merge(r, detail(filesDir, afm, r.id), listAt) else r }
+                .sortedByDescending { it.updated.ifBlank { it.submitted } },
+            at = listAt,
             fresh = state.fresh,
             error = if (requests == null) AadeRequests.error(json).ifBlank { "δεν διαβάστηκαν" } else "",
             saved = have,
@@ -161,26 +169,75 @@ object RequestsStore {
      * αίτημα που η πύλη δεν έδωσε δεν πρέπει να περάσει για αποθηκευμένο.
      * Επιστρέφει πόσα σημειώθηκαν.
      */
-    fun markDetailed(filesDir: File, afm: String, ids: Collection<String>, since: Long): Int {
-        if (afm.isBlank() || ids.isEmpty()) return 0
+    fun markDetailed(filesDir: File, afm: String, ids: Collection<String>, since: Long): Int =
+        markDetailedWithMessages(filesDir, afm, ids, since).first
+
+    /**
+     * Όπως το [markDetailed], και επιπλέον: ποια από τα αιτήματα έχουν **νέο
+     * μήνυμα της ΑΑΔΕ** στην ενδιάμεση επικοινωνία από την προηγούμενη λήψη.
+     *
+     * Η πρώτη λήψη ενός αιτήματος δεν αναφέρει τίποτα — όπως και ο πρώτος
+     * έλεγχος της λίστας. Το αποτύπωμα γράφεται και όταν η λήψη έγινε με το
+     * χέρι (ανανέωση μέσα από το αίτημα): ό,τι είδε ο λογιστής δεν ξαναέρχεται
+     * ως ειδοποίηση.
+     */
+    fun markDetailedWithMessages(
+        filesDir: File,
+        afm: String,
+        ids: Collection<String>,
+        since: Long,
+    ): Pair<Int, List<String>> {
+        if (afm.isBlank() || ids.isEmpty()) return 0 to emptyList()
         val dir = dir(filesDir, afm)
-        val file = newest(dir) ?: return 0
-        val stamps = AadeRequests.stamps(AadeRequests.parse(read(file)) ?: return 0)
+        val file = newest(dir) ?: return 0 to emptyList()
+        val stamps = AadeRequests.stamps(AadeRequests.parse(read(file)) ?: return 0 to emptyList())
         val folder = detailDir(filesDir, afm)
         val done = ids.filter { id ->
             val json = File(folder, RequestDetail.fileName(id))
             // Ένα δευτερόλεπτο ανοχή: κάποια συστήματα αρχείων στρογγυλεύουν την ώρα.
             json.isFile && json.lastModified() >= since - 1_000L && id in stamps
         }
-        if (done.isEmpty()) return 0
+        if (done.isEmpty()) return 0 to emptyList()
         val state = state(dir)
         // Χωρίς μνήμη της λίστας δεν γράφουμε τίποτα: ένα αρχείο κατάστασης με
         // άδεια «γνωστά» θα έκανε τον επόμενο έλεγχο να δει κάθε απαντημένο
         // αίτημα ως καινούργιο.
-        if (state.known == null) return 0
-        save(dir, state.copy(detailed = state.detailed + done.associateWith { stamps.getValue(it) }))
-        return done.size
+        if (state.known == null) return 0 to emptyList()
+        val signatures = HashMap<String, String>()
+        val messages = ArrayList<String>()
+        for (id in done) {
+            val detail = detail(filesDir, afm, id) ?: continue
+            val now = detail.commSignature
+            signatures[id] = now
+            val before = state.comm[id]
+            // Νέο μόνο όταν **ξέραμε** την προηγούμενη επικοινωνία, άλλαξε, και
+            // το νεότερο είναι της ΑΑΔΕ — μια απάντηση του πελάτη δεν είναι είδηση.
+            if (before != null && before != now && detail.timeline.firstOrNull()?.fromAade == true) messages += id
+        }
+        save(
+            dir,
+            state.copy(
+                detailed = state.detailed + done.associateWith { stamps.getValue(it) },
+                comm = state.comm + signatures,
+                fresh = state.fresh + messages,
+            ),
+        )
+        return done.size to messages
     }
+
+    /**
+     * Τα **ανοιχτά** αιτήματα της λίστας ([AadeRequests.open]) — αυτά στα οποία
+     * μπορεί να έρθει ερώτηση της ΑΑΔΕ χωρίς να αλλάξει τίποτα στη λίστα.
+     */
+    fun openIds(filesDir: File, afm: String, limit: Int = RequestDetail.MAX_BATCH): List<String> {
+        if (afm.isBlank()) return emptyList()
+        val file = newest(dir(filesDir, afm)) ?: return emptyList()
+        return AadeRequests.parse(read(file)).orEmpty().filter(AadeRequests::open).map { it.id }.take(limit)
+    }
+
+    /** Η γραμμή της λίστας για το [id] — για τις ειδοποιήσεις νέου μηνύματος. */
+    fun listed(filesDir: File, afm: String, id: String): AadeRequests.Request? =
+        load(filesDir, afm).requests.firstOrNull { it.id == id }
 
     /**
      * Το αρχείο ενός συνημμένου, ή `null` όταν δεν υπάρχει στη συσκευή.
@@ -236,10 +293,12 @@ object RequestsStore {
         val fresh = o.optJSONArray("fresh") ?: JSONArray()
         // Τα αρχεία των προηγούμενων εκδόσεων δεν έχουν «detailed»: κενό, όχι σφάλμα.
         val detailed = o.optJSONObject("detailed") ?: JSONObject()
+        val comm = o.optJSONObject("comm") ?: JSONObject()
         return State(
             known = known.keys().asSequence().associateWith { known.optString(it) },
             fresh = (0 until fresh.length()).map { fresh.optString(it) }.filter { it.isNotBlank() }.toSet(),
             detailed = detailed.keys().asSequence().associateWith { detailed.optString(it) },
+            comm = comm.keys().asSequence().associateWith { comm.optString(it) },
         )
     }
 
@@ -247,6 +306,7 @@ object RequestsStore {
         .put("known", JSONObject().apply { state.known.orEmpty().forEach { (id, stamp) -> put(id, stamp) } })
         .put("fresh", JSONArray().apply { state.fresh.forEach { put(it) } })
         .put("detailed", JSONObject().apply { state.detailed.forEach { (id, stamp) -> put(id, stamp) } })
+        .put("comm", JSONObject().apply { state.comm.forEach { (id, sig) -> put(id, sig) } })
         .toString()
 
     /** Ο φάκελος όπου γράφει το `ProcessRunner` — ίδιος κανόνας ονομάτων. */

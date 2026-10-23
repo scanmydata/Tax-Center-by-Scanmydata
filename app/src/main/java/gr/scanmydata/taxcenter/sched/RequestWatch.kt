@@ -142,17 +142,21 @@ object RequestWatch {
         val waiting: Int = 0,
         /** Μπήκαν «σε επεξεργασία». */
         val processing: Int = 0,
+        /** Νέο μήνυμα της ΑΑΔΕ στην ενδιάμεση επικοινωνία, χωρίς αλλαγή κατάστασης. */
+        val messages: Int = 0,
     ) {
         fun toArray(): IntArray =
-            intArrayOf(checked, answered, moved, clients, failed, dropped, skipped, waiting, processing)
+            intArrayOf(checked, answered, moved, clients, failed, dropped, skipped, waiting, processing, messages)
 
         /** Υπάρχει κάτι που αξίζει ειδοποίηση; */
-        val news: Boolean get() = answered > 0 || moved > 0 || waiting > 0 || processing > 0
+        val news: Boolean get() = answered > 0 || moved > 0 || waiting > 0 || processing > 0 || messages > 0
 
         /** Ο τίτλος της ειδοποίησης: το πιο επείγον πρώτο. */
         fun headline(): String = when {
             answered == 1 -> "Απαντήθηκε 1 αίτημα ΑΑΔΕ"
             answered > 1 -> "Απαντήθηκαν $answered αιτήματα ΑΑΔΕ"
+            messages == 1 -> "Νέο μήνυμα της ΑΑΔΕ σε αίτημα"
+            messages > 1 -> "Νέα μηνύματα της ΑΑΔΕ σε $messages αιτήματα"
             waiting == 1 -> "Αίτημα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη"
             waiting > 1 -> "$waiting αιτήματα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη"
             processing == 1 -> "Αίτημα ΑΑΔΕ μπήκε σε επεξεργασία"
@@ -170,6 +174,9 @@ object RequestWatch {
                 },
             )
             if (news) append(if (clients == 1) " σε 1 πελάτη" else " σε $clients πελάτες")
+            if (messages > 0) {
+                append(if (messages == 1) " · 1 νέο μήνυμα της ΑΑΔΕ" else " · $messages νέα μηνύματα της ΑΑΔΕ")
+            }
             if (waiting > 0) {
                 append(if (waiting == 1) " · 1 σε εκκρεμότητα από τον πελάτη" else " · $waiting σε εκκρεμότητα από τον πελάτη")
             }
@@ -189,7 +196,7 @@ object RequestWatch {
                 if (raw == null || raw.size < 7) Tally()
                 else Tally(
                     raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6],
-                    raw.getOrElse(7) { 0 }, raw.getOrElse(8) { 0 },
+                    raw.getOrElse(7) { 0 }, raw.getOrElse(8) { 0 }, raw.getOrElse(9) { 0 },
                 )
         }
     }

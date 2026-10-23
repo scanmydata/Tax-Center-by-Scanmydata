@@ -44,14 +44,44 @@ object AadeRequests {
         /** Θεματική ενότητα και διαδικασία — «για ποιο πράγμα» είναι το αίτημα. */
         val topic: String = "",
         val process: String = "",
-        /** Η υπηρεσία που το χειρίζεται. */
+        /** Η υπηρεσία **υποβολής** («Υπηρεσία Υποβολής Αιτήματος» · τμήμα). */
         val service: String = "",
         val text: String = "",
         val answer: String = "",
         val rejected: Boolean = false,
+        /**
+         * Η **ανάθεση**: «Υπηρεσία Διεκπεραίωσης Αιτήματος» και «Τμήμα Υπηρεσίας
+         * Διεκπεραίωσης», όπως τα ονομάζει η πύλη. Άλλο από την υπηρεσία
+         * υποβολής, και αλλάζει όσο το αίτημα προχωρά.
+         */
+        val handlingService: String = "",
+        val handlingDept: String = "",
+        /**
+         * Τι ζητά η ΑΑΔΕ από τον πελάτη, από την ενδιάμεση επικοινωνία — κενό
+         * όταν δεν εκκρεμεί τίποτα. Συμπληρώνεται από το αποθηκευμένο αίτημα
+         * ([RequestDetail.merge]), γιατί η λίστα δεν το έχει.
+         */
+        val ask: String = "",
+        val askDate: String = "",
     ) {
+        /**
+         * Απάντησε η **ΑΑΔΕ**; Από τον κωδικό της πύλης όπου υπάρχει (3 =
+         * απαντημένο). Η λέξη «Απαντημένο» δεν αρκεί: την ίδια λέξη δείχνει η
+         * πύλη και όταν απάντησε **ο πελάτης** σε εκκρεμότητα.
+         */
         val answered: Boolean
-            get() = answer.isNotBlank() || fold(status).startsWith("απαντ")
+            get() = if (statusCode != 0) {
+                statusCode == STATUS_ANSWERED
+            } else {
+                answer.isNotBlank() || fold(status).startsWith("απαντ")
+            }
+
+        /** Περιμένει ενέργεια του πελάτη (κωδικός 4). */
+        val waitingClient: Boolean get() = stage(status, statusCode) == Kind.WAITING_CLIENT
+
+        /** Η ανάθεση σε μία γραμμή. */
+        val handling: String
+            get() = listOf(handlingService, handlingDept).filter { it.isNotBlank() }.distinct().joinToString(" · ")
 
         /** Η γραμμή που ονομάζει το αίτημα σε λίστα. */
         val title: String
@@ -84,7 +114,57 @@ object AadeRequests {
      *    αίτημα δεν προχωρά — και συχνά έχει προθεσμία.
      *  * [PROCESSING] — «Σε επεξεργασία»: κάποιος το ανέλαβε.
      */
-    enum class Kind { ANSWERED, STATUS, PROCESSING, WAITING_CLIENT }
+    enum class Kind { ANSWERED, STATUS, PROCESSING, WAITING_CLIENT, MESSAGE }
+
+    // Οι κωδικοί κατάστασης, όπως τους ορίζει το ίδιο το SPA της πύλης
+    // (eticketaade, πίνακας `*_STATUS_CODE` — επαληθεύτηκε 23 Οκτ 2026).
+    const val STATUS_SENT = 1
+    const val STATUS_PROCESSING = 2
+    const val STATUS_ANSWERED = 3
+    const val STATUS_CLIENT_PENDING = 4
+    const val STATUS_REVOKED = 5
+    const val STATUS_REVIEW = 6
+    const val STATUS_SENT_FOR_REVOCATION = 7
+    const val STATUS_REJECTED = 8
+    const val STATUS_ARCHIVED = 10
+
+    /** Τα κείμενα της πύλης για κάθε κωδικό — όταν το αίτημα έχει μόνο τον αριθμό. */
+    fun statusLabel(code: Int): String = when (code) {
+        STATUS_SENT -> "Απεσταλμένο"
+        STATUS_PROCESSING -> "Σε επεξεργασία"
+        STATUS_ANSWERED -> "Απαντημένο"
+        STATUS_CLIENT_PENDING -> "Σε εκκρεμότητα από τον συναλλασσόμενο"
+        STATUS_REVOKED -> "Ανακλήθηκε"
+        STATUS_REVIEW -> "Επανεξέταση"
+        STATUS_SENT_FOR_REVOCATION -> "Αίτηση ανάκλησης"
+        STATUS_REJECTED -> "Απορρίφθηκε"
+        STATUS_ARCHIVED -> "Αρχειοθετήθηκε – Άνευ ενέργειας"
+        else -> ""
+    }
+
+    /**
+     * Η κατάσταση **σύντομα**, για κάρτες και γραμμές λίστας. Το «Σε εκκρεμότητα
+     * από τον συναλλασσόμενο» δεν χωρά δίπλα σε έναν τίτλο σε τηλέφωνο — και
+     * έσπαγε την κάρτα. Ολόκληρο φαίνεται μέσα στο αίτημα.
+     */
+    fun shortStatus(request: Request): String = when {
+        request.rejected || request.statusCode == STATUS_REJECTED -> "Απορρίφθηκε"
+        request.waitingClient -> "Εκκρεμεί ο πελάτης"
+        request.statusCode == STATUS_ARCHIVED -> "Αρχειοθετήθηκε"
+        request.statusCode == STATUS_SENT_FOR_REVOCATION -> "Ανάκληση"
+        request.status.isNotBlank() && request.status.length <= 22 -> request.status
+        request.statusCode != 0 && statusLabel(request.statusCode).length <= 22 -> statusLabel(request.statusCode)
+        request.answered -> "Απαντημένο"
+        request.status.isNotBlank() -> request.status.take(20).trimEnd() + "…"
+        else -> "Σε αναμονή"
+    }
+
+    /** Ανοιχτό αίτημα: μπορεί ακόμη να έρθει απάντηση ή ερώτηση της ΑΑΔΕ. */
+    fun open(request: Request): Boolean = when (request.statusCode) {
+        STATUS_SENT, STATUS_PROCESSING, STATUS_CLIENT_PENDING, STATUS_REVIEW, STATUS_SENT_FOR_REVOCATION -> true
+        0 -> !request.answered && !request.rejected
+        else -> false
+    }
 
     /**
      * Η κατάσταση ως [Kind], όταν είναι μία από τις δύο που ονομάζονται ρητά.
@@ -93,7 +173,13 @@ object AadeRequests {
      * ζωντανά μόνο για «απαντημένο», ενώ το κείμενο το γράφει η πύλη με τον
      * ίδιο τρόπο που το βλέπει ο χρήστης.
      */
-    fun stage(status: String): Kind? {
+    fun stage(status: String, code: Int = 0): Kind? {
+        when (code) {
+            STATUS_CLIENT_PENDING -> return Kind.WAITING_CLIENT
+            STATUS_PROCESSING -> return Kind.PROCESSING
+            0 -> Unit
+            else -> return null
+        }
         val f = fold(status)
         return when {
             f.contains("εκκρεμ") && f.contains("συναλλασσ") -> Kind.WAITING_CLIENT
@@ -145,6 +231,8 @@ object AadeRequests {
         text = text(o, "messageText"),
         answer = text(o, "answerText"),
         rejected = o.optBoolean("rejected", false),
+        handlingService = text(o, "processGroupText"),
+        handlingDept = text(o, "idSubDepartmentAitimatosText").ifBlank { text(o, "processGroupProtipoTmimaText") },
     )
 
     /**
@@ -171,8 +259,9 @@ object AadeRequests {
                     out += Change(request, Kind.ANSWERED)
                 // Μπήκε τώρα σε επεξεργασία ή σε εκκρεμότητα από τον πελάτη —
                 // και όταν το αίτημα εμφανίζεται πρώτη φορά ήδη έτσι.
-                stage(request.status) != null && (before == null || statusOf(before) != fold(request.status)) ->
-                    out += Change(request, stage(request.status)!!)
+                stage(request.status, request.statusCode) != null &&
+                    (before == null || statusOf(before) != fold(request.status)) ->
+                    out += Change(request, stage(request.status, request.statusCode)!!)
                 // Απαντημένο και πριν, με την ίδια απάντηση: άλλαξε μόνο η
                 // κατάσταση (π.χ. έκλεισε). Και αυτό το θέλει ο λογιστής.
                 before != null -> out += Change(request, Kind.STATUS)

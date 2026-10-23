@@ -156,7 +156,7 @@ class AadeRequestsTest {
     @Test
     fun `σε επεξεργασία και σε εκκρεμότητα από τον συναλλασσόμενο ονομάζονται`() {
         assertEquals(Kind.PROCESSING, diff(stamps(item(1, "Υποβληθέν", 1)), pending).single().kind)
-        val waiting = item(1, "Σε εκκρεμότητα από τον συναλλασσόμενο", 5)
+        val waiting = item(1, "Σε εκκρεμότητα από τον συναλλασσόμενο", 4)
         assertEquals(Kind.WAITING_CLIENT, diff(stamps(pending), waiting).single().kind)
         // Και ξανά, όταν επιστρέψει σε επεξεργασία και ξαναζητηθεί κάτι.
         assertEquals(Kind.PROCESSING, diff(stamps(waiting), pending).single().kind)
@@ -164,11 +164,37 @@ class AadeRequestsTest {
         // Νέο αίτημα που εμφανίζεται ήδη σε εκκρεμότητα: κι αυτό είναι είδηση.
         assertEquals(
             Kind.WAITING_CLIENT,
-            diff(stamps(answered), answered, item(2, "Σε εκκρεμότητα από τον συναλλασσόμενο", 5)).single().kind,
+            diff(stamps(answered), answered, item(2, "Σε εκκρεμότητα από τον συναλλασσόμενο", 4)).single().kind,
         )
         // Ίδια κατάσταση, μόνο απόρριψη: απλή αλλαγή, όχι ξανά «σε επεξεργασία».
         assertEquals(Kind.STATUS, diff(stamps(pending), item(1, "Σε επεξεργασία", 2, rejected = true)).single().kind)
         assertEquals(null, AadeRequests.stage("Απαντημένο"))
+    }
+
+    @Test
+    fun `η κατάσταση κρίνεται από τον κωδικό της πύλης`() {
+        val waiting = AadeRequests.Request(id = "1", status = "Σε εκκρεμότητα από τον συναλλασσόμενο", statusCode = 4)
+        assertTrue(waiting.waitingClient)
+        assertFalse(waiting.answered)
+        assertTrue(AadeRequests.open(waiting))
+        // Ο κωδικός μετρά πάνω από τη λέξη.
+        assertFalse(AadeRequests.Request(id = "2", status = "Απαντημένο", statusCode = 4).answered)
+        assertTrue(AadeRequests.Request(id = "3", status = "Απαντημένο", statusCode = 3).answered)
+        assertFalse(AadeRequests.open(AadeRequests.Request(id = "3", status = "Απαντημένο", statusCode = 3)))
+        assertEquals("Σε εκκρεμότητα από τον συναλλασσόμενο", AadeRequests.statusLabel(4))
+        assertEquals(Kind.WAITING_CLIENT, AadeRequests.stage("οτιδήποτε", 4))
+        assertEquals(null, AadeRequests.stage("Σε επεξεργασία", 3))
+        // Η σύντομη μορφή χωρά σε κάρτα.
+        assertTrue(AadeRequests.shortStatus(waiting).length <= 22)
+    }
+
+    @Test
+    fun `νέο μήνυμα της ΑΑΔΕ έρχεται πρώτο στην ειδοποίηση`() {
+        assertEquals("Νέο μήνυμα της ΑΑΔΕ σε αίτημα", RequestWatch.Tally(checked = 1, messages = 1, waiting = 1, clients = 1).headline())
+        val full = RequestWatch.Tally(1, 0, 0, 1, 0, 0, 0, 0, 0, 2)
+        assertEquals(full, RequestWatch.Tally.of(full.toArray()))
+        // Πίνακας παλαιότερης έκδοσης (9 θέσεις) διαβάζεται χωρίς μηνύματα.
+        assertEquals(0, RequestWatch.Tally.of(IntArray(9) { 1 }).messages)
     }
 
     @Test
@@ -190,8 +216,8 @@ class AadeRequestsTest {
 
     @Test
     fun `αλλαγή κατάστασης χωρίς απάντηση είναι αλλαγή, όχι απάντηση`() {
-        assertEquals(Kind.STATUS, diff(stamps(item(1, "Υποβληθέν", 1)), item(1, "Ελέγχεται", 2)).single().kind)
-        val closed = item(1, "Ολοκληρωμένο", 4, answer = "Η δήλωσή σας εκκαθαρίστηκε.")
+        assertEquals(Kind.STATUS, diff(stamps(item(1, "Υποβληθέν", 1)), item(1, "Επανεξέταση", 6)).single().kind)
+        val closed = item(1, "Αρχειοθετήθηκε – Άνευ ενέργειας", 10, answer = "Η δήλωσή σας εκκαθαρίστηκε.")
         assertEquals(Kind.STATUS, diff(stamps(answered), closed).single().kind)
         val rejected = item(1, "Σε επεξεργασία", 2, rejected = true)
         assertEquals(Kind.STATUS, diff(stamps(pending), rejected).single().kind)

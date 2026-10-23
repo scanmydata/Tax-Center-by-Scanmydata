@@ -137,7 +137,9 @@ class RequestWatchWorker(
                         val moved = result.changes.count { it.kind == AadeRequests.Kind.STATUS }
                         val waiting = result.changes.count { it.kind == AadeRequests.Kind.WAITING_CLIENT }
                         val processing = result.changes.count { it.kind == AadeRequests.Kind.PROCESSING }
+                        val messages = result.changes.count { it.kind == AadeRequests.Kind.MESSAGE }
                         tally.copy(
+                            messages = tally.messages + messages,
                             checked = tally.checked + 1,
                             answered = tally.answered + answered,
                             moved = tally.moved + moved,

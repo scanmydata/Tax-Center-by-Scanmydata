@@ -18,6 +18,13 @@
  * Γι' αυτό σώζεται ΑΥΤΟΥΣΙΟ, και τα αρχεία του εντοπίζονται γενικά: κάθε αντικείμενο με
  * fileId + fileName, σε οποιοδήποτε βάθος.
  *
+ * Ενδιάμεση επικοινωνία (ζωντανά, 23 Οκτ 2026): [{ id, messageText, type, createdAt,
+ * messageFiles[], isIncoming, messageId }] με type CLAR_REQ (η ΑΑΔΕ ζητά διευκρινίσεις),
+ * CLAR_ANS (απάντηση σε αυτές), CITIZEN (πρωτοβουλία πολίτη), PREVIOUS_ANSWER.
+ *
+ * Συνημμένο που υπάρχει ήδη στον φάκελο με το ίδιο μέγεθος ΔΕΝ ξανακατεβαίνει: ο
+ * έλεγχος ξαναδιαβάζει τα ανοιχτά αιτήματα κάθε φορά, και κάποια συνημμένα είναι MB.
+ *
  * INPUTS: TAXISnet user/pass + id (messageId· πολλά με κόμμα) (+ files=0 για μόνο κείμενο).
  * OUTPUT: AITIMA_<id>.json  + AITIMA_<id>_<fileId>_<όνομα> ανά συνημμένο.
  */
@@ -67,6 +74,8 @@ module.exports = {
       const files = this.filesOf(detail.messageFiles, null).concat(this.filesOf(comm, 'commFile'));
       for (const f of files) {
         if (!saveFiles) continue;
+        const kept = this.already(http, id, f);
+        if (kept) { f.savedFile = kept; f.bytes = Number(f.fileSize); f.reused = true; written.push(kept); continue; }
         try {
           const got = await this.download(http, API + '/downloadFile/' + f.fileId);
           if (!got.buffer || !got.buffer.length) { f.error = 'HTTP ' + got.status; http.log('[request] file ' + f.fileId + ' -> ' + got.status); continue; }
@@ -99,6 +108,24 @@ module.exports = {
     }
     for (const k of Object.keys(node)) this.filesOf(node[k], origin, out, depth + 1);
     return out;
+  },
+
+  // Το όνομα που θα είχε το συνημμένο αν είχε ήδη κατέβει, όταν υπάρχει με το ίδιο μέγεθος.
+  // Χωρίς readdir (δεν το έχει το κινητό): δοκιμάζει τις καταλήξεις που θα έδινε το san().
+  already(http, id, f) {
+    const size = Number(f.fileSize);
+    if (!(size > 0)) return null;
+    const base = 'AITIMA_' + id + '_' + f.fileId + '_';
+    const guesses = [this.san(f.fileName, '')];
+    if (!/\.[A-Za-z0-9]{1,5}$/.test(guesses[0])) for (const ct of ['pdf', 'jpeg', 'png', 'gif']) guesses.push(this.san(f.fileName, ct));
+    for (const g of guesses) {
+      const name = base + g;
+      try {
+        const p = path.join(http.dlDir, name);
+        if (fs.existsSync(p) && fs.statSync(p).size === size) return name;
+      } catch (e) { /* δεν υπάρχει */ }
+    }
+    return null;
   },
 
   // Οποιοσδήποτε τύπος αρχείου (όχι μόνο PDF, όπως το getDoc): η πύλη δέχεται και εικόνες.

@@ -27,7 +27,15 @@ import java.time.Instant
  * εκπροσώπησης και `internalFile` για τα έγγραφα της υπηρεσίας — έτσι τα
  * χωρίζει και η ίδια η πύλη στην οθόνη της.
  *
- * **Η αλληλογραφία δεν έχει φανεί με περιεχόμενο**: σε όλα τα αιτήματα που
+ * **Η ενδιάμεση επικοινωνία** (`comm`) φάνηκε ζωντανά στις 23 Οκτωβρίου 2026:
+ * `[{ id, messageText, type, createdAt, messageFiles[], isIncoming, messageId }]`.
+ * Οι τύποι, όπως τους ονομάζει το SPA της πύλης: `CLAR_REQ` «Αίτημα από ΑΑΔΕ
+ * για διευκρινίσεις», `CLAR_ANS` «Απάντηση σε αίτημα από ΑΑΔΕ για
+ * διευκρινίσεις», `CITIZEN` «Επικοινωνία με πρωτοβουλία πολίτη», και
+ * `PREVIOUS_ANSWER` (προηγούμενες απαντήσεις). Η ημερομηνία της **δεν**
+ * περνά στην «ενημέρωση» της λίστας — γι' αυτό τη φέρνουμε εμείς ([merge]).
+ *
+ * Παλαιότερη σημείωση: σε όλα τα αιτήματα που
  * είδαμε ήταν κενή. Γι' αυτό διαβάζεται εδώ χωρίς να υποθέτει ονόματα πεδίων —
  * το πρώτο κείμενο και η πρώτη ημερομηνία κάθε εγγραφής — και ό,τι δεν
  * αναγνωριστεί απλώς δεν εμφανίζεται, αντί να εμφανιστεί λάθος.
@@ -73,8 +81,37 @@ object RequestDetail {
         val downloaded: Boolean get() = saved.isNotBlank()
     }
 
-    /** Μία εγγραφή της μετέπειτα αλληλογραφίας. */
-    data class Note(val date: String, val text: String)
+    /**
+     * Μία εγγραφή της ενδιάμεσης επικοινωνίας.
+     *
+     * @param date όπως τη δίνει η πύλη (`2026-10-20T09:15:00.000`)
+     * @param type `CLAR_REQ`, `CLAR_ANS`, `CITIZEN`, `PREVIOUS_ANSWER` — κενό όταν
+     *   η εγγραφή δεν έχει τύπο
+     */
+    data class Note(
+        val date: String,
+        val text: String,
+        val type: String = "",
+        val files: List<String> = emptyList(),
+    ) {
+        /** Από την ΑΑΔΕ προς τον πελάτη (ερώτηση ή απάντηση της υπηρεσίας). */
+        val fromAade: Boolean get() = type == TYPE_CLAR_REQ || type == TYPE_PREVIOUS_ANSWER
+
+        /** Η επικεφαλίδα της εγγραφής, με τα λόγια της πύλης. */
+        val label: String
+            get() = when (type) {
+                TYPE_CLAR_REQ -> "Η ΑΑΔΕ ζητά διευκρινίσεις"
+                TYPE_CLAR_ANS -> "Απάντηση στις διευκρινίσεις"
+                TYPE_CITIZEN -> "Επικοινωνία με πρωτοβουλία του πελάτη"
+                TYPE_PREVIOUS_ANSWER -> "Προηγούμενη απάντηση της ΑΑΔΕ"
+                else -> "Επικοινωνία"
+            }
+    }
+
+    const val TYPE_CLAR_REQ = "CLAR_REQ"
+    const val TYPE_CLAR_ANS = "CLAR_ANS"
+    const val TYPE_CITIZEN = "CITIZEN"
+    const val TYPE_PREVIOUS_ANSWER = "PREVIOUS_ANSWER"
 
     data class Detail(
         val id: String,
@@ -95,7 +132,35 @@ object RequestDetail {
         val thread: List<Note> = emptyList(),
         /** Πότε διαβάστηκε από την πύλη. `0` όταν το αρχείο δεν το γράφει. */
         val retrievedAt: Long = 0L,
+        /** Ο κωδικός κατάστασης **τη στιγμή της λήψης** — βλ. [AadeRequests.statusLabel]. `0` = άγνωστος. */
+        val statusCode: Int = 0,
+        /** «Υπηρεσία Διεκπεραίωσης Αιτήματος» — η ανάθεση. */
+        val handlingService: String = "",
+        /** «Τμήμα Υπηρεσίας Διεκπεραίωσης». */
+        val handlingDept: String = "",
     ) {
+        /** Η επικοινωνία από τη νεότερη στην παλαιότερη. */
+        val timeline: List<Note> get() = thread.sortedByDescending { stamp(it.date) }
+
+        /**
+         * Τι **ζητά** τώρα η ΑΑΔΕ: η νεότερη ερώτησή της, αν δεν έχει απαντηθεί
+         * από τον πελάτη μετά. `null` όταν δεν εκκρεμεί τίποτα.
+         */
+        val pendingAsk: Note?
+            get() {
+                val latest = timeline.firstOrNull { it.type == TYPE_CLAR_REQ } ?: return null
+                val answeredAfter = thread.any {
+                    (it.type == TYPE_CLAR_ANS || it.type == TYPE_CITIZEN) && stamp(it.date) > stamp(latest.date)
+                }
+                return if (answeredAfter && statusCode != AadeRequests.STATUS_CLIENT_PENDING) null else latest
+            }
+
+        /** Η τελευταία κίνηση της επικοινωνίας, στη μορφή της λίστας («yyyy-MM-dd HH:mm:ss»). */
+        val lastActivity: String get() = timeline.firstOrNull()?.let { stamp(it.date) }.orEmpty()
+
+        /** Αποτύπωμα της επικοινωνίας, για το «ήρθε νέο μήνυμα;». */
+        val commSignature: String get() = thread.size.toString() + "|" + lastActivity
+
         /** Ό,τι έφυγε **από** τον πελάτη: τα συνημμένα του και η εξουσιοδότηση. */
         val submitted: List<Attachment>
             get() = attachments.filter { it.origin == Origin.SUBMITTED || it.origin == Origin.CERTIFICATE || it.origin == Origin.OTHER }
@@ -138,6 +203,61 @@ object RequestDetail {
                 .distinctBy { it.id },
             thread = notes(root.opt("comm")),
             retrievedAt = runCatching { Instant.parse(text(root, "retrievedAt")).toEpochMilli() }.getOrDefault(0L),
+            statusCode = d.optInt("messageStatus", 0),
+            handlingService = text(d, "processGroupText"),
+            handlingDept = text(d, "processGroupProtipoTmimaText"),
+        )
+    }
+
+    /**
+     * «2026-10-20T09:15:00.000» ή «20/10/2026» -> «2026-10-20 09:15:00», η μορφή
+     * της λίστας, ώστε οι δύο να συγκρίνονται και να ταξινομούνται μαζί.
+     */
+    fun stamp(raw: String): String {
+        val t = raw.trim()
+        Regex("""^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?""").find(t)?.let { m ->
+            val (y, mo, d, h, mi, s) = m.destructured
+            return "$y-$mo-$d " + (h.ifBlank { "00" }) + ":" + (mi.ifBlank { "00" }) + ":" + (s.ifBlank { "00" })
+        }
+        Regex("""^(\d{2})/(\d{2})/(\d{4})""").find(t)?.let { m ->
+            val (d, mo, y) = m.destructured
+            return "$y-$mo-$d 00:00:00"
+        }
+        return ""
+    }
+
+    /**
+     * Η γραμμή της λίστας, **ενημερωμένη** με ό,τι ξέρει το αποθηκευμένο αίτημα.
+     *
+     * Η λίστα (`easynotify`) διαβάζεται στον έλεγχο· το αίτημα (`aade-request`)
+     * και με την ανανέωση μέσα από αυτό. Όταν το αποθηκευμένο είναι **νεότερο**
+     * από τη λίστα, η κατάσταση, η απάντηση και η ανάθεση έρχονται από αυτό —
+     * αλλιώς η ανανέωση μέσα από το αίτημα άλλαζε το περιεχόμενο και η κάρτα
+     * έλεγε ακόμη την παλιά κατάσταση.
+     *
+     * Η «τελευταία ενημέρωση» είναι η νεότερη από την ενημέρωση της λίστας και
+     * την τελευταία ενδιάμεση επικοινωνία: η πύλη δεν μετακινεί την πρώτη όταν
+     * στείλει ερώτηση, και το αίτημα φαινόταν ακίνητο ενώ περίμενε απάντηση.
+     *
+     * @param listAt πότε γράφτηκε η λίστα (ms)
+     */
+    fun merge(request: AadeRequests.Request, detail: Detail?, listAt: Long): AadeRequests.Request {
+        if (detail == null) return request
+        val newer = detail.retrievedAt > listAt && detail.statusCode != 0
+        val ask = detail.pendingAsk
+        val activity = detail.lastActivity
+        val listUpdated = stamp(request.updated).ifBlank { request.updated }
+        return request.copy(
+            status = if (newer) AadeRequests.statusLabel(detail.statusCode).ifBlank { request.status } else request.status,
+            statusCode = if (newer) detail.statusCode else request.statusCode,
+            answer = if (newer) detail.answer.ifBlank { request.answer } else request.answer,
+            updated = if (activity > listUpdated) activity else request.updated,
+            handlingService = (if (newer) detail.handlingService else "").ifBlank { request.handlingService }
+                .ifBlank { detail.handlingService },
+            handlingDept = (if (newer) detail.handlingDept else "").ifBlank { request.handlingDept }
+                .ifBlank { detail.handlingDept },
+            ask = ask?.text.orEmpty(),
+            askDate = ask?.date?.let(::stamp).orEmpty(),
         )
     }
 
@@ -165,11 +285,20 @@ object RequestDetail {
         for (i in 0 until items.length()) {
             val o = items.optJSONObject(i) ?: continue
             val keys = o.keys().asSequence().toList()
-            val body = keys.filter { TEXT_KEY.containsMatchIn(it) }
-                .map { plain(text(o, it)) }.firstOrNull { it.isNotBlank() } ?: continue
-            val date = keys.filter { it.contains("date", ignoreCase = true) }
-                .map { text(o, it) }.firstOrNull { it.isNotBlank() }.orEmpty()
-            out += Note(date, body)
+            val body = plain(text(o, "messageText")).ifBlank {
+                keys.filter { TEXT_KEY.containsMatchIn(it) }
+                    .map { plain(text(o, it)) }.firstOrNull { it.isNotBlank() }.orEmpty()
+            }
+            val files = o.optJSONArray("messageFiles")?.let { arr ->
+                (0 until arr.length()).mapNotNull { j -> arr.optJSONObject(j)?.let { text(it, "fileName") } }
+                    .filter { it.isNotBlank() }
+            }.orEmpty()
+            if (body.isBlank() && files.isEmpty()) continue
+            val date = text(o, "createdAt").ifBlank {
+                keys.filter { it.contains("date", ignoreCase = true) }
+                    .map { text(o, it) }.firstOrNull { it.isNotBlank() }.orEmpty()
+            }
+            out += Note(date, body, text(o, "type").uppercase(), files)
         }
         return out
     }

@@ -47,12 +47,14 @@ object RequestSends {
     ): SendEntity {
         val answered = changes.count { it.kind == AadeRequests.Kind.ANSWERED }
         val waiting = changes.count { it.kind == AadeRequests.Kind.WAITING_CLIENT }
+        val messages = changes.count { it.kind == AadeRequests.Kind.MESSAGE }
         return SendEntity(
             clientId = clientId,
             afm = afm,
             clientName = clientName,
             toEmail = TO_DEVICE,
             subject = when {
+                messages == 1 && changes.size == 1 -> "Νέο μήνυμα της ΑΑΔΕ σε αίτημα"
                 waiting > 0 && answered == 0 && changes.size == 1 -> "Αίτημα ΑΑΔΕ σε εκκρεμότητα από τον πελάτη"
                 answered == 1 && changes.size == 1 -> "Νέα απάντηση της ΑΑΔΕ σε αίτημα"
                 answered == changes.size -> "Νέες απαντήσεις της ΑΑΔΕ σε $answered αιτήματα"
@@ -77,6 +79,7 @@ object RequestSends {
             AadeRequests.Kind.STATUS -> "κατάσταση: " + request.status.ifBlank { "άλλαξε" }
             AadeRequests.Kind.PROCESSING -> "σε επεξεργασία"
             AadeRequests.Kind.WAITING_CLIENT -> "σε εκκρεμότητα από τον συναλλασσόμενο — θέλει ενέργεια του πελάτη"
+            AadeRequests.Kind.MESSAGE -> "νέο μήνυμα της ΑΑΔΕ στην ενδιάμεση επικοινωνία"
         }
         return request.title + " — " + what +
             if (request.caseNumber.isBlank()) "" else " (Αρ. " + request.caseNumber + ")"
