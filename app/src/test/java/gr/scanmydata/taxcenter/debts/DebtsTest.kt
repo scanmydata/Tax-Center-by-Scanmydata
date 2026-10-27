@@ -450,7 +450,7 @@ class DebtsTest {
         val line = Debts.efka(efka).single()
         assertEquals(Debts.Group.EFKA_CURRENT, line.group)
         assertEquals(Debts.Source.EFKA, line.source)
-        assertEquals("Μηνιαία Εισφορά e-ΕΦΚΑ", line.title)
+        assertEquals("Μηνιαία Εισφορά e-ΕΦΚΑ 9/2026", line.title)
         assertEquals("μήνας 9/2026", line.detail)
         assertEquals("254,16", line.total)
         assertEquals("RF00000000000000000000001", line.code)
@@ -462,6 +462,70 @@ class DebtsTest {
         val snapshot = Debts.Snapshot(lines = Debts.efka(efka), efkaAt = 5L)
         assertEquals("254,16", snapshot.total(Debts.Source.EFKA))
         assertEquals(5L, snapshot.at(Debts.Source.EFKA))
+    }
+
+    /**
+     * Οι πίνακες που φάνηκαν ζωντανά στις 28 Οκτωβρίου 2026 (ποσά και κωδικοί
+     * συνθετικοί): απλήρωτοι ο 9/2026 (τρέχων) και ο 8/2026, που η πύλη ΔΕΝ δείχνει
+     * στις «Τρέχουσες Οφειλές»· ο 7/2026 και παλαιότεροι έχουν βεβαιωθεί στο ΚΕΑΟ.
+     */
+    private val efkaOwed = """
+    {
+      "afm": "123456783",
+      "sections": {
+        "CURRENT": {
+          "headers": ["Είδος Οφειλής", "Ημ. Αναφοράς", "Πληρωτέο Ποσό", "Εμπρόθεσμη Πληρωμή Μέχρι", "Κωδικός Πληρωμής"],
+          "rows": [["Μηνιαία Εισφορά e-ΕΦΚΑ", "9/2026", "160,00 €", "30/10/2026", "RF00000000000000000000001"]]
+        },
+        "CONTRIB": {
+          "headers": ["Ημ/νία Αναφοράς Φιλτράρισμα με Ημ/νία Αναφοράς", "Φορέας", "Ιδιότητα", "Μηνιαία Εισφορά", "Παρατηρήσεις", "Εξόφληση", "Εκκαθάριση"],
+          "rows": [
+            ["01/09/2026", "e-ΕΦΚΑ", "ΕΛΕΥΘΕΡΟΣ ΕΠΑΓΓΕΛΜΑΤΙΑΣ", "160,00 €", "", "Όχι", "Όχι", "ΑΝΑΛΥΣΗ ΜΗΝΑ"],
+            ["01/08/2026", "e-ΕΦΚΑ", "ΕΛΕΥΘΕΡΟΣ ΕΠΑΓΓΕΛΜΑΤΙΑΣ", "160,00 €", "", "Όχι", "Όχι", "ΑΝΑΛΥΣΗ ΜΗΝΑ"],
+            ["01/07/2026", "e-ΕΦΚΑ", "ΕΛΕΥΘΕΡΟΣ ΕΠΑΓΓΕΛΜΑΤΙΑΣ", "160,00 €", "", "Όχι", "Όχι", "ΑΝΑΛΥΣΗ ΜΗΝΑ"],
+            ["01/06/2026", "e-ΕΦΚΑ", "ΕΛΕΥΘΕΡΟΣ ΕΠΑΓΓΕΛΜΑΤΙΑΣ", "160,00 €", "", "Ναι", "Όχι", "ΑΝΑΛΥΣΗ ΜΗΝΑ"]
+          ]
+        },
+        "KEAO_CERTIFIED": {
+          "headers": ["Αριθμός Πράξης Βεβαίωσης Οφειλής", "Ημ/νία Έκδοσης", "Ημ/νία Αναφοράς Οφειλής", "Κύρια Οφειλή"],
+          "rows": [["1000001", "16/10/2026", "01/07/2026", "160,00 €"], ["1000002", "16/09/2026", "01/05/2026", "160,00 €"]]
+        },
+        "MONTHLY": {
+          "headers": ["Μήνας Οφειλής", "Ποσό", "Ημ. Εμπρόθεσμης Πληρωμής", "Παρατηρήσεις"],
+          "rows": [["01/09/2026", "160,00 €", "30/10/2026", "e-ΕΦΚΑ", "PDF"], ["01/08/2026", "158,50 €", "30/09/2026", "e-ΕΦΚΑ", "PDF"]]
+        }
+      }
+    }
+    """.trimIndent()
+
+    @Test
+    fun `οι απλήρωτοι προηγούμενοι μήνες ΕΦΚΑ έρχονται μέχρι να πάνε στο ΚΕΑΟ`() {
+        val lines = Debts.efka(efkaOwed)
+        assertEquals(listOf(Debts.Group.EFKA_CURRENT, Debts.Group.EFKA_OVERDUE), lines.map { it.group })
+        val owed = lines[1]
+        assertEquals("Μηνιαία Εισφορά e-ΕΦΚΑ 8/2026", owed.title)
+        // Ποσό και προθεσμία από το ειδοποιητήριο του μήνα.
+        assertEquals("158,50", owed.total)
+        assertEquals("30/09/2026", owed.next?.due)
+        assertEquals("", owed.code)
+        assertEquals(listOf("EFKA_EFKA_123456783_2026-08.pdf"), owed.files)
+
+        val snapshot = Debts.Snapshot(lines = lines, efkaAt = 5L)
+        assertEquals("318,50", snapshot.total(Debts.Source.EFKA))
+
+        // Ο 7/2026 είναι απλήρωτος αλλά ήδη στο ΚΕΑΟ — δεν μετριέται δύο φορές.
+        assertFalse(lines.any { it.title.contains("7/2026") })
+
+        val text = message(lines = lines)
+        assertTrue(text, text.contains("Έληξε: 30/09/2026"))
+        assertTrue(text, text.contains("Κωδικός πληρωμής: στο ειδοποιητήριο του μήνα"))
+    }
+
+    @Test
+    fun `χωρίς πίνακα ΚΕΑΟ μετρούν μόνο οι τελευταίοι τρεις μήνες`() {
+        val noKeao = efkaOwed.replace("\"KEAO_CERTIFIED\"", "\"KEAO_OTHER\"")
+        val months = Debts.owedMonths(org.json.JSONObject(noKeao).getJSONObject("sections")).map { it.first }
+        assertEquals(listOf("2026-09", "2026-08", "2026-07"), months)
     }
 
     @Test

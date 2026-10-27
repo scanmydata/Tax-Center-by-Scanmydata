@@ -66,7 +66,15 @@ object Debts {
          * ο λογιστής, και **δεν μετρούν** πουθενά — βλ. [Line.active].
          */
         KEAO_INACTIVE("ΚΕΑΟ — μη ενεργές ρυθμίσεις", Source.KEAO, "Ανενεργές / απολεσθείσες ρυθμίσεις"),
-        EFKA_CURRENT("ΕΦΚΑ — τρέχουσες εισφορές", Source.EFKA, "Τρέχουσες εισφορές"),
+        EFKA_CURRENT("ΕΦΚΑ — τρέχουσα εισφορά", Source.EFKA, "Τρέχουσα εισφορά"),
+
+        /**
+         * Απλήρωτοι **προηγούμενοι** μήνες που δεν έχουν βεβαιωθεί ακόμη στο ΚΕΑΟ —
+         * συνήθως οι δύο τελευταίοι. Η πύλη δεν τους δείχνει στις «Τρέχουσες
+         * Οφειλές»· χωρίς αυτή την ομάδα ο πελάτης φαινόταν να χρωστά μόνο τον
+         * τρέχοντα μήνα.
+         */
+        EFKA_OVERDUE("ΕΦΚΑ — ληξιπρόθεσμες εισφορές (πριν από το ΚΕΑΟ)", Source.EFKA, "Ληξιπρόθεσμες εισφορές — δεν πέρασαν ακόμη στο ΚΕΑΟ"),
     }
 
     /**
@@ -204,7 +212,7 @@ object Debts {
         fun total(source: Source): String = when (source) {
             Source.AADE -> Money.money(Money.sum(inSource(Source.AADE).map { it.total }))
             Source.KEAO -> total(Group.KEAO_CARRIER)
-            Source.EFKA -> total(Group.EFKA_CURRENT)
+            Source.EFKA -> Money.money(Money.sum(inSource(Source.EFKA).map { it.total }))
         }
 
         /** Άθροισμα υπολοίπων μιας ομάδας, σε ελληνική μορφή. */
@@ -542,42 +550,139 @@ object Debts {
     fun efka(json: String): List<Line> {
         val root = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
         val afm = root.optString("afm").trim()
-        val current = root.optJSONObject("sections")?.optJSONObject("CURRENT") ?: return emptyList()
-        val headers = current.optJSONArray("headers")?.let(::strings).orEmpty()
-        fun col(word: String, fallback: Int): Int =
-            headers.indexOfFirst { it.contains(word, ignoreCase = true) }.takeIf { it >= 0 } ?: fallback
-        val kindCol = col("Είδος", 0)
-        val monthCol = col("Αναφοράς", 1)
-        val amountCol = col("Πληρωτέο", 2)
-        val dueCol = col("Εμπρόθεσμη", 3)
-        val codeCol = col("Κωδικός", 4)
-        val rows = current.optJSONArray("rows") ?: return emptyList()
+        val sections = root.optJSONObject("sections") ?: return emptyList()
         val out = ArrayList<Line>()
-        for (i in 0 until rows.length()) {
-            val row = rows.optJSONArray(i)?.let(::strings) ?: continue
-            val amount = euro(row.getOrNull(amountCol).orEmpty())
-            val code = row.getOrNull(codeCol).orEmpty().replace(" ", "").takeIf { it.startsWith("RF", ignoreCase = true) }.orEmpty()
-            if (amount.isBlank() && code.isBlank()) continue
-            val month = row.getOrNull(monthCol).orEmpty()
-            val due = DATE.find(row.getOrNull(dueCol).orEmpty())?.value.orEmpty()
-            // «9/2026» -> «2026-09», όπως ονομάζει το config το ειδοποιητήριο του μήνα.
-            val key = Regex("""(\d{1,2})/(\d{4})""").find(month)?.let { m ->
-                m.groupValues[2] + "-" + m.groupValues[1].padStart(2, '0')
-            }.orEmpty()
+
+        // ---- ο τρέχων μήνας, με τον κωδικό πληρωμής του
+        val current = sections.optJSONObject("CURRENT")
+        if (current != null) {
+            val t = Table(current)
+            val kindCol = t.col("Είδος", 0)
+            val monthCol = t.col("Αναφοράς", 1)
+            val amountCol = t.col("Πληρωτέο", 2)
+            val dueCol = t.col("Εμπρόθεσμη", 3)
+            val codeCol = t.col("Κωδικός", 4)
+            t.rows.forEachIndexed { i, row ->
+                val amount = euro(row.getOrNull(amountCol).orEmpty())
+                val code = row.getOrNull(codeCol).orEmpty().replace(" ", "")
+                    .takeIf { it.startsWith("RF", ignoreCase = true) }.orEmpty()
+                if (amount.isBlank() && code.isBlank()) return@forEachIndexed
+                val month = row.getOrNull(monthCol).orEmpty()
+                val due = DATE.find(row.getOrNull(dueCol).orEmpty())?.value.orEmpty()
+                val key = monthKey(month)
+                val kind = row.getOrNull(kindCol).orEmpty().ifBlank { "Εισφορά e-ΕΦΚΑ" }
+                out += Line(
+                    id = "efka-$i",
+                    group = Group.EFKA_CURRENT,
+                    // Ο μήνας στον τίτλο: το μήνυμα SMS/Viber γράφει μόνο τον τίτλο.
+                    title = if (month.isBlank()) kind else "$kind $month",
+                    detail = if (month.isBlank()) "" else "μήνας $month",
+                    total = amount,
+                    codeLabel = "Κωδικός πληρωμής",
+                    code = code,
+                    unpaid = if (due.isBlank()) emptyList() else listOf(Instalment("", due, amount)),
+                    files = if (afm.isBlank() || key.isBlank()) emptyList() else listOf("EFKA_EFKA_${afm}_$key.pdf"),
+                )
+            }
+        }
+
+        // ---- οι απλήρωτοι προηγούμενοι μήνες, όσο είναι ακόμη στον ΕΦΚΑ
+        val listed = out.mapNotNull { line -> monthKey(line.detail).takeIf { it.isNotBlank() } }.toSet()
+        val monthly = sections.optJSONObject("MONTHLY")?.let(::Table)
+        val notices = HashMap<String, Pair<String, String>>()
+        if (monthly != null) {
+            val mCol = monthly.col("Μήνας", 0)
+            val aCol = monthly.col("Ποσό", 1)
+            val dCol = monthly.col("Εμπρόθεσμης", 2)
+            for (row in monthly.rows) {
+                val key = monthKey(row.getOrNull(mCol).orEmpty())
+                if (key.isBlank() || key in notices) continue
+                notices[key] = euro(row.getOrNull(aCol).orEmpty()) to DATE.find(row.getOrNull(dCol).orEmpty())?.value.orEmpty()
+            }
+        }
+        val contrib = sections.optJSONObject("CONTRIB")?.let(::Table)
+        for ((key, amount) in owedMonths(sections)) {
+            if (key in listed) continue
+            val notice = notices[key]
+            val total = notice?.first.orEmpty().ifBlank { amount }
+            val due = notice?.second.orEmpty()
+            val label = key.substring(5).trimStart('0') + "/" + key.substring(0, 4)
             out += Line(
-                id = "efka-$i",
-                group = Group.EFKA_CURRENT,
-                title = row.getOrNull(kindCol).orEmpty().ifBlank { "Εισφορά e-ΕΦΚΑ" },
-                detail = if (month.isBlank()) "" else "μήνας $month",
-                total = amount,
+                id = "efka-owed-$key",
+                group = Group.EFKA_OVERDUE,
+                title = "Μηνιαία Εισφορά e-ΕΦΚΑ $label",
+                detail = "μήνας $label · ο κωδικός πληρωμής είναι στο ειδοποιητήριο του μήνα",
+                total = total,
                 codeLabel = "Κωδικός πληρωμής",
-                code = code,
-                unpaid = if (due.isBlank()) emptyList() else listOf(Instalment("", due, amount)),
-                files = if (afm.isBlank() || key.isBlank()) emptyList() else listOf("EFKA_EFKA_${afm}_$key.pdf"),
+                unpaid = if (due.isBlank()) emptyList() else listOf(Instalment("", due, total)),
+                files = if (afm.isBlank()) emptyList() else listOf("EFKA_EFKA_${afm}_$key.pdf"),
             )
         }
+        if (contrib == null && out.isEmpty()) return emptyList()
         return out
     }
+
+    /**
+     * Οι απλήρωτοι μήνες της ενότητας «Ασφαλιστικές Εισφορές» (`CONTRIB`,
+     * «Εξόφληση» = Όχι) που **δεν** έχουν βεβαιωθεί ακόμη στο ΚΕΑΟ
+     * (`KEAO_CERTIFIED`): νεότεροι από τον τελευταίο βεβαιωμένο μήνα. Χωρίς
+     * πίνακα ΚΕΑΟ, μόνο όσοι είναι μέσα στους τρεις τελευταίους μήνες της λίστας
+     * — μετά από δύο περίπου μήνες περνούν στο ΚΕΑΟ, και εκεί τους δείχνει η
+     * καρτέλα ΚΕΑΟ.
+     *
+     * Ίδιος κανόνας με το `owedMonths` του `efka-notices.js`.
+     *
+     * @return `"yyyy-MM" -> μηνιαία εισφορά`, νεότερος πρώτα
+     */
+    internal fun owedMonths(sections: JSONObject): List<Pair<String, String>> {
+        val contrib = sections.optJSONObject("CONTRIB")?.let(::Table) ?: return emptyList()
+        val paidCol = contrib.col("Εξόφληση", -1).takeIf { it >= 0 } ?: return emptyList()
+        val amountCol = contrib.col("Εισφορά", 3)
+        val keao = sections.optJSONObject("KEAO_CERTIFIED")?.let(::Table)
+        val certified = keao?.let { k ->
+            val refCol = k.col("Αναφοράς", 2)
+            k.rows.map { monthKey(it.getOrNull(refCol).orEmpty()) }.filter { it.isNotBlank() }.toSet()
+        }.orEmpty()
+        val latest = certified.maxOrNull().orEmpty()
+        val unpaid = contrib.rows
+            .filter { fold(it.getOrNull(paidCol).orEmpty()).startsWith("οχι") }
+            .map { monthKey(it.getOrNull(0).orEmpty()) to euro(it.getOrNull(amountCol).orEmpty()) }
+            .filter { it.first.isNotBlank() }
+            .distinctBy { it.first }
+            .sortedByDescending { it.first }
+        return if (keao != null) {
+            unpaid.filter { it.first !in certified && (latest.isBlank() || it.first > latest) }
+        } else {
+            val newest = contrib.rows.map { monthKey(it.getOrNull(0).orEmpty()) }.filter { it.isNotBlank() }.maxOrNull()
+                ?: return emptyList()
+            val floor = java.time.YearMonth.parse(newest).minusMonths(2).toString()
+            unpaid.filter { it.first >= floor }
+        }
+    }
+
+    /** Ένας πίνακας της πύλης: επικεφαλίδες και γραμμές κειμένου. */
+    private class Table(o: JSONObject) {
+        val headers: List<String> = o.optJSONArray("headers")?.let(::strings).orEmpty()
+        val rows: List<List<String>> = o.optJSONArray("rows")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i -> arr.optJSONArray(i)?.let(::strings) }
+        }.orEmpty()
+
+        /** Η πρώτη στήλη που περιέχει τη λέξη — αλλιώς η θέση της πύλης. */
+        fun col(word: String, fallback: Int): Int =
+            headers.indexOfFirst { it.contains(word, ignoreCase = true) }.takeIf { it >= 0 } ?: fallback
+    }
+
+    /** «01/09/2026», «9/2026» -> «2026-09». */
+    internal fun monthKey(raw: String): String {
+        Regex("""(\d{2})/(\d{2})/(\d{4})""").find(raw)?.let { m -> return m.groupValues[3] + "-" + m.groupValues[2] }
+        Regex("""(\d{1,2})/(\d{4})""").find(raw)?.let { m -> return m.groupValues[2] + "-" + m.groupValues[1].padStart(2, '0') }
+        return ""
+    }
+
+    private fun fold(raw: String): String = java.text.Normalizer
+        .normalize(raw.trim(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .lowercase()
 
     /** Τα μητρώα στα οποία περιορίστηκε η λήψη ΚΕΑΟ — βλ. [Snapshot.keaoPartial]. */
     fun keaoFilter(json: String): List<String> {

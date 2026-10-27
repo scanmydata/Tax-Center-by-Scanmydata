@@ -68,6 +68,9 @@ object DebtMessage {
         }
         if (template.has(DebtField.CODE) && line.code.isNotBlank()) {
             rows += line.codeLabel + ": " + line.code
+        } else if (template.has(DebtField.CODE) && line.group == Debts.Group.EFKA_OVERDUE) {
+            // Η πύλη δεν δίνει τον κωδικό ληξιπρόθεσμου μήνα έξω από το ειδοποιητήριο.
+            rows += "Κωδικός πληρωμής: στο ειδοποιητήριο του μήνα"
         }
         return rows.joinToString("\n")
     }

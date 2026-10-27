@@ -416,11 +416,24 @@ private fun SummaryCard(
                         at = snapshot.efkaAt,
                         rows = buildList {
                             val current = snapshot.inGroup(Debts.Group.EFKA_CURRENT)
-                            if (current.isEmpty()) {
-                                add("Καμία τρέχουσα εισφορά.")
+                            val overdue = snapshot.inGroup(Debts.Group.EFKA_OVERDUE)
+                            if (current.isEmpty() && overdue.isEmpty()) {
+                                add("Καμία απλήρωτη εισφορά στον ΕΦΚΑ.")
                             } else {
-                                add("Τρέχουσες εισφορές: " + snapshot.total(Debts.Group.EFKA_CURRENT) + " €")
-                                add("Με τον κωδικό πληρωμής (RF) του μήνα — άλλος από τις οφειλές του ΚΕΑΟ.")
+                                if (current.isNotEmpty()) {
+                                    add("Τρέχουσα εισφορά: " + snapshot.total(Debts.Group.EFKA_CURRENT) + " €")
+                                }
+                                if (overdue.isNotEmpty()) {
+                                    add(
+                                        "Ληξιπρόθεσμες, πριν από το ΚΕΑΟ: " + snapshot.total(Debts.Group.EFKA_OVERDUE) +
+                                            " € (" + (if (overdue.size == 1) "1 μήνας" else "${overdue.size} μήνες") + ")",
+                                    )
+                                }
+                                add("Σύνολο στον ΕΦΚΑ: " + snapshot.total(Debts.Source.EFKA) + " €")
+                                add(
+                                    "Κάθε μήνας πληρώνεται με τον δικό του κωδικό (RF). Μετά από δύο περίπου " +
+                                        "μήνες ό,τι μένει απλήρωτο βεβαιώνεται στο ΚΕΑΟ και φεύγει από εδώ.",
+                                )
                             }
                         },
                     )
