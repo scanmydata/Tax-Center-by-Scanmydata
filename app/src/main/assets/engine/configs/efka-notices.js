@@ -108,6 +108,9 @@ module.exports = {
     { key: 'amka', label: 'ΑΜΚΑ', env: 'EFKA_AMKA' },
     // «όχι» = μόνο τα ποσά και οι κωδικοί πληρωμής (ενημέρωση καρτέλας οφειλών), χωρίς PDF.
     { key: 'pdf', label: 'Λήψη PDF; (κενό = ναι, «όχι» = μόνο τα ποσά)', env: 'EFKA_PDF', optional: true },
+    // Εξ ορισμού μόνο το πιο πρόσφατο ειδοποιητήριο· «ναι» = και των απλήρωτων
+    // προηγούμενων μηνών που δεν πέρασαν ακόμη στο ΚΕΑΟ.
+    { key: 'older', label: 'Και τα παλαιότερα απλήρωτα; (κενό = όχι, μόνο το πιο πρόσφατο)', env: 'EFKA_OLDER', optional: true },
   ],
   monthKey, // για τα τεστ
   owedMonths, // για τα τεστ
@@ -127,6 +130,7 @@ module.exports = {
     if (!tabs.length) { http.log('obligations page without tabs'); return { ok: false, reason: 'PageError' }; }
 
     const noPdf = /^(όχι|οχι|no|0)$/i.test(String(inp.pdf || '').trim());
+    const older = /^(ναι|yes|1)$/i.test(String(inp.older || '').trim());
     const saved = [];
     const tables = { portal: this.portal, afm: inp.afm, retrievedAt: new Date().toISOString(), sections: {} };
 
@@ -138,7 +142,7 @@ module.exports = {
     // 3b) νέα διάταξη: «Τρέχουσες Οφειλές» (ποσά, RF), απλήρωτοι μήνες, βεβαιωμένοι στο
     // ΚΕΑΟ, και «Μηνιαία Ειδοποιητήρια» (PDF). Πάντα: τα ποσά χρειάζονται σε κάθε διάταξη·
     // αν η παλιά διάταξη έδωσε ήδη PDF, εδώ δεν ξανακατεβαίνει ο τελευταίος μήνας.
-    saved.push(...await this.getMonthly(http, lib, ypoUrl, inp.afm, tables, noPdf, saved.length > 0));
+    saved.push(...await this.getMonthly(http, lib, ypoUrl, inp.afm, tables, noPdf, saved.length > 0, older));
 
     // every runner also emits a JSON of the targeted table strings (for future use)
     const jf = path.join(http.dlDir, 'EFKA_notices_' + inp.afm + '_table.json');
@@ -169,7 +173,7 @@ module.exports = {
     return { html: lib.extractUpdate(resp.text, view), raw: resp.text, vs, view, form, tab };
   },
 
-  async getMonthly(http, lib, ypoUrl, afm, tables, noPdf, skipLatest) {
+  async getMonthly(http, lib, ypoUrl, afm, tables, noPdf, skipLatest, older) {
     // Τρέχουσες Οφειλές: ποσά + RF, σε JSON (εδώ δεν υπάρχει εκτύπωση). Δύο πίνακες.
     const cur = await this.openTab(http, lib, ypoUrl, 'Τρέχουσες Οφειλές');
     if (cur) {
@@ -219,9 +223,11 @@ module.exports = {
     const printable = rows.filter((r) => r.btn && r.month);
     if (!printable.length) { http.log('[notice] καμία γραμμή με εκτύπωση'); return []; }
     const latest = printable.map((r) => r.month).sort().pop();
-    // Ο τελευταίος μήνας, και κάθε απλήρωτος που δεν πήγε ακόμη στο ΚΕΑΟ: ο κωδικός
-    // πληρωμής του υπάρχει μόνο στο δικό του ειδοποιητήριο.
-    const wanted = new Set(skipLatest ? owed.filter((m) => m !== latest) : [latest, ...owed]);
+    // Ο τελευταίος μήνας· με `older`, και κάθε απλήρωτος που δεν πήγε ακόμη στο ΚΕΑΟ
+    // (ο κωδικός πληρωμής του υπάρχει μόνο στο δικό του ειδοποιητήριο).
+    const extra = older ? owed.filter((m) => m !== latest) : [];
+    const wanted = new Set(skipLatest ? extra : [latest, ...extra]);
+    if (!wanted.size) return [];
 
     const out = [];
     for (const row of printable.filter((r) => wanted.has(r.month))) {

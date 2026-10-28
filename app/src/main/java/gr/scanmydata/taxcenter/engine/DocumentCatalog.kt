@@ -137,6 +137,9 @@ object DocumentCatalog {
      */
     const val KEAO_REGISTRIES = "amo"
 
+    /** «ναι» = και τα ειδοποιητήρια ΕΦΚΑ των απλήρωτων προηγούμενων μηνών (`inp.older`). */
+    const val EFKA_OLDER = "older"
+
     /** «1000001, 1000002» -> λίστα, χωρίς κενά και διπλά. */
     fun registries(raw: String): List<String> =
         raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -271,8 +274,19 @@ object DocumentCatalog {
             "aade-traffic-fees", needsYear = true),
 
         // --------------------------------------------------------- ασφάλιση
+        // Εξ ορισμού ένα PDF, το πιο πρόσφατο· τα ειδοποιητήρια των απλήρωτων
+        // προηγούμενων μηνών (που δεν πήγαν ακόμη στο ΚΕΑΟ) μόνο αν ζητηθούν.
         Item("efka-notices", "Ειδοποιητήρια εισφορών ΕΦΚΑ/ΤΕΚΑ", GROUP_INSURANCE,
-            "efka-notices", applies = Applies.NATURAL_ONLY),
+            "efka-notices", applies = Applies.NATURAL_ONLY,
+            choice = Choice(
+                key = EFKA_OLDER,
+                label = "Ποια ειδοποιητήρια",
+                values = listOf(
+                    "όχι" to "Μόνο το πιο πρόσφατο",
+                    "ναι" to "Και των απλήρωτων προηγούμενων μηνών (πριν πάνε στο ΚΕΑΟ)",
+                ),
+                default = "όχι",
+            )),
         Item("efka-certificate", "Φορολογικές βεβαιώσεις ΕΦΚΑ/ΤΕΚΑ", GROUP_INSURANCE,
             "efka-teka-certificate", needsYear = true, applies = Applies.NATURAL_ONLY),
         // Δύο διαφορετικές πύλες, και οι δύο λέγονται «ΚΕΑΟ» στη γλώσσα του

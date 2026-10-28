@@ -1074,6 +1074,13 @@
           "env": "EFKA_PDF",
           "hidden": false,
           "optional": true
+        },
+        {
+          "key": "older",
+          "label": "Και τα παλαιότερα απλήρωτα; (κενό = όχι, μόνο το πιο πρόσφατο)",
+          "env": "EFKA_OLDER",
+          "hidden": false,
+          "optional": true
         }
       ]
     },

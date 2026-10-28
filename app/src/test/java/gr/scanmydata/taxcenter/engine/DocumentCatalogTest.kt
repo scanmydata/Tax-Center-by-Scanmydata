@@ -247,4 +247,12 @@ class DocumentCatalogTest {
             assertFalse(DocumentCatalog.byId(id)!!.producesDocuments)
         }
     }
+
+    @Test
+    fun `τα ειδοποιητήρια ΕΦΚΑ φέρνουν εξ ορισμού μόνο το πιο πρόσφατο`() {
+        val choice = DocumentCatalog.byId("efka-notices")!!.choice!!
+        assertEquals(DocumentCatalog.EFKA_OLDER, choice.key)
+        assertEquals("όχι", choice.default)
+        assertEquals(listOf("όχι", "ναι"), choice.values.map { it.first })
+    }
 }
