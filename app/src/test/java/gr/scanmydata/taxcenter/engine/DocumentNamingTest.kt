@@ -56,6 +56,17 @@ class DocumentNamingTest {
     }
 
     @Test
+    fun `τα έντυπα ΦΕΝΠ δεν μπερδεύονται μεταξύ τους`() {
+        assertEquals("Έντυπο Ν — ΦΕΝΠ", DocumentNaming.label("FENP_N_999999999_2025.pdf"))
+        assertEquals("Ε3 — νομικού προσώπου", DocumentNaming.label("FENP_E3_999999999_2025.pdf"))
+        assertEquals(
+            "Ε3 myDATA — νομικού προσώπου",
+            DocumentNaming.label("FENP_E3MYDATA_999999999_2025.pdf"),
+        )
+        assertEquals("2025", DocumentNaming.yearIn("FENP_E3MYDATA_999999999_2025.pdf"))
+    }
+
+    @Test
     fun `τα τέλη κυκλοφορίας αναγνωρίζονται με το όνομα που γράφει το config`() {
         // Η πρώτη έκδοση είχε «TELI» από μαντεψιά, και το email έφτανε στον
         // πελάτη με το σκέτο όνομα αρχείου. Το config γράφει TELH_KYKLOFORIAS.

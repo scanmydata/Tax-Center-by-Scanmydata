@@ -26,7 +26,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `aade-registry` | `STOIXEIA_FYSIKOU_…`, `STOIXEIA_EPIXEIRISIS_[NOMIKO_]…` |
  * | `aade-debts` | `OFEILI_<ΑΦΜ>_<κατηγορία>_<ποσό>.pdf`, `RYTHMISI_<ΑΦΜ>_<έτος>_<αριθμός>.pdf` |
  * | `aade-lease` | `MISTH_<ρόλος>_<αριθμός>_<όνομα>.pdf` |
- * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf` |
+ * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf`, `FENP_E3_…`, `FENP_E3MYDATA_…` |
  * | `efka-notices` | `EFKA_<EFKA\|TEKA>_<meta>.pdf` |
  * | `efka-teka-certificate` | `VEV_<EFKA\|TEKA>_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-employer-card` | `KARTELA_ERGODOTI_TEKA_<χρήστης>[_<έτος>].pdf` |
@@ -115,6 +115,11 @@ object DocumentNaming {
 
         // -------------------------------------------- λοιπά έντυπα ΑΑΔΕ
         Entry("FENP_N", "Έντυπο Ν — ΦΕΝΠ"),
+        Entry("FENP_E3MYDATA", "Ε3 myDATA — νομικού προσώπου"),
+        Entry("FENP_E3", "Ε3 — νομικού προσώπου"),
+        // Το config χτίζει το όνομα ως `'FENP_' + tag`· ό,τι νέο προστεθεί εκεί
+        // να μη φύγει τουλάχιστον χωρίς να λέει από πού είναι.
+        Entry("FENP", "ΦΕΝΠ — νομικό πρόσωπο"),
         Entry("ΦΜΥ", "ΦΜΥ — φόρος μισθωτών υπηρεσιών"),
         Entry("Φ2", "Φ2 — δήλωση ΦΠΑ"),
         Entry("Φ4", "Φ4 — ανακεφαλαιωτικός πίνακας παραδόσεων"),

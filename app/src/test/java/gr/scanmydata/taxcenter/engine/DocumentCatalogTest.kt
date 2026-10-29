@@ -68,6 +68,20 @@ class DocumentCatalogTest {
     }
 
     @Test
+    fun `το Ε3 νομικού προσώπου έρχεται από τη δήλωση Ν`() {
+        assertEquals("N", DocumentCatalog.byId("fenp")!!.inputs["docs"])
+        for ((id, docs) in listOf("e3-nomiko" to "E3", "e3-mydata-nomiko" to "E3MYDATA")) {
+            val item = DocumentCatalog.byId(id)!!
+            assertEquals("aade-fenp", item.configId)
+            assertEquals(docs, item.inputs["docs"])
+            assertTrue(item.needsYear)
+            assertTrue(item.matches(ClientKind.LEGAL))
+            assertFalse(item.matches(ClientKind.SOLE))
+            assertFalse(item.matches(ClientKind.PRIVATE))
+        }
+    }
+
+    @Test
     fun `οι διαδικασίες ΕΦΚΑ δεν ισχύουν σε νομικό πρόσωπο`() {
         // Θέλουν ΑΜΚΑ στη φόρμα ρόλου· νομικό πρόσωπο δεν έχει.
         for (id in listOf("efka-notices", "efka-certificate", "keao", "efka-obligations", "atlas", "amka")) {

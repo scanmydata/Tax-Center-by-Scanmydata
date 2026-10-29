@@ -13,7 +13,16 @@
  *   pdfParams (doViewPdfTaxis onclick: 3-args {declarationDatabaseId,declarationType} OR 13-args incomeN)
  *        -> POST income/protected/viewPdf.htm {pdfParams} -> PDF.  RegNo = 'N-'+td[3].
  *
- * INPUTS: TAXISnet user/pass (νομικού προσώπου) + Έτος αναφοράς.
+ * Ε3 / Ε3 myDATA ΝΟΜΙΚΟΥ ΠΡΟΣΩΠΟΥ (Easy_Aade.GetN_E1_E2_E3_Nomiko -> Download_E3_Nomiko / Download_E3Mydata_Nomiko):
+ *   ίδια λίστα δηλώσεων Ν· γραμμή με td[2] (XPath) = ημερολογιακή περίοδος χρήσης Y-1, στον εμφωλευμένο πίνακα
+ *   td[8] κουμπί «Προβολή Ε3» / «Δεδομένα myDATA» με onclick window.open('<URL>') (αν πολλές -> η πιο πρόσφατη td[4])
+ *   Y ≥ 2018: GET <URL> (ανοίγει τη συνεδρία webtax/incomefp για το Ε3 του Ν.Π.) -> GET webtax/incomefp/login.done -> PDF
+ *   Y < 2018: η σελίδα login.done έχει PRINT_CODE_E3/FORMA_E3 + JS -> POST rwservlet
+ *             {cmdkey, p_afm=PRINT_CODE_E3, report=desname='E3FormN<yy>.rdf', desformat=pdf, destype=cache}
+ *   RegNo = 'E3-'+td[3] (myDATA: 'E3-'+td[3]+'myDATA').
+ *
+ * INPUTS: TAXISnet user/pass (νομικού προσώπου) + Έτος αναφοράς (έτος υποβολής· αφορά χρήση Y-1)
+ *         + docs (N,E3,E3MYDATA· κενό = όλα) + versions (κενό = πιο πρόσφατη υποβολή, όπως το TaxSystem· all = όλες).
  */
 'use strict';
 const path = require('path');
@@ -28,14 +37,6 @@ const onclickArgs = (fnName, html) => { // strip "fn(" ... ");" -> comma-split a
   if (j < 0) return null;
   return html.slice(i + fnName.length + 1, j).split(',').map(s => s.replace(/["']/g, ' ').trim());
 };
-// Grab the REAL button onclick "fn(document.<form>, args...);" (not the JS function definition "fn(frm,...)").
-// Returns args WITHOUT the leading frm reference.
-const callArgs = (html, fn) => {
-  const re = new RegExp(fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\(\\s*document\\.[A-Za-z0-9_]+([^;]*?)\\)\\s*;');
-  const m = html.match(re);
-  if (!m) return null;
-  return m[1].replace(/^\s*,/, '').split(',').map(s => s.replace(/["']/g, ' ').trim()).filter(s => s.length);
-};
 
 module.exports = {
   id: 'aade-fenp',
@@ -47,6 +48,8 @@ module.exports = {
     { key: 'user', label: 'TAXISnet username (νομικού προσώπου)', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
     { key: 'year', label: 'Έτος αναφοράς', env: 'AADE_YEAR' },
+    { key: 'docs', label: 'Έντυπα (N,E3,E3MYDATA· κενό = όλα)', env: 'AADE_FENP_DOCS', optional: true },
+    { key: 'versions', label: 'Εκδόσεις (κενό = μόνο η πιο πρόσφατη, all = αρχική + τροποποιητικές)', env: 'AADE_FENP_VERSIONS', optional: true },
   ],
 
   async run(http, inp, lib) {
@@ -83,43 +86,120 @@ module.exports = {
     const list = await http.follow('GET', P('displayDeclarationsList.htm') + '?' + new URLSearchParams(listParams).toString());
     http.dump('fenp_list.html', list.text);
 
-    // Download_FENP: the «Προβολή» button carries the PDF onclick.  The Ενέργειες cell holds a
-    // NESTED table, so cell-index parsing is unreliable -- search the button onclick directly.
-    //  doViewPdfTaxisnet(frm, declarationId, declType)              -> {declarationDatabaseId, declarationType}
-    //  doViewPdfTaxis(frm, declType, subType, periodType, pkNum, pkDoy, pkYear, pkTaxArea, pkDocType,
-    //                 effStart, effEnd, subDate, referenceYear)     -> taxisPK.* form
-    let pdfParams = null, regNo = '', via = '';
-    const aNet = callArgs(list.text, 'doViewPdfTaxisnet');            // [declarationId, declType]
-    const aTax = callArgs(list.text, 'doViewPdfTaxis');              // [declType, subType, periodType, pkNum...]
-    if (aNet && aNet.length >= 2) {
-      pdfParams = { declarationDatabaseId: aNet[0], declarationType: aNet[1] };
-      regNo = 'N-' + aNet[0]; via = 'taxisnet';
-    } else if (aTax && aTax.length >= 12 && /income/i.test(aTax[0])) {
-      pdfParams = { 'taxisPK.num': aTax[3], 'taxisPK.doy': aTax[4], 'taxisPK.year': aTax[5], 'taxisPK.taxArea': aTax[6], 'taxisPK.docType': aTax[7], 'effectivePeriod.start': aTax[8], 'effectivePeriod.end': aTax[9], submissionDate: aTax[10], submissionType: aTax[1], declarationType: aTax[0], periodType: aTax[2], referenceYear: aTax[11] };
-      regNo = 'N-' + aTax[3]; via = 'taxis';
-    }
-    if (!pdfParams) { http.log('[fenp] δεν βρέθηκε «Προβολή» (doViewPdfTaxisnet/doViewPdfTaxis) (δες fenp_list.html)'); return { ok: false, reason: 'NoViewPdf', files: [] }; }
+    // Δηλώσεις της χρήσης Y-1 (αρχική + τροποποιητικές). == SetDownloadPDF_FENPQueryParams: γραμμές tblRow,
+    // td[2] = περίοδος, td[3] = αρ. καταχ., td[4] = ημ/νία υποβολής, td[5] = είδος, κουμπιά στον ΕΜΦΩΛΕΥΜΕΝΟ πίνακα td[8].
+    // Default (όπως το TaxSystem): η ΠΙΟ ΠΡΟΣΦΑΤΗ υποβολή· versions=all -> όλες.
+    const versions = this.declarationVersions(lib, list.text, Y);
+    if (!versions.length) { http.log('[fenp] καμία δήλωση για χρήση ' + (Y - 1) + ' (δες fenp_list.html)'); return { ok: false, reason: 'NoDeclarations', files: [] }; }
+    const allVersions = /^(all|όλες|ολες|1)$/i.test((inp.versions || '').trim());
+    const chosen = allVersions ? versions : [versions[versions.length - 1]];
+    const latest = versions[versions.length - 1];
+    const regNo = 'N-' + latest.regNo;
 
     // Table strings for JSON (header fields of the declaration on the list page)
     const g1 = (re) => { const m = list.text.match(re); return m ? strip(m[1]).replace(/\s+/g, ' ').trim() : null; };
-    const fiscalPeriod = g1(/Φορολογικό Έτος:<\/b>\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i)
-      || (list.text.match(/(\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4})/) || [])[1] || null;
+    const fiscalPeriod = latest.period || g1(/Φορολογικό Έτος:<\/b>\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i);
     const fiscalYear = (String(fiscalPeriod || '').match(/(\d{4})/) || [])[1] || String(Y - 1);
-    const table = {
-      typosDilosis: g1(/Τύπος Δήλωσης:<\/b>\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i),
-      fiscalPeriod, fiscalYear,
-      arithmosKatax: regNo.replace(/^N-/, ''),
-      via,
-    };
-    http.log('[fenp] Προβολή via ' + via + ' | αρ.καταχ ' + table.arithmosKatax + ' | χρήση ' + fiscalYear);
+    const table = { typosDilosis: g1(/Τύπος Δήλωσης:<\/b>\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i), fiscalPeriod, fiscalYear, arithmosKatax: latest.regNo,
+      versions: versions.map(v => ({ regNo: v.regNo, submittedOn: v.submittedOn, kind: v.kind, buttons: Object.keys(v.buttons) })) };
+    http.log('[fenp] χρήση ' + fiscalYear + ' · ' + versions.length + ' δήλωση(εις): ' + versions.map(v => v.regNo + ' ' + v.kind + ' ' + v.submittedOn).join(' | '));
 
+    const want = new Set(((inp.docs || '').toUpperCase().replace(/Ε/g, 'E').match(/E3MYDATA|MYDATA|E3|N/g) || ['N', 'E3', 'E3MYDATA']).map(x => x === 'MYDATA' ? 'E3MYDATA' : x));
+    const result = { portal: this.portal, afm, year: Y, fiscalYear, regNo, table, retrievedAt: new Date().toISOString(), docs: {} };
+    const files = [];
+    const jf = 'AADE_fenp_' + afm + '_' + Y + '.json';
+    for (const v of chosen) {
+      const sfx = allVersions ? '_' + v.regNo : '';
+      const put = (k, val) => { if (allVersions) { (result.docs[k] = result.docs[k] || []).push(val); } else result.docs[k] = val; };
+      if (want.has('N')) put('N', await this.getN(http, lib, P, v, afm, Y, sfx, files));
+      for (const [key, button, suffix] of [['E3', 'Προβολή Ε3', ''], ['E3MYDATA', 'Δεδομένα myDATA', 'myDATA']]) {
+        if (!want.has(key)) continue;
+        try { put(key, await this.getE3(http, lib, L, v, Y, button, suffix, afm, sfx, files)); }
+        catch (e) { put(key, { status: 'Error', regNo: v.regNo, error: String(e && e.message || e) }); http.log('[fenp] ' + key + ': ' + String(e && e.message || e)); }
+      }
+    }
+    if (result.docs.N && result.docs.N.pdf) { result.pdf = result.docs.N.pdf; result.bytes = result.docs.N.bytes; }
+    fs.writeFileSync(path.join(http.dlDir, jf), JSON.stringify(result, null, 2));
+    const st = (v) => Array.isArray(v) ? v.map(x => x.status).join(',') : v.status;
+    return { ok: files.length > 0, files: [jf, ...files], summary: Object.fromEntries(Object.entries(result.docs).map(([k, v]) => [k, st(v)])) };
+  },
+
+  // γραμμές δηλώσεων της χρήσης Y-1, ταξινομημένες κατά ημ/νία υποβολής (παλαιότερη -> νεότερη)
+  declarationVersions(lib, listHtml, Y) {
+    const strip = lib.stripTags;
+    const starts = [...listHtml.matchAll(/<tr\b[^>]*class="tblRow[12]"[^>]*>/gi)].map(m => m.index);
+    const out = [];
+    starts.forEach((st, k) => {
+      const seg = listHtml.slice(st, k + 1 < starts.length ? starts[k + 1] : listHtml.length);
+      const tds = [...seg.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].slice(0, 5).map(m => strip(m[1]));
+      const per = (tds[1] || '').split('-');
+      if (per.length !== 2 || (per[0].match(/(\d{4})/) || [])[1] !== String(Y - 1)) return;
+      const buttons = {};
+      for (const m of seg.matchAll(/<div\b([^>]*)>([\s\S]*?)<\/div>/gi)) {
+        const name = strip(m[2]); const oc = lib.decodeHtml((m[1].match(/onclick\s*=\s*(["'])([\s\S]*?)\1/i) || [])[2] || '');
+        if (name && oc && !buttons[name]) buttons[name] = oc;
+      }
+      const d = (tds[3] || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      out.push({ period: tds[1], regNo: tds[2], submittedOn: tds[3], kind: tds[4], when: d ? d[3] + d[2] + d[1] : '', buttons });
+    });
+    return out.sort((a, b) => a.when.localeCompare(b.when));
+  },
+
+  // Download_FENP: «Προβολή» -> doViewPdfTaxisnet(frm, id, type) | doViewPdfTaxis(frm, 12 args incomeN) -> POST viewPdf.htm
+  async getN(http, lib, P, v, afm, Y, sfx, files) {
+    const oc = v.buttons['Προβολή'] || '';
+    const args = (oc.match(/^\s*doViewPdfTaxis(?:net)?\s*\(([\s\S]*?)\)\s*;?\s*$/) || [])[1];
+    const a = args ? args.split(',').slice(1).map(x => x.replace(/["']/g, ' ').trim()) : [];
+    let pdfParams = null, via = '';
+    if (/^\s*doViewPdfTaxisnet/.test(oc) && a.length >= 2) { pdfParams = { declarationDatabaseId: a[0], declarationType: a[1] }; via = 'taxisnet'; }
+    else if (a.length >= 12 && /income/i.test(a[0])) {
+      pdfParams = { 'taxisPK.num': a[3], 'taxisPK.doy': a[4], 'taxisPK.year': a[5], 'taxisPK.taxArea': a[6], 'taxisPK.docType': a[7], 'effectivePeriod.start': a[8], 'effectivePeriod.end': a[9], submissionDate: a[10], submissionType: a[1], declarationType: a[0], periodType: a[2], referenceYear: a[11] };
+      via = 'taxis';
+    }
+    if (!pdfParams) { http.log('[fenp] Ν ' + v.regNo + ': χωρίς «Προβολή»'); return { status: 'NotFound', regNo: v.regNo }; }
     const pdf = await http.postForPdf(P('viewPdf.htm'), pdfParams);
-    const result = { portal: this.portal, afm, year: Y, fiscalYear, regNo, table, retrievedAt: new Date().toISOString() };
-    if (!pdf) { http.log('[fenp] δεν επέστρεψε PDF'); result.status = 'NoPDF'; fs.writeFileSync(path.join(http.dlDir, 'AADE_fenp_' + afm + '_' + Y + '.json'), JSON.stringify(result, null, 2)); return { ok: false, reason: 'NoPDF' }; }
-    const f = 'FENP_N_' + afm + '_' + Y + '.pdf';
-    fs.writeFileSync(path.join(http.dlDir, f), pdf); result.pdf = f; result.bytes = pdf.length;
-    fs.writeFileSync(path.join(http.dlDir, 'AADE_fenp_' + afm + '_' + Y + '.json'), JSON.stringify(result, null, 2));
-    http.log('[fenp] ✅ PDF -> ' + f + ' (' + pdf.length + ' b)');
-    return { ok: true, files: ['AADE_fenp_' + afm + '_' + Y + '.json', f] };
+    if (!pdf) { http.log('[fenp] Ν ' + v.regNo + ': δεν επέστρεψε PDF'); return { status: 'NoPDF', regNo: v.regNo }; }
+    const f = 'FENP_N_' + afm + '_' + Y + sfx + '.pdf';
+    fs.writeFileSync(path.join(http.dlDir, f), pdf); files.push(f);
+    http.log('[fenp] ✅ Ν -> ' + f + ' (' + pdf.length + ' b) · N-' + v.regNo + ' ' + v.kind + ' · υποβ. ' + v.submittedOn);
+    return { status: 'ok', regNo: 'N-' + v.regNo, kind: v.kind, submittedOn: v.submittedOn, via, pdf: f, bytes: pdf.length };
+  },
+
+  // Download_E3_Nomiko / Download_E3Mydata_Nomiko: κουμπί «Προβολή Ε3» / «Δεδομένα myDATA» -> window.open('<URL>')
+  async getE3(http, lib, L, v, Y, button, suffix, afm, sfx, files) {
+    const oc = v.buttons[button] || '';
+    const url = oc.startsWith('window.open') ? (oc.match(/'([^']+)'/) || [])[1] : null;
+    if (!url) { http.log('[fenp] ' + v.regNo + ': δεν υπάρχει κουμπί «' + button + '»'); return { status: 'NotFound', regNo: v.regNo }; }
+    const w = { url, regNo: v.regNo, submittedOn: v.submittedOn, comment: v.kind };
+    const regNo = 'E3-' + w.regNo + suffix;
+    const tag = suffix ? 'E3MYDATA' : 'E3';
+    const openUrl = new URL(w.url, new URL('/taxisnet/income/protected/', L.AADE)).toString();
+    if (suffix && !/afmlegal=[^')&]+/.test(w.url)) return { status: 'NotFound', regNo, reason: 'no afmlegal' };
+    const opened = await http.follow('GET', openUrl);                       // ανοίγει τη συνεδρία webtax/incomefp
+    http.dump('fenp_' + tag + '_open.html', opened.text);
+    if (!opened.text || !opened.text.length) return { status: 'Error', regNo, reason: 'EmptyOpen' };
+    const LOGIN_DONE = new URL('/webtax/incomefp/login.done', L.AADE).toString();
+    let pdf = null;
+    if (suffix || Y >= 2018) {
+      const d = await http.getDoc(LOGIN_DONE);
+      pdf = d.buffer || null;
+      if (!pdf) http.dump('fenp_' + tag + '_logindone.html', d.text || '');
+    } else {
+      // < 2018: PRINT_CODE_E3 + FORMA_E3 + JS (report E3FormN<yy>.rdf) -> POST rwservlet
+      const page = (await http.follow('GET', LOGIN_DONE)).text;
+      http.dump('fenp_E3_logindone.html', page);
+      const val = (n) => (page.match(new RegExp('name="' + n + '"[^>]*value="([^"]*)"', 'i')) || page.match(new RegExp('value="([^"]*)"[^>]*name="' + n + '"', 'i')) || [])[1] || '';
+      const code = val('PRINT_CODE_E3'), forma = val('FORMA_E3');
+      const js = page.match(/e3_year=document\.forms\[0\]\["FORMA_E3"\]\.value\.substring\(2,4\)[\s\S]*?document\.forms\[1\]\.action='([^']+)'[\s\S]*?document\.forms\[1\]\["cmdkey"\]\.value='([^']+)'/);
+      if (code && forma.length > 2 && js) {
+        const rep = 'E3FormN' + forma.substring(2) + '.rdf';
+        pdf = await http.postForPdf(new URL(js[1], LOGIN_DONE).toString(), { cmdkey: js[2], p_afm: code, report: rep, desname: rep, desformat: 'pdf', destype: 'cache' });
+      }
+    }
+    if (!pdf) { http.log('[fenp] ' + tag + ': δεν επέστρεψε PDF'); return { status: 'NoPDF', regNo, submittedOn: w.submittedOn }; }
+    const f = 'FENP_' + tag + '_' + afm + '_' + Y + sfx + '.pdf';
+    fs.writeFileSync(path.join(http.dlDir, f), pdf); files.push(f);
+    http.log('[fenp] ✅ ' + tag + ' -> ' + f + ' (' + pdf.length + ' b) · ' + regNo + ' · υποβ. ' + w.submittedOn);
+    return { status: 'ok', regNo, submittedOn: w.submittedOn, comment: w.comment, pdf: f, bytes: pdf.length };
   },
 };
