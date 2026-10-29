@@ -196,7 +196,14 @@ object DocumentCatalog {
             applies = Applies.NATURAL_ONLY,
             note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
         Item("fenp", "Έντυπο Ν — ΦΕΝΠ (νομικά πρόσωπα)", GROUP_INCOME,
-            "aade-fenp", needsYear = true, applies = Applies.LEGAL_ONLY),
+            "aade-fenp", mapOf("docs" to "N"), needsYear = true, applies = Applies.LEGAL_ONLY),
+        // Το Ε3 του νομικού προσώπου δεν βγαίνει από το `aade-income` αλλά από
+        // τη λίστα δηλώσεων Ν: κουμπιά «Προβολή Ε3» / «Δεδομένα myDATA» της
+        // γραμμής της χρήσης.
+        Item("e3-nomiko", "Ε3 — νομικού προσώπου (από τη δήλωση Ν)", GROUP_INCOME,
+            "aade-fenp", mapOf("docs" to "E3"), needsYear = true, applies = Applies.LEGAL_ONLY),
+        Item("e3-mydata-nomiko", "Ε3 myDATA — νομικού προσώπου (από τη δήλωση Ν)", GROUP_INCOME,
+            "aade-fenp", mapOf("docs" to "E3MYDATA"), needsYear = true, applies = Applies.LEGAL_ONLY),
 
         // --------------------------------------------------------------- ΦΠΑ
         Item("f2", "Φ2 — Δήλωση ΦΠΑ", GROUP_VAT,
