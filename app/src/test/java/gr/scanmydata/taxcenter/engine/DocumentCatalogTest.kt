@@ -82,6 +82,18 @@ class DocumentCatalogTest {
     }
 
     @Test
+    fun `το Ε3 της ατομικής δεν προσφέρεται σε νομικό πρόσωπο`() {
+        // Το νομικό πρόσωπο έχει το δικό του Ε3 από τη δήλωση Ν· δύο εκδοχές
+        // του ίδιου εντύπου στην ίδια καρτέλα θα μπέρδευαν.
+        for (id in listOf("e3", "e3-mydata")) {
+            val item = DocumentCatalog.byId(id)!!
+            assertTrue("το $id αφορά ατομική επιχείρηση", item.matches(ClientKind.SOLE))
+            assertFalse("το $id δεν αφορά νομικό πρόσωπο", item.matches(ClientKind.LEGAL))
+            assertFalse("το $id δεν αφορά ιδιώτη", item.matches(ClientKind.PRIVATE))
+        }
+    }
+
+    @Test
     fun `οι διαδικασίες ΕΦΚΑ δεν ισχύουν σε νομικό πρόσωπο`() {
         // Θέλουν ΑΜΚΑ στη φόρμα ρόλου· νομικό πρόσωπο δεν έχει.
         for (id in listOf("efka-notices", "efka-certificate", "keao", "efka-obligations", "atlas", "amka")) {
@@ -97,7 +109,7 @@ class DocumentCatalogTest {
         // βιβλία, άρα δεν υπάρχει Ε3, ούτε ΦΠΑ, ούτε παρακρατούμενοι. Πριν του
         // προσφέρονταν όλα, και η πύλη γύριζε άδειο χωρίς εξήγηση.
         val business = listOf(
-            "e3", "e3-mydata", "f2", "f4", "f5", "fmy", "epix", "merismata",
+            "f2", "f4", "f5", "fmy", "epix", "merismata",
             "tokoi", "dikaiomata", "ergolavon", "anthektikotitas", "perivallon",
             "symfonitika", "employer-efka", "employer-teka",
         )

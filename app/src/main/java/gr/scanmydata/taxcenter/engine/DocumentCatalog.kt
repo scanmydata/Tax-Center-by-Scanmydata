@@ -39,8 +39,12 @@ object DocumentCatalog {
      * [BUSINESS_ONLY]: κρέμονται από τον ΑΜΚΑ, όχι από τα βιβλία. Ένας ιδιώτης
      * μπορεί κάλλιστα να έχει ασφαλιστικό ιστορικό ή παλιά οφειλή στο ΚΕΑΟ, και
      * το να του τα κρύψουμε θα ήταν χειρότερο λάθος από το να του τα δείξουμε.
+     *
+     * Το [SOLE_ONLY] υπάρχει για το Ε3 του `aade-income`: είναι η ροή της
+     * ατομικής επιχείρησης. Το νομικό πρόσωπο παίρνει το δικό του Ε3 από τη
+     * λίστα δηλώσεων Ν (`aade-fenp`), και οι δύο εκδοχές μαζί θα το μπέρδευαν.
      */
-    enum class Applies { ALL, LEGAL_ONLY, NATURAL_ONLY, BUSINESS_ONLY }
+    enum class Applies { ALL, LEGAL_ONLY, NATURAL_ONLY, BUSINESS_ONLY, SOLE_ONLY }
 
     /**
      * Μια επιλογή που κάνει ο χρήστης **τη στιγμή της λήψης**, όχι μία φορά στις
@@ -119,6 +123,7 @@ object DocumentCatalog {
                 Applies.LEGAL_ONLY -> normalised == ClientKind.LEGAL
                 Applies.NATURAL_ONLY -> normalised != ClientKind.LEGAL
                 Applies.BUSINESS_ONLY -> normalised != ClientKind.PRIVATE
+                Applies.SOLE_ONLY -> normalised == ClientKind.SOLE
             }
         }
     }
@@ -181,10 +186,10 @@ object DocumentCatalog {
             "aade-income", mapOf("forms" to "E2"), needsYear = true),
         Item("e3", "Ε3 — Κατάσταση οικονομικών στοιχείων", GROUP_INCOME,
             "aade-income", mapOf("forms" to "E3"), needsYear = true,
-            applies = Applies.BUSINESS_ONLY),
+            applies = Applies.SOLE_ONLY),
         Item("e3-mydata", "Ε3 myDATA", GROUP_INCOME,
             "aade-income", mapOf("forms" to "E3MYDATA"), needsYear = true,
-            applies = Applies.BUSINESS_ONLY),
+            applies = Applies.SOLE_ONLY),
         Item("ekkatharistiko", "Εκκαθαριστικό (πράξη διοικητικού προσδιορισμού)", GROUP_INCOME,
             "aade-income", mapOf("forms" to "EKK"), needsYear = true),
         // Τυπώνεται με τους κωδικούς του **ίδιου** του υπόχρεου: η κοινή δήλωση
