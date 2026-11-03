@@ -85,6 +85,12 @@ object DocumentCatalog {
          */
         val batchYears: Boolean = false,
         /**
+         * Πόσα έτη **μετά** το τρέχον προσφέρονται. Τα τέλη κυκλοφορίας του
+         * επόμενου έτους αναρτώνται στο myCAR από τον Νοέμβριο, πριν αλλάξει
+         * η χρονιά.
+         */
+        val futureYears: Int = 0,
+        /**
          * Input που **ενώνεται** όταν δύο επιλογές τρέχουν την ίδια διαδικασία
          * για τον ίδιο πελάτη και τα ίδια έτη.
          *
@@ -200,6 +206,15 @@ object DocumentCatalog {
             "aade-income", mapOf("forms" to "EKK_SYZ"), needsYear = true,
             applies = Applies.NATURAL_ONLY,
             note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
+        // Από την ίδια σελίδα με το Ε1/Ε2/Ε3. Το της συζύγου, όπως και το
+        // εκκαθαριστικό της, με τους κωδικούς του υπόχρεου.
+        Item("enimerotiko", "Ενημερωτικό εισοδημάτων-δαπανών υπόχρεου", GROUP_INCOME,
+            "aade-income-info", mapOf("docs" to "YPO"), needsYear = true,
+            applies = Applies.NATURAL_ONLY),
+        Item("enimerotiko-syz", "Ενημερωτικό εισοδημάτων-δαπανών συζύγου", GROUP_INCOME,
+            "aade-income-info", mapOf("docs" to "SYZ"), needsYear = true,
+            applies = Applies.NATURAL_ONLY,
+            note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
         Item("fenp", "Έντυπο Ν — ΦΕΝΠ (νομικά πρόσωπα)", GROUP_INCOME,
             "aade-fenp", mapOf("docs" to "N"), needsYear = true, applies = Applies.LEGAL_ONLY),
         // Το Ε3 του νομικού προσώπου δεν βγαίνει από το `aade-income` αλλά από
@@ -283,7 +298,7 @@ object DocumentCatalog {
         Item("tax-account", "Φορολογικός λογαριασμός (μηνιαία ενημέρωση)", GROUP_DEBTS,
             "aade-tax-account", needsYear = true, needsMonth = true),
         Item("traffic-fees", "Τέλη κυκλοφορίας (myCAR)", GROUP_DEBTS,
-            "aade-traffic-fees", needsYear = true),
+            "aade-traffic-fees", needsYear = true, futureYears = 1),
 
         // --------------------------------------------------------- ασφάλιση
         // Εξ ορισμού ένα PDF, το πιο πρόσφατο· τα ειδοποιητήρια των απλήρωτων

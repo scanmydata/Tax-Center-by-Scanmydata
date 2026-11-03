@@ -163,7 +163,8 @@ private fun FetchSelection(container: AppContainer, preselectedClient: Long, mod
     val clients: List<ClientEntity> by container.repository.observeClients()
         .collectAsState(initial = emptyList())
 
-    val defaultYear = remember { (Calendar.getInstance().get(Calendar.YEAR) - 1).toString() }
+    // Εξ ορισμού το τρέχον έτος, σε όλα τα έντυπα. Άλλο έτος διαλέγεται στη γραμμή.
+    val defaultYear = remember { Calendar.getInstance().get(Calendar.YEAR).toString() }
 
     var action by remember { mutableStateOf(Action.FETCH) }
     var query by remember { mutableStateOf("") }
@@ -1024,7 +1025,7 @@ private fun PickCard(
                 Spacer(Modifier.height(4.dp))
                 MultiPicker(
                     label = "Έτη",
-                    options = YEARS,
+                    options = yearsFor(item),
                     selected = pick.years,
                     onToggle = { value ->
                         val updated = if (value in pick.years) pick.years - value else pick.years + value
@@ -1177,10 +1178,14 @@ private fun RegistryPicker(
     )
 }
 
-/** Τα έτη που προσφέρονται: το τρέχον και τα δέκα προηγούμενα. */
-private val YEARS: List<String> = Calendar.getInstance().get(Calendar.YEAR).let { now ->
-    (now downTo now - 10).map { it.toString() }
-}
+/**
+ * Τα έτη που προσφέρονται: το τρέχον και τα δέκα προηγούμενα, και όσα επόμενα
+ * δέχεται το έντυπο ([DocumentCatalog.Item.futureYears] — π.χ. τέλη κυκλοφορίας).
+ */
+private fun yearsFor(item: DocumentCatalog.Item): List<String> =
+    Calendar.getInstance().get(Calendar.YEAR).let { now ->
+        (now + item.futureYears.coerceAtLeast(0) downTo now - 10).map { it.toString() }
+    }
 
 private val MONTHS: List<Pair<String, String>> = listOf(
     "1" to "Ιανουάριος", "2" to "Φεβρουάριος", "3" to "Μάρτιος", "4" to "Απρίλιος",

@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 33,
+  "count": 34,
   "configs": [
     {
       "id": "aade-debts",
@@ -263,6 +263,20 @@
           "env": "AADE_YEAR",
           "hidden": false,
           "optional": false
+        },
+        {
+          "key": "docs",
+          "label": "Έντυπα (N,E3,E3MYDATA· κενό = όλα)",
+          "env": "AADE_FENP_DOCS",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "versions",
+          "label": "Εκδόσεις (κενό = μόνο η πιο πρόσφατη, all = αρχική + τροποποιητικές)",
+          "env": "AADE_FENP_VERSIONS",
+          "hidden": false,
+          "optional": true
         }
       ]
     },
@@ -1427,6 +1441,49 @@
           "env": "EFKA_YEAR",
           "hidden": false,
           "optional": false
+        }
+      ]
+    },
+    {
+      "id": "aade-income-info",
+      "file": "aade-income-info.js",
+      "owner": "app",
+      "title": "Ενημερωτικό εισοδημάτων-δαπανών (υπόχρεου / συζύγου)",
+      "portal": "AADE webtax/incomefp (GSIS OAM)",
+      "subsystem": "ScanMyData Tax Center",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος (όπως στο Ε1)",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "docs",
+          "label": "Ενημερωτικά (YPO,SYZ — κενό = YPO)",
+          "env": "AADE_INFO_DOCS",
+          "hidden": false,
+          "optional": true
         }
       ]
     }

@@ -43,6 +43,7 @@ object CredentialMap {
         // ΑΑΔΕ — GSIS OAM, μόνο TAXISnet
         "aade-login-check" to TAXIS,
         "aade-income" to TAXIS,
+        "aade-income-info" to TAXIS,
         "aade-debts" to TAXIS,
         "aade-declarations" to TAXIS,
         "aade-general-forms" to TAXIS,

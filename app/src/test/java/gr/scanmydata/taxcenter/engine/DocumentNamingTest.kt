@@ -56,6 +56,19 @@ class DocumentNamingTest {
     }
 
     @Test
+    fun `το ενημερωτικό συζύγου δεν διαβάζεται ως του υπόχρεου`() {
+        assertEquals(
+            "Ενημερωτικό εισοδημάτων-δαπανών συζύγου",
+            DocumentNaming.label("ENIMEROTIKO_SYZ_999999999_2026.pdf"),
+        )
+        assertEquals(
+            "Ενημερωτικό εισοδημάτων-δαπανών υπόχρεου",
+            DocumentNaming.label("ENIMEROTIKO_999999999_2026.pdf"),
+        )
+        assertEquals("2026", DocumentNaming.yearIn("ENIMEROTIKO_SYZ_999999999_2026.pdf"))
+    }
+
+    @Test
     fun `τα έντυπα ΦΕΝΠ δεν μπερδεύονται μεταξύ τους`() {
         assertEquals("Έντυπο Ν — ΦΕΝΠ", DocumentNaming.label("FENP_N_999999999_2025.pdf"))
         assertEquals("Ε3 — νομικού προσώπου", DocumentNaming.label("FENP_E3_999999999_2025.pdf"))
