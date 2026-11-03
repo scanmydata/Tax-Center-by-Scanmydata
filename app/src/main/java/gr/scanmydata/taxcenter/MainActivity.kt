@@ -2,6 +2,7 @@ package gr.scanmydata.taxcenter
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.Window
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -127,14 +128,22 @@ class MainActivity : FragmentActivity() {
      * στα «πρόσφατα» δεν δείχνει περιεχόμενο.
      */
     private fun applyScreenshotPolicy() {
-        if (container.settings.blockScreenshots) {
-            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        applyScreenshotPolicy(window, container.settings.blockScreenshots)
     }
 
     companion object {
+        /**
+         * Καλείται και από τις Ρυθμίσεις, ώστε ο διακόπτης να ισχύει **αμέσως**
+         * και όχι στην επόμενη επιστροφή στην εφαρμογή.
+         */
+        fun applyScreenshotPolicy(window: Window, block: Boolean) {
+            if (block) {
+                window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+
         /** Ποια οθόνη να ανοίξει — βλ. [route]. */
         const val EXTRA_OPEN = "gr.scanmydata.taxcenter.OPEN"
         const val OPEN_REQUESTS = "requests"

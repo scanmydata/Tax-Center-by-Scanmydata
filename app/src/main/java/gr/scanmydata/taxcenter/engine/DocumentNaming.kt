@@ -26,6 +26,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `aade-registry` | `STOIXEIA_FYSIKOU_…`, `STOIXEIA_EPIXEIRISIS_[NOMIKO_]…` |
  * | `aade-debts` | `OFEILI_<ΑΦΜ>_<κατηγορία>_<ποσό>.pdf`, `RYTHMISI_<ΑΦΜ>_<έτος>_<αριθμός>.pdf` |
  * | `aade-lease` | `MISTH_<ρόλος>_<αριθμός>_<όνομα>.pdf` |
+ * | `aade-income-info` | `ENIMEROTIKO_[SYZ_]<ΑΦΜ>_<έτος>.pdf` |
  * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf`, `FENP_E3_…`, `FENP_E3MYDATA_…` |
  * | `efka-notices` | `EFKA_<EFKA\|TEKA>_<meta>.pdf` |
  * | `efka-teka-certificate` | `VEV_<EFKA\|TEKA>_<ΑΦΜ>_<έτος>.pdf` |
@@ -67,6 +68,10 @@ object DocumentNaming {
         Entry("E1", "Ε1 — δήλωση φορολογίας εισοδήματος"),
         Entry("E2", "Ε2 — αναλυτική κατάσταση μισθωμάτων"),
         Entry("E3", "Ε3 — κατάσταση οικονομικών στοιχείων"),
+
+        // ---------------------------------------------- aade-income-info
+        Entry("ENIMEROTIKO_SYZ", "Ενημερωτικό εισοδημάτων-δαπανών συζύγου"),
+        Entry("ENIMEROTIKO", "Ενημερωτικό εισοδημάτων-δαπανών υπόχρεου"),
 
         // ------------------------------------------------------- ακίνητα
         Entry("ENFIA_EKK", "ΕΝΦΙΑ — εκκαθαριστικό"),

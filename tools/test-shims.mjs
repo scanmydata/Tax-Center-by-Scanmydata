@@ -1054,5 +1054,60 @@ await checkAsync('χωρίς αριθμό αιτήματος δεν ανοίγε
   assert(mock.requests.length === 0, `αιτήματα δικτύου: ${mock.requests.length}`);
 });
 
+console.log('\naade-income-info — ενημερωτικό εισοδημάτων-δαπανών από το μενού του Ε1\n');
+
+// Τα ονόματα πεδίων της ΑΑΔΕ δεν είναι γνωστά· το μενού εδώ είναι συνθετικό και
+// ελέγχει ότι το config διαβάζει την ενέργεια του κουμπιού από το ίδιο το HTML.
+async function runIncomeInfo(inputs, menuHtml) {
+  const base = aadeScenario({ goodCredentials: true });
+  const calls = [];
+  const m = makeBridge((req) => {
+    if (!req.url.includes('/webtax/incomefp/year2026-')) return base(req);
+    calls.push({ method: req.method, url: req.url, body: req.body });
+    if (req.url.endsWith('year2026-income-menu.do')) {
+      return { status: 200, headers: { 'content-type': 'text/html; charset=UTF-8' }, body: Buffer.from(menuHtml, 'utf8') };
+    }
+    return { status: 200, headers: { 'content-type': 'application/pdf' }, body: PDF_A };
+  });
+  const c = makeContext(m);
+  vm.runInContext(fs.readFileSync(path.join(ASSETS, 'runner.js'), 'utf8'), c, { filename: 'runner.js' });
+  const waiter = m.awaitFinish('run');
+  vm.runInContext(
+    `__runConfig('run', 'aade-income-info', ${JSON.stringify(JSON.stringify({ user: 'testuser', pass: 'testpass', year: '2026', ...inputs }))}, '.')`,
+    c, { filename: 'invoke' },
+  );
+  return { result: await waiter, mock: m, calls };
+}
+
+const infoMenu =
+  '<html><body><form name="f" method="post" action="year2026-income-menu.do">' +
+  '<input type="hidden" name="YEAR" value="2026"><input type="hidden" name="print_info" value="">' +
+  '<table><tr><td>Ενημερωτικό εισοδημάτων - δαπανών</td>' +
+  '<td><input type="button" name="PB_INFO_YPO" value="Υπόχρεου" onclick="document.forms[0].print_info.value=\'ypo\';document.forms[0].action=\'year2026-income-menuPrint.do\';document.forms[0].submit();"></td>' +
+  '<td><input type="button" name="PB_INFO_SYZ" value="Συζύγου" disabled onclick="document.forms[0].print_info.value=\'syz\';document.forms[0].submit();"></td>' +
+  '</tr></table></form></body></html>';
+
+await checkAsync('υπόχρεος: POST με τα πεδία που γεμίζει το κουμπί, PDF με το σωστό όνομα', async () => {
+  const { result, mock, calls } = await runIncomeInfo({ docs: 'YPO,SYZ' }, infoMenu);
+  assert(result.ok === true, `ok=${result.ok} reason=${result.reason}`);
+  const post = calls.find((x) => x.method === 'POST');
+  assert(post && post.url.endsWith('year2026-income-menuPrint.do'), `POST: ${post && post.url}`);
+  assert(/print_info=ypo/.test(post.body) && /YEAR=2026/.test(post.body), `body: ${post.body}`);
+  assert(calls.filter((x) => x.method === 'POST').length === 1, 'το κουμπί της συζύγου είναι disabled');
+  const pdf = result.files.find((f) => f.startsWith('ENIMEROTIKO_'));
+  assert(pdf && /^ENIMEROTIKO_[^_]+_2026\.pdf$/.test(pdf), `files: ${JSON.stringify(result.files)}`);
+  assert(mock.files.get(pdf).equals(PDF_A), 'το PDF αλλοιώθηκε');
+  const out = JSON.parse(mock.files.get(result.files[0]).toString('utf8'));
+  assert(out.docs.SYZ.status.startsWith('NotAvailable'), `ΣΥΖ: ${out.docs.SYZ.status}`);
+  assert(out.found.length === 2, 'το JSON γράφει τα κουμπιά που βρέθηκαν');
+});
+
+await checkAsync('χωρίς κουμπί ενημερωτικού: κενό αποτέλεσμα, όχι βλάβη', async () => {
+  const { result, calls } = await runIncomeInfo({}, '<html><body><form></form></body></html>');
+  assert(result.ok === true, `ok=${result.ok}`);
+  assert(!result.files.some((f) => f.endsWith('.pdf')), `files: ${JSON.stringify(result.files)}`);
+  assert(!calls.some((x) => x.method === 'POST'), 'δεν έπρεπε να γίνει POST');
+});
+
 console.log(`\n${pass} πέρασαν, ${fail} απέτυχαν  (${loaded}/${configFiles.length} configs φορτώθηκαν)\n`);
 process.exit(fail ? 1 : 0);

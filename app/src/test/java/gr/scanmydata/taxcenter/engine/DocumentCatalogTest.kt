@@ -82,6 +82,26 @@ class DocumentCatalogTest {
     }
 
     @Test
+    fun `το ενημερωτικό εισοδημάτων-δαπανών έρχεται από τη σελίδα του Ε1`() {
+        for ((id, docs) in listOf("enimerotiko" to "YPO", "enimerotiko-syz" to "SYZ")) {
+            val item = DocumentCatalog.byId(id)!!
+            assertEquals("aade-income-info", item.configId)
+            assertEquals(docs, item.inputs["docs"])
+            assertTrue(item.needsYear)
+            assertTrue(item.matches(ClientKind.PRIVATE))
+            assertTrue(item.matches(ClientKind.SOLE))
+            assertFalse(item.matches(ClientKind.LEGAL))
+        }
+    }
+
+    @Test
+    fun `μόνο τα τέλη κυκλοφορίας δέχονται το επόμενο έτος`() {
+        assertEquals(1, DocumentCatalog.byId("traffic-fees")!!.futureYears)
+        val others = DocumentCatalog.ALL.filter { it.id != "traffic-fees" && it.futureYears != 0 }
+        assertTrue("επόμενο έτος σε: " + others.map { it.id }, others.isEmpty())
+    }
+
+    @Test
     fun `το Ε3 της ατομικής δεν προσφέρεται σε νομικό πρόσωπο`() {
         // Το νομικό πρόσωπο έχει το δικό του Ε3 από τη δήλωση Ν· δύο εκδοχές
         // του ίδιου εντύπου στην ίδια καρτέλα θα μπέρδευαν.

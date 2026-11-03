@@ -1,5 +1,8 @@
 package gr.scanmydata.taxcenter.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +48,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import gr.scanmydata.taxcenter.BuildConfig
+import gr.scanmydata.taxcenter.MainActivity
 import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.google.DriveSync
 import gr.scanmydata.taxcenter.google.rememberGoogleAuthorizer
@@ -405,13 +409,24 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(12.dp))
+            // Ο διακόπτης λέει «επιτρέπονται», κλειστός εξ ορισμού· η αποθηκευμένη
+            // ρύθμιση μένει `blockScreenshots`, ώστε όποιος την είχε αλλάξει να
+            // κρατήσει την επιλογή του.
             SettingSwitch(
-                title = "Αποκλεισμός στιγμιότυπων οθόνης",
-                description = "Εμποδίζει screenshot και καταγραφή οθόνης, και κρύβει το " +
-                    "περιεχόμενο από τα «πρόσφατα». Ισχύει μετά την επόμενη επιστροφή " +
-                    "στην εφαρμογή.",
-                checked = blockScreenshots,
-                onChange = { blockScreenshots = it; settings.blockScreenshots = it },
+                title = "Να επιτρέπονται στιγμιότυπα οθόνης",
+                description = "Κλειστό: η εφαρμογή εμποδίζει screenshot και καταγραφή " +
+                    "οθόνης, και κρύβει το περιεχόμενο από τα «πρόσφατα» — κάθε οθόνη " +
+                    "δείχνει κωδικούς ή φορολογικά στοιχεία τρίτων. Ανοίξτε το μόνο όσο " +
+                    "το χρειάζεστε.",
+                checked = !blockScreenshots,
+                onChange = { allow ->
+                    blockScreenshots = !allow
+                    settings.blockScreenshots = !allow
+                    context.findActivity()?.window?.let {
+                        MainActivity.applyScreenshotPolicy(it, block = !allow)
+                    }
+                },
+                warn = true,
             )
 
             Spacer(Modifier.height(12.dp))
@@ -887,4 +902,11 @@ private fun DiagnosticsDialog(container: AppContainer, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Κλείσιμο") } },
     )
+}
+
+/** Το Activity πίσω από ένα Context του Compose (που μπορεί να είναι τυλιγμένο). */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
