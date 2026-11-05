@@ -21,13 +21,25 @@
  *             {cmdkey, p_afm=PRINT_CODE_E3, report=desname='E3FormN<yy>.rdf', desformat=pdf, destype=cache}
  *   RegNo = 'E3-'+td[3] (myDATA: 'E3-'+td[3]+'myDATA').
  *
+ * Ε2 ΝΟΜΙΚΟΥ ΠΡΟΣΩΠΟΥ (Download_E2_Nomiko): ίδια λογική με το Ε3, κουμπί «Προβολή Ε2» (window.open με afmlegal=…·
+ *   χωρίς afmlegal -> NotFound). GET <URL> -> GET login.done: PDF, ή (live 2025: παλιό μενού NP year2016 ακόμη και
+ *   για πρόσφατη χρήση) σελίδα με PRINT_CODE_E2/FORMA_E2 + JS -> rwservlet 'E2FormN<yy>.rdf'. FORMA_E2 κενό -> NotFound.
+ *   (Το TaxSystem για Y ≥ 2023 περιμένει PDF από το login.done· εδώ δοκιμάζουμε και τα δύο.)
+ *   RegNo = 'E2-'+td[3].
+ *
  * INPUTS: TAXISnet user/pass (νομικού προσώπου) + Έτος αναφοράς (έτος υποβολής· αφορά χρήση Y-1)
- *         + docs (N,E3,E3MYDATA· κενό = όλα) + versions (κενό = πιο πρόσφατη υποβολή, όπως το TaxSystem· all = όλες).
+ *         + docs (N,E2,E3,E3MYDATA· κενό = όλα) + versions (κενό = πιο πρόσφατη υποβολή, όπως το TaxSystem· all = όλες).
  */
 'use strict';
 const path = require('path');
 const fs = require('fs');
 
+// συνημμένα έντυπα της δήλωσης Ν (κουμπιά στη γραμμή της λίστας)
+const ATTACHED = {
+  E2:       { tag: 'E2',       button: 'Προβολή Ε2',      prefix: 'E2', suffix: '',       form: 'E2', needAfmLegal: true },
+  E3:       { tag: 'E3',       button: 'Προβολή Ε3',      prefix: 'E3', suffix: '',       form: 'E3' },
+  E3MYDATA: { tag: 'E3MYDATA', button: 'Δεδομένα myDATA', prefix: 'E3', suffix: 'myDATA', form: 'E3', needAfmLegal: true },
+};
 const rows = (html) => [...html.matchAll(/<tr\b[^>]*class="tblRow[12]"[^>]*>([\s\S]*?)<\/tr>/gi)]
   .map(r => [...r[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map(c => c[1]));
 const onclickArgs = (fnName, html) => { // strip "fn(" ... ");" -> comma-split args (quotes trimmed)
@@ -48,7 +60,7 @@ module.exports = {
     { key: 'user', label: 'TAXISnet username (νομικού προσώπου)', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
     { key: 'year', label: 'Έτος αναφοράς', env: 'AADE_YEAR' },
-    { key: 'docs', label: 'Έντυπα (N,E3,E3MYDATA· κενό = όλα)', env: 'AADE_FENP_DOCS', optional: true },
+    { key: 'docs', label: 'Έντυπα (N,E2,E3,E3MYDATA· κενό = όλα)', env: 'AADE_FENP_DOCS', optional: true },
     { key: 'versions', label: 'Εκδόσεις (κενό = μόνο η πιο πρόσφατη, all = αρχική + τροποποιητικές)', env: 'AADE_FENP_VERSIONS', optional: true },
   ],
 
@@ -104,7 +116,7 @@ module.exports = {
       versions: versions.map(v => ({ regNo: v.regNo, submittedOn: v.submittedOn, kind: v.kind, buttons: Object.keys(v.buttons) })) };
     http.log('[fenp] χρήση ' + fiscalYear + ' · ' + versions.length + ' δήλωση(εις): ' + versions.map(v => v.regNo + ' ' + v.kind + ' ' + v.submittedOn).join(' | '));
 
-    const want = new Set(((inp.docs || '').toUpperCase().replace(/Ε/g, 'E').match(/E3MYDATA|MYDATA|E3|N/g) || ['N', 'E3', 'E3MYDATA']).map(x => x === 'MYDATA' ? 'E3MYDATA' : x));
+    const want = new Set(((inp.docs || '').toUpperCase().replace(/Ε/g, 'E').match(/E3MYDATA|MYDATA|E3|E2|N/g) || ['N', 'E2', 'E3', 'E3MYDATA']).map(x => x === 'MYDATA' ? 'E3MYDATA' : x));
     const result = { portal: this.portal, afm, year: Y, fiscalYear, regNo, table, retrievedAt: new Date().toISOString(), docs: {} };
     const files = [];
     const jf = 'AADE_fenp_' + afm + '_' + Y + '.json';
@@ -112,9 +124,9 @@ module.exports = {
       const sfx = allVersions ? '_' + v.regNo : '';
       const put = (k, val) => { if (allVersions) { (result.docs[k] = result.docs[k] || []).push(val); } else result.docs[k] = val; };
       if (want.has('N')) put('N', await this.getN(http, lib, P, v, afm, Y, sfx, files));
-      for (const [key, button, suffix] of [['E3', 'Προβολή Ε3', ''], ['E3MYDATA', 'Δεδομένα myDATA', 'myDATA']]) {
+      for (const key of ['E2', 'E3', 'E3MYDATA']) {
         if (!want.has(key)) continue;
-        try { put(key, await this.getE3(http, lib, L, v, Y, button, suffix, afm, sfx, files)); }
+        try { put(key, await this.getAttached(http, lib, L, v, Y, ATTACHED[key], afm, sfx, files)); }
         catch (e) { put(key, { status: 'Error', regNo: v.regNo, error: String(e && e.message || e) }); http.log('[fenp] ' + key + ': ' + String(e && e.message || e)); }
       }
     }
@@ -165,34 +177,36 @@ module.exports = {
     return { status: 'ok', regNo: 'N-' + v.regNo, kind: v.kind, submittedOn: v.submittedOn, via, pdf: f, bytes: pdf.length };
   },
 
-  // Download_E3_Nomiko / Download_E3Mydata_Nomiko: κουμπί «Προβολή Ε3» / «Δεδομένα myDATA» -> window.open('<URL>')
-  async getE3(http, lib, L, v, Y, button, suffix, afm, sfx, files) {
-    const oc = v.buttons[button] || '';
+  // Download_E2_Nomiko / Download_E3_Nomiko / Download_E3Mydata_Nomiko: κουμπί -> window.open('<URL>')
+  async getAttached(http, lib, L, v, Y, A, afm, sfx, files) {
+    const oc = v.buttons[A.button] || '';
     const url = oc.startsWith('window.open') ? (oc.match(/'([^']+)'/) || [])[1] : null;
-    if (!url) { http.log('[fenp] ' + v.regNo + ': δεν υπάρχει κουμπί «' + button + '»'); return { status: 'NotFound', regNo: v.regNo }; }
+    if (!url) { http.log('[fenp] ' + v.regNo + ': δεν υπάρχει κουμπί «' + A.button + '»'); return { status: 'NotFound', regNo: v.regNo }; }
     const w = { url, regNo: v.regNo, submittedOn: v.submittedOn, comment: v.kind };
-    const regNo = 'E3-' + w.regNo + suffix;
-    const tag = suffix ? 'E3MYDATA' : 'E3';
+    const regNo = A.prefix + '-' + w.regNo + A.suffix;
+    const tag = A.tag;
     const openUrl = new URL(w.url, new URL('/taxisnet/income/protected/', L.AADE)).toString();
-    if (suffix && !/afmlegal=[^')&]+/.test(w.url)) return { status: 'NotFound', regNo, reason: 'no afmlegal' };
+    if (A.needAfmLegal && !/afmlegal=[^')&]+/.test(w.url)) return { status: 'NotFound', regNo, reason: 'no afmlegal' };
     const opened = await http.follow('GET', openUrl);                       // ανοίγει τη συνεδρία webtax/incomefp
     http.dump('fenp_' + tag + '_open.html', opened.text);
     if (!opened.text || !opened.text.length) return { status: 'Error', regNo, reason: 'EmptyOpen' };
     const LOGIN_DONE = new URL('/webtax/incomefp/login.done', L.AADE).toString();
-    let pdf = null;
-    if (suffix || Y >= 2018) {
-      const d = await http.getDoc(LOGIN_DONE);
-      pdf = d.buffer || null;
-      if (!pdf) http.dump('fenp_' + tag + '_logindone.html', d.text || '');
-    } else {
-      // < 2018: PRINT_CODE_E3 + FORMA_E3 + JS (report E3FormN<yy>.rdf) -> POST rwservlet
-      const page = (await http.follow('GET', LOGIN_DONE)).text;
-      http.dump('fenp_E3_logindone.html', page);
+    // login.done: είτε PDF κατευθείαν, είτε (παλιό μενού NP, ακόμη και για πρόσφατα έτη) σελίδα με
+    // PRINT_CODE_<F> + FORMA_<F> + JS -> POST rwservlet '<F>FormN<yy>.rdf'. FORMA_<F> κενό => δεν υπάρχει έντυπο
+    // (η σελίδα δείχνει alert «Δεν υπάρχει Ε2 για τη διαχειριστική περίοδο»· το κείμενο υπάρχει ΠΑΝΤΑ στο JS, άρα δεν
+    // το χρησιμοποιούμε ως ένδειξη όπως το TaxSystem).
+    const d = await http.getDoc(LOGIN_DONE);
+    let pdf = d.buffer || null;
+    if (!pdf) {
+      const F = A.form;
+      const page = d.text || '';
+      http.dump('fenp_' + tag + '_logindone.html', page);
       const val = (n) => (page.match(new RegExp('name="' + n + '"[^>]*value="([^"]*)"', 'i')) || page.match(new RegExp('value="([^"]*)"[^>]*name="' + n + '"', 'i')) || [])[1] || '';
-      const code = val('PRINT_CODE_E3'), forma = val('FORMA_E3');
-      const js = page.match(/e3_year=document\.forms\[0\]\["FORMA_E3"\]\.value\.substring\(2,4\)[\s\S]*?document\.forms\[1\]\.action='([^']+)'[\s\S]*?document\.forms\[1\]\["cmdkey"\]\.value='([^']+)'/);
+      const code = val('PRINT_CODE_' + F), forma = val('FORMA_' + F);
+      if (!forma) { http.log('[fenp] ' + tag + ' ' + v.regNo + ': δεν υπάρχει έντυπο ' + F + ' (FORMA_' + F + ' κενό)'); return { status: 'NotFound', regNo, submittedOn: w.submittedOn, reason: 'Δεν υπάρχει ' + F + ' για τη διαχειριστική περίοδο' }; }
+      const js = page.match(new RegExp(F.toLowerCase() + '_year=document\\.forms\\[0\\]\\["FORMA_' + F + '"\\]\\.value\\.substring\\(2,4\\)[\\s\\S]*?document\\.forms\\[1\\]\\.action=\'([^\']+)\'[\\s\\S]*?document\\.forms\\[1\\]\\["cmdkey"\\]\\.value=\'([^\']+)\''));
       if (code && forma.length > 2 && js) {
-        const rep = 'E3FormN' + forma.substring(2) + '.rdf';
+        const rep = F + 'FormN' + forma.substring(2) + '.rdf';
         pdf = await http.postForPdf(new URL(js[1], LOGIN_DONE).toString(), { cmdkey: js[2], p_afm: code, report: rep, desname: rep, desformat: 'pdf', destype: 'cache' });
       }
     }

@@ -206,17 +206,29 @@ object DocumentCatalog {
             "aade-income", mapOf("forms" to "EKK_SYZ"), needsYear = true,
             applies = Applies.NATURAL_ONLY,
             note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
-        // Από την ίδια σελίδα με το Ε1/Ε2/Ε3. Το της συζύγου, όπως και το
-        // εκκαθαριστικό της, με τους κωδικούς του υπόχρεου.
-        Item("enimerotiko", "Ενημερωτικό εισοδημάτων-δαπανών υπόχρεου", GROUP_INCOME,
-            "aade-income-info", mapOf("docs" to "YPO"), needsYear = true,
+        // Η σύνοψη του εκκαθαριστικού υπάρχει στην πύλη μόνο από το 2024· για
+        // παλαιότερο έτος η διαδικασία απαντά «δεν ισχύει».
+        Item("ekkatharistiko-synopsi", "Σύνοψη εκκαθαριστικού", GROUP_INCOME,
+            "aade-income", mapOf("forms" to "EKK_SYN"), needsYear = true),
+        Item("ekkatharistiko-synopsi-syz", "Σύνοψη εκκαθαριστικού συζύγου", GROUP_INCOME,
+            "aade-income", mapOf("forms" to "EKK_SYZ_SYN"), needsYear = true,
+            applies = Applies.NATURAL_ONLY,
+            note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
+        // «Ενημέρωση Εισοδημάτων-Δαπανών-προεκκαθάρισης φόρου» (GetE1Proekatharis):
+        // το κουμπί PBE_EKTYPWSH_APODOXWN της ίδιας σελίδας με το Ε1/Ε2/Ε3.
+        Item("enimerotiko", "Ενημέρωση εισοδημάτων-δαπανών (προεκκαθάριση) υπόχρεου", GROUP_INCOME,
+            "aade-income", mapOf("forms" to "PROEK"), needsYear = true,
             applies = Applies.NATURAL_ONLY),
-        Item("enimerotiko-syz", "Ενημερωτικό εισοδημάτων-δαπανών συζύγου", GROUP_INCOME,
-            "aade-income-info", mapOf("docs" to "SYZ"), needsYear = true,
+        Item("enimerotiko-syz", "Ενημέρωση εισοδημάτων-δαπανών (προεκκαθάριση) συζύγου", GROUP_INCOME,
+            "aade-income", mapOf("forms" to "PROEK_SYZ"), needsYear = true,
             applies = Applies.NATURAL_ONLY,
             note = "Από την κοινή δήλωση, με τους κωδικούς του υπόχρεου."),
         Item("fenp", "Έντυπο Ν — ΦΕΝΠ (νομικά πρόσωπα)", GROUP_INCOME,
             "aade-fenp", mapOf("docs" to "N"), needsYear = true, applies = Applies.LEGAL_ONLY),
+        // Κουμπί «Προβολή Ε2» στη γραμμή της δήλωσης Ν· χωρίς Ε2 στη χρήση η
+        // διαδικασία απαντά «δεν υπάρχει».
+        Item("e2-nomiko", "Ε2 — νομικού προσώπου (από τη δήλωση Ν)", GROUP_INCOME,
+            "aade-fenp", mapOf("docs" to "E2"), needsYear = true, applies = Applies.LEGAL_ONLY),
         // Το Ε3 του νομικού προσώπου δεν βγαίνει από το `aade-income` αλλά από
         // τη λίστα δηλώσεων Ν: κουμπιά «Προβολή Ε3» / «Δεδομένα myDATA» της
         // γραμμής της χρήσης.

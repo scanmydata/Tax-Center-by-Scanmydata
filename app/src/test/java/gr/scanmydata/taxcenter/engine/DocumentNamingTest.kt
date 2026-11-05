@@ -56,16 +56,19 @@ class DocumentNamingTest {
     }
 
     @Test
-    fun `το ενημερωτικό συζύγου δεν διαβάζεται ως του υπόχρεου`() {
+    fun `η προεκκαθάριση και η σύνοψη συζύγου δεν διαβάζονται ως του υπόχρεου`() {
         assertEquals(
-            "Ενημερωτικό εισοδημάτων-δαπανών συζύγου",
-            DocumentNaming.label("ENIMEROTIKO_SYZ_999999999_2026.pdf"),
+            "Ενημέρωση εισοδημάτων-δαπανών (προεκκαθάριση) συζύγου",
+            DocumentNaming.label("Προεκκαθάριση_συζύγου_999999999_2026.pdf"),
         )
         assertEquals(
-            "Ενημερωτικό εισοδημάτων-δαπανών υπόχρεου",
-            DocumentNaming.label("ENIMEROTIKO_999999999_2026.pdf"),
+            "Ενημέρωση εισοδημάτων-δαπανών (προεκκαθάριση) υπόχρεου",
+            DocumentNaming.label("Προεκκαθάριση_999999999_2026.pdf"),
         )
-        assertEquals("2026", DocumentNaming.yearIn("ENIMEROTIKO_SYZ_999999999_2026.pdf"))
+        assertEquals("Σύνοψη εκκαθαριστικού συζύγου", DocumentNaming.label("Σύνοψη_Εκκαθαριστικού_συζύγου_999999999_2026.pdf"))
+        assertEquals("Σύνοψη εκκαθαριστικού", DocumentNaming.label("Σύνοψη_Εκκαθαριστικού_999999999_2026.pdf"))
+        assertEquals("Ε2 — νομικού προσώπου", DocumentNaming.label("FENP_E2_999999999_2026.pdf"))
+        assertEquals("2026", DocumentNaming.yearIn("Προεκκαθάριση_συζύγου_999999999_2026.pdf"))
     }
 
     @Test

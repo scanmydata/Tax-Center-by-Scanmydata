@@ -40,9 +40,9 @@ const OBLIGATIONS = {
   'E1':          { label: 'Δήλωση Εισοδήματος Ε1 (φυσικά)', kind: 'income', codePrefix: 'E1-', requiresDate: true },
   'E3':          { label: 'Ε3 (Επιχ. Δραστηριότητα)',      kind: 'income', codePrefix: 'E3-', requiresDate: false },
   // --- «Other app» τέλη ---
-  'ΠΕΡΙΒΑΛΛΟΝ':  { label: 'Περιβαλλοντικό Τέλος',           category: 'other',     filter: 'otherAppH7',         periodCol: 0,  statusCol: 2, buttonCol: 3, extra: '',                                     searchType: '' },
-  'ΔΙΑΜΟΝΗ':     { label: 'Φόρος/Τέλος Διαμονής',           category: 'other',     filter: 'otherAppH6',         periodCol: 0,  statusCol: 2, buttonCol: 3, extra: '',                                     searchType: '' },
-  'ΤΕΛΟΣ_H2B':   { label: 'Τέλος (otherAppH2B)',            category: 'other',     filter: 'otherAppH2B',        periodCol: 0,  statusCol: 2, buttonCol: 3, extra: '',                                     searchType: '' },
+  'ΠΕΡΙΒΑΛΛΟΝ':  { label: 'Περιβαλλοντικό Τέλος (πλαστ. σακούλας)',category: 'other',     filter: 'otherAppH7',         periodCol: 0,  statusCol: 2, buttonCol: 3, extra: '',                                     searchType: '' },
+  'ΔΙΑΜΟΝΗ':     { label: 'Τέλος Ανθεκτικότητας/Διαμονής',    category: 'other',     filter: 'otherAppH6',         periodCol: 0,  statusCol: 2, buttonCol: 3, extra: '',                                     searchType: '' },
+  'ΔΑΚΟΚΤΟΝΙΑ':  { label: 'Δήλωση Δακοκτονίας (otherAppH2B)', category: 'other',     filter: 'otherAppH2B',        periodCol: 0,  statusCol: 2, buttonCol: 3, extra: '',                                     searchType: '' },
   // --- Παρακρατούμενοι (deduction) ---
   'ΣΥΜΦΩΝΗΤΙΚΑ':  { label: 'Κατάσταση Συμφωνητικών',         category: 'deduction', filter: 'deductAgreement',    periodCol: -1, statusCol: 1, buttonCol: 2, extra: '',                                     searchType: '' },
   'ΕΡΓΟΛΑΒΩΝ':   { label: 'Φόρος Εργολάβων',                category: 'deduction', filter: 'deductContractor',   periodCol: -1, statusCol: 1, buttonCol: 2, extra: '',                                     searchType: '' },
@@ -58,7 +58,7 @@ const GROUPS = {
   VAT:    ['Φ2', 'Φ4', 'Φ5', 'Φ1'],
   FMY:    ['ΦΜΥ', 'ΦΜΥ_ΕΠΙΧ', 'ΦΜΥ_ΔΙΚΑΙΩΜΑΤΑ', 'ΦΜΥ_ΜΕΡΙΣΜΑΤΑ', 'ΦΜΥ_ΤΟΚΟΙ'],
   DEDUCT: ['ΣΥΜΦΩΝΗΤΙΚΑ', 'ΕΡΓΟΛΑΒΩΝ', 'ΦΜΥ', 'ΦΜΥ_ΕΠΙΧ', 'ΦΜΥ_ΔΙΚΑΙΩΜΑΤΑ', 'ΦΜΥ_ΜΕΡΙΣΜΑΤΑ', 'ΦΜΥ_ΤΟΚΟΙ'],
-  OTHER:  ['ΠΕΡΙΒΑΛΛΟΝ', 'ΔΙΑΜΟΝΗ', 'ΤΕΛΟΣ_H2B'],
+  OTHER:  ['ΠΕΡΙΒΑΛΛΟΝ', 'ΔΙΑΜΟΝΗ', 'ΔΑΚΟΚΤΟΝΙΑ'],
   INCOME: ['E1', 'E3', 'ΕΙΣΟΔΗΜΑ_ΝΠ', 'ΜΥΦ'],
   FYSIKA: ['E1', 'E3'],
 };

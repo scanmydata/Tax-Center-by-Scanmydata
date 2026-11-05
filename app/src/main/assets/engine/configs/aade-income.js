@@ -17,6 +17,8 @@
  *           {cmdkey:'INC00S', p_afm:<print code>, report:'<X>Form{suffix}.rdf', desname, desformat:'pdf', destype:'cache'}
  *           X: E1/E2/E3/E0. suffix = last 2 digits of year. E1 report is read from the menu page (…w.rdf variant).
  *
+ * Επιπλέον (live 11/2026): EKK_SYN / EKK_SYZ_SYN = Σύνοψη εκκαθαριστικού (print_e0m_ypo|syz, μόνο ≥2024),
+ *   PROEK / PROEK_SYZ = Προεκκαθάριση «Ενημέρωση Εισοδημάτων-Δαπανών» (GetE1Proekatharis, bebApodoxPrintYpo|Syz).
  * INPUTS: TAXISnet user/pass + Έτος + (ποια έντυπα, default E1,E2,E3,EKK).
  */
 'use strict';
@@ -34,7 +36,20 @@ const FORMS = {
   E3MYDATA:{ code: 's3',  flagKey: 'e3_print',      flagVal: 'e3md_print',    button: 'E3MY_PRINT_PDF',         menuFrom: 2024, reportBase: 'E3Form', label: 'E3_myDATA' },
   EKK:     { code: 's1',  flagKey: 'print_e0_ypo',  flagVal: 'print_e0_ypo',  button: 'PB_EKKATH_PDF',          menuFrom: 2024, reportBase: 'E0Form', label: 'Εκκαθαριστικό' },
   EKK_SYZ: { code: 's1s', flagKey: 'print_e0_syz',  flagVal: 'print_e0_syz',  button: 'PB_EKKATH_PDF_SYZ',      menuFrom: 2024, reportBase: 'E0Form', label: 'Εκκαθαριστικό_συζύγου' },
+  // Σύνοψη εκκαθαριστικού (E1_Ekk_Synopsi / E1_Ekk_SyzSynopsi): ΜΟΝΟ menuPrint.do (δεν υπάρχει .rdf για παλιά έτη)
+  EKK_SYN:     { code: 's1',  flagKey: 'print_e0m_ypo', flagVal: 'print_e0m_ypo', button: 'PB_EKKATH_PDF',     menuFrom: 2024, onlyNew: true, label: 'Σύνοψη_Εκκαθαριστικού' },
+  EKK_SYZ_SYN: { code: 's1s', flagKey: 'print_e0m_syz', flagVal: 'print_e0m_syz', button: 'PB_EKKATH_PDF_SYZ', menuFrom: 2024, onlyNew: true, label: 'Σύνοψη_Εκκαθαριστικού_συζύγου' },
+  // Προεκκαθάριση (GetE1Proekatharis): κουμπί PBE_EKTYPWSH_APODOXWN «Ενημέρωση Εισοδημάτων-Δαπανών-προεκκαθάρισης
+  //   φόρου Υπόχρεου | Συζύγου/ΜΣΣ» (μη disabled) -> POST με bebApodoxPrintYpo|bebApodoxPrintSyz. Μόνο φυσικά πρόσωπα.
+  //   Η σελίδα είναι ISO-8859-7 και το value φτάνει αλλοιωμένο -> αναγνώριση από το onclick bebApodoxYpo()/bebApodoxSyz().
+  PROEK:     { proek: 'bebApodoxPrintYpo', onclick: 'bebApodoxYpo', label: 'Προεκκαθάριση' },
+  PROEK_SYZ: { proek: 'bebApodoxPrintSyz', onclick: 'bebApodoxSyz', label: 'Προεκκαθάριση_συζύγου' },
 };
+// προεκκαθάριση διαθέσιμη; input name=PBE_EKTYPWSH_APODOXWN με onclick=<fn>() και ΧΩΡΙΣ disabled
+function proekAvailable(menu, fn) {
+  return [...menu.matchAll(/<input\b[^>]*name="PBE_EKTYPWSH_APODOXWN"[^>]*>/gi)].some(m =>
+    new RegExp('onclick="' + fn + '\\(').test(m[0]) && !/disabled/i.test(m[0]));
+}
 const codeInput = (html, name) => (html.match(new RegExp('name="' + name + '"[^>]*value="([^"]*)"', 'i')) || [])[1] || '';
 // έντυπο διαθέσιμο; νεότερα έτη -> το κουμπί εκτύπωσης υπάρχει & ΔΕΝ είναι disabled· παλιά -> υπάρχει print code
 function available(menu, F, code) {
@@ -53,7 +68,7 @@ module.exports = {
     { key: 'user', label: 'TAXISnet username', env: 'AADE_USER' },
     { key: 'pass', label: 'TAXISnet password', env: 'AADE_PASS', hidden: true },
     { key: 'year', label: 'Έτος (φορολ. έτος)', env: 'AADE_YEAR' },
-    { key: 'forms', label: 'Έντυπα (E1,E2,E3,E3MYDATA,EKK,EKK_SYZ — κενό=E1,E2,E3,EKK)', env: 'AADE_FORMS' },
+    { key: 'forms', label: 'Έντυπα (E1,E1_SYN,E2,E2_SYZ,E3,E3MYDATA,EKK,EKK_SYZ,EKK_SYN,EKK_SYZ_SYN,PROEK,PROEK_SYZ — κενό=E1,E2,E3,EKK)', env: 'AADE_FORMS' },
   ],
 
   async run(http, inp, lib) {
@@ -84,7 +99,9 @@ module.exports = {
     const pdfs = [];
     for (const k of want) {
       const F = FORMS[k];
+      if (F.proek) { await this.getProek(http, H, menu, Y, afm, k, F, result, pdfs, postBase); continue; }
       const code = c[F.code];
+      if (F.onlyNew && Y < F.menuFrom) { result.forms[k] = { label: F.label, status: 'NotApplicable (μόνο έτος ≥ ' + F.menuFrom + ')' }; http.log('[' + k + '] μόνο για έτος ≥ ' + F.menuFrom + ' — skip'); continue; }
       if (!available(menu, F, code)) { result.forms[k] = { label: F.label, status: 'NotAvailable (κουμπί disabled / χωρίς δήλωση)' }; http.log('[' + k + '] μη διαθέσιμο (κουμπί disabled) — skip'); continue; }
       try {
         let pdf = null;
@@ -114,5 +131,22 @@ module.exports = {
     fs.writeFileSync(jf, JSON.stringify(result, null, 2));
     http.log('[aade-income] ✅ saved -> ' + path.basename(jf) + ' (' + pdfs.length + ' PDF)');
     return { ok: true, files: [path.basename(jf), ...pdfs] };
+  },
+
+  // GetE1Proekatharis. Ο browser υποβάλλει τη φόρμα του μενού (action year{Y}-income-menuPrint.do) με το flag·
+  // το TaxSystem κάνει POST στο year{Y}-income-menu.do με YEAR='yearPrm' (literal, bug). Δοκιμάζουμε πρώτα το
+  // menuPrint.do (όπως ο browser) και μετά το menu.do με το σωστό έτος.
+  async getProek(http, H, menu, Y, afm, k, F, result, pdfs, postBase) {
+    if (!proekAvailable(menu, F.onclick)) { result.forms[k] = { label: F.label, status: 'NotFound (δεν υπάρχει ενεργό κουμπί προεκκαθάρισης)' }; http.log('[' + k + '] δεν υπάρχει ενεργό κουμπί προεκκαθάρισης (' + F.onclick + ') — skip'); return; }
+    try {
+      const flags = { bebApodoxPrintYpo: '', bebApodoxPrintSyz: '', [F.proek]: F.proek };
+      const pdf = await http.postForPdf(H('year' + Y + '-income-menuPrint.do'), { ...postBase(), ...flags })
+        || await http.postForPdf(H('year' + Y + '-income-menu.do'), { YEAR: String(Y), ...flags });
+      if (!pdf) { result.forms[k] = { label: F.label, status: 'NoPDF' }; http.log('[' + k + '] δεν επέστρεψε PDF'); return; }
+      const f = F.label.replace(/[^0-9A-Za-zΆ-ώ_]/g, '') + '_' + afm + '_' + Y + '.pdf';
+      fs.writeFileSync(path.join(http.dlDir, f), pdf); pdfs.push(f);
+      result.forms[k] = { label: F.label, pdf: f, bytes: pdf.length };
+      http.log('[' + k + '] ✅ PDF -> ' + f + ' (' + pdf.length + ' b)');
+    } catch (e) { result.forms[k] = { label: F.label, error: String(e && e.message || e) }; http.log('[' + k + '] error ' + (e && e.message ? e.message : e)); }
   },
 };
