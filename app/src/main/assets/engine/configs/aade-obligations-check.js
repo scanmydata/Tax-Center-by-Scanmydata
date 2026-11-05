@@ -9,7 +9,7 @@
  * `easycheck-aade-http.js`). Πηγή: Hyper.Server.Tax Easy_Aade.GetGeneralType1Year.
  *
  * Καλύπτει ό,τι ελέγχει το EasyCheck μέσω displayLiabilitiesForYear:
- *   ΦΠΑ Φ2/Φ4/Φ5/Φ1 · Εισόδημα(incomeN) · ΜΥΦ/ΚΒΣ(kvsD13) · Περιβαλλοντικό/Διαμονής/H2B ·
+ *   ΦΠΑ Φ2/Φ4/Φ5/Φ1 · Εισόδημα(incomeN) · ΜΥΦ/ΚΒΣ(kvsD13) · Περιβαλλοντικό/Διαμονής/Δακοκτονία(H2B) ·
  *   Συμφωνητικά · Εργολάβων · ΦΜΥ family (ΦΜΥ/Επιχ/Δικαιώματα/Μερίσματα/Τόκοι).
  *
  * INPUTS: TAXISnet user/pass + Έτος + obl (keys με κόμμα ή ομάδα ALL/VAT/FMY/DEDUCT/OTHER/INCOME· κενό=Φ2).

@@ -26,8 +26,7 @@ import gr.scanmydata.taxcenter.data.db.DocumentEntity
  * | `aade-registry` | `STOIXEIA_FYSIKOU_…`, `STOIXEIA_EPIXEIRISIS_[NOMIKO_]…` |
  * | `aade-debts` | `OFEILI_<ΑΦΜ>_<κατηγορία>_<ποσό>.pdf`, `RYTHMISI_<ΑΦΜ>_<έτος>_<αριθμός>.pdf` |
  * | `aade-lease` | `MISTH_<ρόλος>_<αριθμός>_<όνομα>.pdf` |
- * | `aade-income-info` | `ENIMEROTIKO_[SYZ_]<ΑΦΜ>_<έτος>.pdf` |
- * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf`, `FENP_E3_…`, `FENP_E3MYDATA_…` |
+ * | `aade-fenp` | `FENP_N_<ΑΦΜ>_<έτος>.pdf`, `FENP_E2_…`, `FENP_E3_…`, `FENP_E3MYDATA_…` |
  * | `efka-notices` | `EFKA_<EFKA\|TEKA>_<meta>.pdf` |
  * | `efka-teka-certificate` | `VEV_<EFKA\|TEKA>_<ΑΦΜ>_<έτος>.pdf` |
  * | `efka-employer-card` | `KARTELA_ERGODOTI_TEKA_<χρήστης>[_<έτος>].pdf` |
@@ -61,6 +60,10 @@ object DocumentNaming {
     private val ENTRIES: List<Entry> = listOf(
         // ---------------------------------------------------- aade-income
         Entry("Εκκαθαριστικό_συζύγου", "Εκκαθαριστικό συζύγου"),
+        Entry("Σύνοψη_Εκκαθαριστικού_συζύγου", "Σύνοψη εκκαθαριστικού συζύγου"),
+        Entry("Σύνοψη_Εκκαθαριστικού", "Σύνοψη εκκαθαριστικού"),
+        Entry("Προεκκαθάριση_συζύγου", "Ενημέρωση εισοδημάτων-δαπανών (προεκκαθάριση) συζύγου"),
+        Entry("Προεκκαθάριση", "Ενημέρωση εισοδημάτων-δαπανών (προεκκαθάριση) υπόχρεου"),
         Entry("Εκκαθαριστικό", "Εκκαθαριστικό δήλωσης"),
         Entry("E1_Synopsi", "Ε1 — συνοπτική εικόνα"),
         Entry("E2_Spouse", "Ε2 συζύγου — κατάσταση μισθωμάτων"),
@@ -68,10 +71,6 @@ object DocumentNaming {
         Entry("E1", "Ε1 — δήλωση φορολογίας εισοδήματος"),
         Entry("E2", "Ε2 — αναλυτική κατάσταση μισθωμάτων"),
         Entry("E3", "Ε3 — κατάσταση οικονομικών στοιχείων"),
-
-        // ---------------------------------------------- aade-income-info
-        Entry("ENIMEROTIKO_SYZ", "Ενημερωτικό εισοδημάτων-δαπανών συζύγου"),
-        Entry("ENIMEROTIKO", "Ενημερωτικό εισοδημάτων-δαπανών υπόχρεου"),
 
         // ------------------------------------------------------- ακίνητα
         Entry("ENFIA_EKK", "ΕΝΦΙΑ — εκκαθαριστικό"),
@@ -120,6 +119,7 @@ object DocumentNaming {
 
         // -------------------------------------------- λοιπά έντυπα ΑΑΔΕ
         Entry("FENP_N", "Έντυπο Ν — ΦΕΝΠ"),
+        Entry("FENP_E2", "Ε2 — νομικού προσώπου"),
         Entry("FENP_E3MYDATA", "Ε3 myDATA — νομικού προσώπου"),
         Entry("FENP_E3", "Ε3 — νομικού προσώπου"),
         // Το config χτίζει το όνομα ως `'FENP_' + tag`· ό,τι νέο προστεθεί εκεί
@@ -137,6 +137,12 @@ object DocumentNaming {
         Entry("ΑΝΘΕΚΤΙΚΟΤΗΤΑΣ", "Τέλος ανθεκτικότητας / διαμονής"),
         Entry("ΠΕΡΙΒΑΛΛΟΝ", "Περιβαλλοντικό τέλος"),
         Entry("ΣΥΜΦΩΝΗΤΙΚΑ", "Κατάσταση συμφωνητικών"),
+
+        // Configs του runner που ήρθαν με τον συγχρονισμό και δεν προσφέρονται
+        // ακόμη στην οθόνη λήψης — οι ετικέτες μπαίνουν από τώρα.
+        Entry("PAREPID", "Τέλος παρεπιδημούντων / ακαθαρίστων εσόδων — δήλωση"),
+        Entry("notice_", "ΤΠΔ — ειδοποίηση τελών διαφήμισης", yearInName = false),
+        Entry("pdf_", "ΑΚΕΕΔ / ΕΔΟΕΑΠ — έγγραφο", yearInName = false),
     )
 
     private fun entryFor(fileName: String): Entry? {

@@ -82,16 +82,25 @@ class DocumentCatalogTest {
     }
 
     @Test
-    fun `το ενημερωτικό εισοδημάτων-δαπανών έρχεται από τη σελίδα του Ε1`() {
-        for ((id, docs) in listOf("enimerotiko" to "YPO", "enimerotiko-syz" to "SYZ")) {
+    fun `η ενημέρωση εισοδημάτων-δαπανών είναι η προεκκαθάριση του Ε1`() {
+        for ((id, forms) in listOf("enimerotiko" to "PROEK", "enimerotiko-syz" to "PROEK_SYZ")) {
             val item = DocumentCatalog.byId(id)!!
-            assertEquals("aade-income-info", item.configId)
-            assertEquals(docs, item.inputs["docs"])
+            assertEquals("aade-income", item.configId)
+            assertEquals(forms, item.inputs["forms"])
             assertTrue(item.needsYear)
             assertTrue(item.matches(ClientKind.PRIVATE))
             assertTrue(item.matches(ClientKind.SOLE))
             assertFalse(item.matches(ClientKind.LEGAL))
         }
+    }
+
+    @Test
+    fun `το Ε2 νομικού προσώπου έρχεται από τη δήλωση Ν`() {
+        val item = DocumentCatalog.byId("e2-nomiko")!!
+        assertEquals("aade-fenp", item.configId)
+        assertEquals("E2", item.inputs["docs"])
+        assertTrue(item.matches(ClientKind.LEGAL))
+        assertFalse(item.matches(ClientKind.SOLE))
     }
 
     @Test

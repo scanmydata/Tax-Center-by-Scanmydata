@@ -1,6 +1,6 @@
 {
   "generatedFrom": "recerse-engineer/runner",
-  "count": 34,
+  "count": 42,
   "configs": [
     {
       "id": "aade-debts",
@@ -231,6 +231,63 @@
       ]
     },
     {
+      "id": "aade-fees-check",
+      "file": "aade-fees-check.js",
+      "owner": "runner",
+      "title": "Έλεγχος υποβολής: Τέλος Πλαστικής Σακούλας (H7) + Τέλος Διαμονής/Ανθεκτικότητας (H6)",
+      "portal": "AADE taxisnet/other (GSIS OAM)",
+      "subsystem": "Hyper.Server",
+      "actions": [
+        "check",
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "year",
+          "label": "Έτος",
+          "env": "AADE_YEAR",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "fees",
+          "label": "Τέλη (ΠΕΡΙΒΑΛΛΟΝ,ΔΙΑΜΟΝΗ· κενό=και τα δύο)",
+          "env": "AADE_FEES",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF δηλώσεων; (1=ναι, κενό=όχι)",
+          "env": "AADE_FEES_PDF",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "payments",
+          "label": "Κατάσταση πληρωμής ΤΟ από ΑΑΔΕ; (κενό/1=ναι, 0=όχι)",
+          "env": "AADE_FEES_PAYMENTS",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "aade-fenp",
       "file": "aade-fenp.js",
       "owner": "runner",
@@ -266,7 +323,7 @@
         },
         {
           "key": "docs",
-          "label": "Έντυπα (N,E3,E3MYDATA· κενό = όλα)",
+          "label": "Έντυπα (N,E2,E3,E3MYDATA· κενό = όλα)",
           "env": "AADE_FENP_DOCS",
           "hidden": false,
           "optional": true
@@ -359,7 +416,7 @@
         },
         {
           "key": "forms",
-          "label": "Έντυπα (E1,E2,E3,E3MYDATA,EKK,EKK_SYZ — κενό=E1,E2,E3,EKK)",
+          "label": "Έντυπα (E1,E1_SYN,E2,E2_SYZ,E3,E3MYDATA,EKK,EKK_SYZ,EKK_SYN,EKK_SYZ_SYN,PROEK,PROEK_SYZ — κενό=E1,E2,E3,EKK)",
           "env": "AADE_FORMS",
           "hidden": false,
           "optional": false
@@ -458,8 +515,72 @@
         },
         {
           "key": "obl",
-          "label": "Υποχρεώσεις (Φ2/Φ4/Φ5/Φ1/ΕΙΣΟΔΗΜΑ_ΝΠ/ΜΥΦ/E1/E3/ΠΕΡΙΒΑΛΛΟΝ/ΔΙΑΜΟΝΗ/ΤΕΛΟΣ_H2B/ΣΥΜΦΩΝΗΤΙΚΑ/ΕΡΓΟΛΑΒΩΝ/ΦΜΥ/ΦΜΥ_ΕΠΙΧ/ΦΜΥ_ΔΙΚΑΙΩΜΑΤΑ/ΦΜΥ_ΜΕΡΙΣΜΑΤΑ/ΦΜΥ_ΤΟΚΟΙ | ALL/VAT/FMY/DEDUCT/OTHER/INCOME, κόμμα· κενό=Φ2)",
+          "label": "Υποχρεώσεις (Φ2/Φ4/Φ5/Φ1/ΕΙΣΟΔΗΜΑ_ΝΠ/ΜΥΦ/E1/E3/ΠΕΡΙΒΑΛΛΟΝ/ΔΙΑΜΟΝΗ/ΔΑΚΟΚΤΟΝΙΑ/ΣΥΜΦΩΝΗΤΙΚΑ/ΕΡΓΟΛΑΒΩΝ/ΦΜΥ/ΦΜΥ_ΕΠΙΧ/ΦΜΥ_ΔΙΚΑΙΩΜΑΤΑ/ΦΜΥ_ΜΕΡΙΣΜΑΤΑ/ΦΜΥ_ΤΟΚΟΙ | ALL/VAT/FMY/DEDUCT/OTHER/INCOME, κόμμα· κενό=Φ2)",
           "env": "AADE_OBL",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "aade-plastic-check",
+      "file": "aade-plastic-check.js",
+      "owner": "runner",
+      "title": "Περιβαλλοντική Εισφορά Πλαστικών Προϊόντων: υποχρέωση/εκκρεμότητα ανά τρίμηνο + PDF + οφειλή/ΤΟ",
+      "portal": "AADE saadeapps3/Plastic (GSIS OAM)",
+      "subsystem": "EpsilonSubmit Plastic_V1 (login) + REST εφαρμογής",
+      "actions": [
+        "check",
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "period",
+          "label": "Περίοδος (2026 | Q3-2026 | 2026-09 · κενό = τρέχον έτος)",
+          "env": "PLASTIC_PERIOD",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "periodicity",
+          "label": "Περιοδικότητα υπόχρεου από άλλο module (Q=τριμηνιαίος, M=μηνιαίος· default Q)",
+          "env": "PLASTIC_PERIODICITY",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ φορολογουμένου (μόνο αν συνδέεται λογιστής· κενό = ο ίδιος)",
+          "env": "PLASTIC_AFM",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF; (κενό/1 = ναι, 0 = όχι)",
+          "env": "PLASTIC_PDF",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "payments",
+          "label": "Κατάσταση πληρωμής από ΑΑΔΕ; (κενό/1 = ναι, 0 = όχι)",
+          "env": "PLASTIC_PAYMENTS",
           "hidden": false,
           "optional": true
         }
@@ -739,6 +860,56 @@
       ]
     },
     {
+      "id": "akeed-edoeap",
+      "file": "akeed-edoeap.js",
+      "owner": "runner",
+      "title": "AKEED — Εfarmob EDOEAP e AKEED (Εiiforash Diadikyou): login + list PDFs/JSONs",
+      "portal": "apps.e-efka.gov.gr/EDOEAPeACD/ -> apps.ika.gr (GSIS OAuth1)",
+      "subsystem": "JSF/PrimeFaces + AAA OAuth1 (soasgsisws2)",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASSWORD",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "Α.Φ.Μ. (9-digit; blank = the 9-digit username)",
+          "env": "AADE_AFM",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "captcha",
+          "label": "Captcha code (blank = auto ddddocr, else prompt)",
+          "env": "AADE_CAPTCHA",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "period",
+          "label": "-period τriοdοhsh (e.g. 2025; blank = all)",
+          "env": "AADE_PERIOD",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "amka-retrieve",
       "file": "amka-retrieve.js",
       "owner": "runner",
@@ -805,6 +976,49 @@
           "env": "EFKA_AMKA",
           "hidden": false,
           "optional": false
+        }
+      ]
+    },
+    {
+      "id": "dae-parepid-check",
+      "file": "dae-parepid-check.js",
+      "owner": "runner",
+      "title": "Τέλος Παρεπιδημούντων & Ακαθαρίστων Εσόδων (dae.govapp.gr): εκκρεμότητα υποβολής + οφειλή + PDF",
+      "portal": "dae.govapp.gr (ΑΑΔΕ/ΚΕΔΕ, GSIS OAuth2)",
+      "subsystem": "standalone HTTP (Angular API)",
+      "actions": [
+        "check",
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username (επιχείρησης)",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "period",
+          "label": "Περίοδος (2026-09 | Σεπτέμβριος 2026 | Q3-2026 | 2026 · κενό = προηγ. μήνας)",
+          "env": "DAE_PERIOD",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "aade",
+          "label": "Διασταύρωση πληρωμών με ΑΑΔΕ; (κενό/1 = ναι, 0 = όχι)",
+          "env": "DAE_AADE",
+          "hidden": false,
+          "optional": true
         }
       ]
     },
@@ -999,12 +1213,54 @@
       ]
     },
     {
-      "id": "efka-employer-card",
-      "file": "efka-employer-card.js",
+      "id": "efka-ame",
+      "file": "efka-ame.js",
       "owner": "runner",
-      "title": "Οικονομική Καρτέλα Εργοδότη ΕΦΚΑ + ΤΕΚΑ",
-      "portal": "e-EFKA εργοδότη (apps.e-efka.gov.gr, κωδικοί ΙΚΑ)",
-      "subsystem": "Hyper.Server",
+      "title": "Ανάκτηση Αρ. Μητρώου Εργοδότη (ΑΜΕ) — e-EFKA [browser]",
+      "portal": "e-EFKA Πιστοποίηση Εργοδοτών (apps.e-efka.gov.gr/ePistErg, GSIS)",
+      "subsystem": "Hyper.Server.Tax (GetEfkaAme + LoginEfkaOldWayTaxinet, post-update)",
+      "actions": [
+        "retrieve"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "EFKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ υπόχρεου (εργοδότη)",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "docKind",
+          "label": "Είδος: koinon (Κοινών Επιχειρήσεων· default) ή oikodomotexnikon",
+          "env": "EFKA_AME_KIND",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "efka-apd",
+      "file": "efka-apd.js",
+      "owner": "runner",
+      "title": "e-ΕΦΚΑ ΑΠΔ (ΕΦΚΑ + ΤΕΚΑ): Αποδεικτικό Υποβολής + Εκτύπωση Αναλυτικών Εγγραφών",
+      "portal": "services.e-efka.gov.gr ssp.efka.apd / ssp.efka.apd.teka (KeyCloak + TAXISnet εργοδότη)",
+      "subsystem": "Hyper.Server Easy_EFKA_GovAme (APD / APD_Teka)",
       "actions": [
         "retrieve",
         "download"
@@ -1013,31 +1269,102 @@
       "inputs": [
         {
           "key": "user",
-          "label": "Κωδικός ΙΚΑ εργοδότη (username)",
-          "env": "IKA_USER",
+          "label": "TAXISnet username εργοδότη",
+          "env": "EFKA_USER",
           "hidden": false,
           "optional": false
         },
         {
           "key": "pass",
-          "label": "Κωδικός ΙΚΑ εργοδότη (password)",
-          "env": "IKA_PASS",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
           "hidden": true,
           "optional": false
         },
         {
-          "key": "year",
-          "label": "Έτος (κενό = προεπιλογή)",
-          "env": "IKA_YEAR",
+          "key": "ame",
+          "label": "ΑΜΕ / ΑΜΟΕ (κοινών επιχειρήσεων)",
+          "env": "EFKA_AME",
           "hidden": false,
           "optional": false
         },
         {
+          "key": "period",
+          "label": "Περίοδος (2026-09 | 2026 | 2026-01..2026-06 · κενό = προηγ. μήνας)",
+          "env": "APD_PERIOD",
+          "hidden": false,
+          "optional": true
+        },
+        {
           "key": "which",
-          "label": "Ποιες (EFKA,TEKA — κενό = και οι δύο)",
-          "env": "IKA_WHICH",
+          "label": "ΑΠΔ (EFKA,TEKA· κενό = και τα δύο)",
+          "env": "APD_WHICH",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "docs",
+          "label": "Έγγραφα (APODEIKTIKO,ANALYTIKA· κενό = και τα δύο)",
+          "env": "APD_DOCS",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "efka-employer-card",
+      "file": "efka-employer-card.js",
+      "owner": "runner",
+      "title": "Οικονομική Καρτέλα Εργοδότη (e-ΕΦΚΑ ΟΠΣ)",
+      "portal": "services.e-efka.gov.gr/ssp.efka.emp-transactions-ext (TAXISnet + ΑΜΕ)",
+      "subsystem": "Hyper.Server (νέο ΟΠΣ e-ΕΦΚΑ)",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "EFKA_USER",
           "hidden": false,
           "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "EFKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ εργοδότη",
+          "env": "EFKA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "ame",
+          "label": "ΑΜΕ (Αρ. Μητρώου Εργοδότη)",
+          "env": "EFKA_AME",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "from",
+          "label": "Από (dd/MM/yyyy, κενό = 01/01/2022)",
+          "env": "EFKA_FROM",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "to",
+          "label": "Έως (dd/MM/yyyy, κενό = σήμερα)",
+          "env": "EFKA_TO",
+          "hidden": false,
+          "optional": true
         }
       ]
     },
@@ -1149,6 +1476,48 @@
       ]
     },
     {
+      "id": "efka-teka-check",
+      "file": "efka-teka-check.js",
+      "owner": "runner",
+      "title": "Ε.Φ.Κ.Α. — Επιβεβαίωση Υπαγωγής ΤΕΚΑ ανά ΑΜΚΑ (πολλά ΑΜΚΑ σε μία συνεδρία)",
+      "portal": "e-EFKA eCheckTEKA (eAccess, κωδικοί ΙΚΑ εργοδότη)",
+      "subsystem": "Hyper.Server IkaService.CheckTEKA (+ EpsilonSubmit YphresEpivYpagTeka login)",
+      "actions": [
+        "check"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "Κωδικός ΙΚΑ (username εργοδότη)",
+          "env": "IKA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "Συνθηματικό ΙΚΑ",
+          "env": "IKA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "amka",
+          "label": "ΑΜΚΑ εργαζομένων (κόμμα για πολλά)",
+          "env": "TEKA_AMKA",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "ame",
+          "label": "ΑΜΟΕ/ΑΜΕ εργοδότη (προαιρετικό, μόνο για το αρχείο)",
+          "env": "IKA_AME",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "gemi-login",
       "file": "gemi-login.js",
       "owner": "runner",
@@ -1173,6 +1542,62 @@
           "env": "GEMI_PASS",
           "hidden": true,
           "optional": false
+        }
+      ]
+    },
+    {
+      "id": "intrastat-check",
+      "file": "intrastat-check.js",
+      "owner": "runner",
+      "title": "Έλεγχος υποβολής INTRASTAT (ανά περίοδο/ροή)",
+      "portal": "ΕΛ.ΣΤΑΤ eurostat.statistics.gr (Αρχείο Δηλώσεων)",
+      "subsystem": "EpsilonSubmit Intrastat_V1 (DoSubmitIntrastat) / ObligationRepository.CheckIntrastatExists",
+      "actions": [
+        "check"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "Email χρήστη Intrastat",
+          "env": "INTRA_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "Password Intrastat",
+          "env": "INTRA_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "afm",
+          "label": "ΑΦΜ επιχείρησης",
+          "env": "INTRA_AFM",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "period",
+          "label": "Περίοδος (YYYYMM | MM/YYYY | YYYY-MM)",
+          "env": "INTRA_PERIOD",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "flow",
+          "label": "Ροή: arrival/Άφιξη, dispatch/Αποστολή, κενό = και οι δύο",
+          "env": "INTRA_FLOW",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF βεβαίωσης υποβολής; (ναι/όχι, default ναι)",
+          "env": "INTRA_PDF",
+          "hidden": false,
+          "optional": true
         }
       ]
     },
@@ -1276,6 +1701,49 @@
       ]
     },
     {
+      "id": "tpd-diaformos",
+      "file": "tpd-diaformos.js",
+      "owner": "runner",
+      "title": "TPD e-Services — notices (Πλρhρmiτe Tlwn Difrmshsh)",
+      "portal": "TPD e-Services (e-services.tpd.gr)",
+      "subsystem": "requests-service/v2 JSON (POST-LOGIN)",
+      "actions": [
+        "retrieve",
+        "download"
+      ],
+      "needsBrowser": false,
+      "inputs": [
+        {
+          "key": "user",
+          "label": "TAXISnet username",
+          "env": "AADE_USER",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pass",
+          "label": "TAXISnet password",
+          "env": "AADE_PASS",
+          "hidden": true,
+          "optional": false
+        },
+        {
+          "key": "pick",
+          "label": "Pick ('all' | history index) — blank = all",
+          "env": "TPD_PICK",
+          "hidden": false,
+          "optional": true
+        },
+        {
+          "key": "type",
+          "label": "requestTypeId filter (blank = any)",
+          "env": "TPD_TYPE",
+          "hidden": false,
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "aade-email",
       "file": "aade-email.js",
       "owner": "app",
@@ -1346,56 +1814,6 @@
       ]
     },
     {
-      "id": "efka-obligations",
-      "file": "efka-obligations.js",
-      "owner": "app",
-      "title": "Οφειλές ΕΦΚΑ/ΚΕΑΟ ανά Φορέα + Χρεώσεις/Πιστώσεις",
-      "portal": "e-EFKA νέο ΟΠΣ (services.e-efka.gov.gr, non-employee)",
-      "subsystem": "Hyper.Server",
-      "actions": [
-        "retrieve",
-        "download"
-      ],
-      "needsBrowser": false,
-      "inputs": [
-        {
-          "key": "user",
-          "label": "TAXISnet username",
-          "env": "KEAO_USER",
-          "hidden": false,
-          "optional": false
-        },
-        {
-          "key": "pass",
-          "label": "TAXISnet password",
-          "env": "KEAO_PASS",
-          "hidden": true,
-          "optional": false
-        },
-        {
-          "key": "afm",
-          "label": "ΑΦΜ",
-          "env": "KEAO_AFM",
-          "hidden": false,
-          "optional": false
-        },
-        {
-          "key": "amka",
-          "label": "ΑΜΚΑ",
-          "env": "KEAO_AMKA",
-          "hidden": false,
-          "optional": false
-        },
-        {
-          "key": "pdf",
-          "label": "Λήψη PDF ΠΒΟ ΚΕΑΟ; (ναι/όχι, default ναι)",
-          "env": "KEAO_PDF",
-          "hidden": false,
-          "optional": true
-        }
-      ]
-    },
-    {
       "id": "efka-employer-card-ssp",
       "file": "efka-employer-card-ssp.js",
       "owner": "app",
@@ -1445,12 +1863,12 @@
       ]
     },
     {
-      "id": "aade-income-info",
-      "file": "aade-income-info.js",
+      "id": "efka-obligations",
+      "file": "efka-obligations.js",
       "owner": "app",
-      "title": "Ενημερωτικό εισοδημάτων-δαπανών (υπόχρεου / συζύγου)",
-      "portal": "AADE webtax/incomefp (GSIS OAM)",
-      "subsystem": "ScanMyData Tax Center",
+      "title": "Οφειλές ΕΦΚΑ/ΚΕΑΟ ανά Φορέα + Χρεώσεις/Πιστώσεις",
+      "portal": "e-EFKA νέο ΟΠΣ (services.e-efka.gov.gr, non-employee)",
+      "subsystem": "Hyper.Server",
       "actions": [
         "retrieve",
         "download"
@@ -1460,28 +1878,35 @@
         {
           "key": "user",
           "label": "TAXISnet username",
-          "env": "AADE_USER",
+          "env": "KEAO_USER",
           "hidden": false,
           "optional": false
         },
         {
           "key": "pass",
           "label": "TAXISnet password",
-          "env": "AADE_PASS",
+          "env": "KEAO_PASS",
           "hidden": true,
           "optional": false
         },
         {
-          "key": "year",
-          "label": "Έτος (όπως στο Ε1)",
-          "env": "AADE_YEAR",
+          "key": "afm",
+          "label": "ΑΦΜ",
+          "env": "KEAO_AFM",
           "hidden": false,
           "optional": false
         },
         {
-          "key": "docs",
-          "label": "Ενημερωτικά (YPO,SYZ — κενό = YPO)",
-          "env": "AADE_INFO_DOCS",
+          "key": "amka",
+          "label": "ΑΜΚΑ",
+          "env": "KEAO_AMKA",
+          "hidden": false,
+          "optional": false
+        },
+        {
+          "key": "pdf",
+          "label": "Λήψη PDF ΠΒΟ ΚΕΑΟ; (ναι/όχι, default ναι)",
+          "env": "KEAO_PDF",
           "hidden": false,
           "optional": true
         }

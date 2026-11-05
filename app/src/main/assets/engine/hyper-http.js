@@ -112,6 +112,7 @@ async function gatherInputs(spec) {
 class HyperHttp {
   constructor(dlDir) {
     this.jar = {};
+    this.byPath = {};  // host -> 'name\tpath' -> value (όπως ο browser· για browserCookie)
     this.dlDir = path.resolve(dlDir || './downloads');
     fs.mkdirSync(this.dlDir, { recursive: true });
     this.logf = path.join(this.dlDir, 'run.log');
@@ -124,15 +125,46 @@ class HyperHttp {
   _store(url, res) {
     const h = this._host(url); this.jar[h] = this.jar[h] || {};
     for (const c of (res.headers.getSetCookie && res.headers.getSetCookie()) || []) {
-      const kv = c.split(';')[0]; const i = kv.indexOf('='); if (i > 0) this.jar[h][kv.slice(0, i).trim()] = kv.slice(i + 1).trim();
+      const kv = c.split(';')[0]; const i = kv.indexOf('='); if (i <= 0) continue;
+      const name = kv.slice(0, i).trim();
+      // διαγραφή cookie από τον server (Max-Age=0 ή Expires στο παρελθόν) — π.χ. e-EFKA OAuth_Token_Request_State=""
+      // μετά το login· αν μείνει (κενό) στο jar, η εφαρμογή ΑΠΔ απορρίπτει κάθε επόμενο αίτημα («Δεν επιτρέπεται η πρόσβαση»)
+      const exp = (c.match(/;\s*expires=([^;]+)/i) || [])[1];
+      const cpath = ((c.match(/;\s*path=([^;]+)/i) || [])[1] || '/').trim();
+      const bp = (this.byPath[h] = this.byPath[h] || {});
+      if (/;\s*max-age=0\b/i.test(c) || (exp && Date.parse(exp) < Date.now())) {
+        delete this.jar[h][name];
+        for (const key of Object.keys(bp)) if (key.split('\t')[0] === name && (key.split('\t')[1] === cpath || !/;\s*path=/i.test(c))) delete bp[key];
+        continue;
+      }
+      this.jar[h][name] = kv.slice(i + 1).trim();
+      bp[name + '\t' + cpath] = kv.slice(i + 1).trim();
     }
   }
   _cookie(url) {
-    const host = this._host(url); const parts = [];
-    for (const h of Object.keys(this.jar))
+    if (this.useBrowserCookies) return this.browserCookie(url);   // opt-in ανά config (π.χ. efka-apd)
+    const host = this._host(url); const seen = new Map();
+    // το cookie του ΙΔΙΟΥ host έχει προτεραιότητα· χωρίς διπλά ονόματα (π.χ. JSESSIONID εφαρμογής + JSESSIONID oauth2.gsis.gr)
+    const hosts = Object.keys(this.jar).sort((a, b) => (b === host) - (a === host));
+    for (const h of hosts)
       if (host === h || host.endsWith(h) || h.endsWith('gsis.gr') || h.endsWith('e-efka.gov.gr') || h.endsWith('idika.org.gr'))
-        for (const [k, v] of Object.entries(this.jar[h])) parts.push(k + '=' + v);
-    return parts.join('; ');
+        for (const [k, v] of Object.entries(this.jar[h])) if (!seen.has(k)) seen.set(k, v);
+    return [...seen].map(([k, v]) => k + '=' + v).join('; ');
+  }
+  // Cookies ΟΠΩΣ ΤΑ ΣΤΕΛΝΕΙ Ο BROWSER: μόνο του ίδιου host και μόνο όσα το Path ταιριάζει με το URL.
+  // Χρειάζεται όπου η εφαρμογή απορρίπτει «ξένα» cookies (π.χ. e-EFKA ΑΠΔ: KEYCLOAK_* του /eEfkaExtAuth ή gsis_cookie
+  // του oauth2.gsis.gr στο /ssp.efka.apd -> «Δεν επιτρέπεται η πρόσβαση»). Χρήση: extraHeaders {Cookie: http.browserCookie(url)}.
+  // Cookies με το ίδιο όνομα σε διαφορετικά Path (π.χ. JSESSIONID του /ssp.efka.apd και του /ssp.efka.apd.teka)
+  // κρατιούνται χωριστά· στέλνεται του μακρύτερου Path που ταιριάζει (όπως ο browser).
+  browserCookie(url) {
+    const u = new URL(url); const bp = this.byPath[u.host] || {};
+    const match = (p) => u.pathname === p || u.pathname.startsWith(p.endsWith('/') ? p : p + '/');
+    const best = new Map();
+    for (const [key, v] of Object.entries(bp)) {
+      const [name, p] = key.split('\t'); if (!match(p)) continue;
+      if (!best.has(name) || p.length > best.get(name).p.length) best.set(name, { p, v });
+    }
+    return [...best].sort((a, b) => b[1].p.length - a[1].p.length).map(([k, o]) => k + '=' + o.v).join('; ');
   }
   async once(method, url, form, extraHeaders) {
     const h = { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'el-GR,el;q=0.9,en;q=0.8' };
@@ -374,6 +406,11 @@ async function aadeLogin(http, { user, pass }) {
   if (/An incorrect Username or Password|Καθορίστηκε λανθασμένο όνομα χρήστη ή κωδικός|κλειδωμένος ή απενεργοποιημένος|auth_fail_exception/i.test(auth.text)
       || (/name="username"/i.test(auth.text) && /name="password"/i.test(auth.text)))
     return { ok: false, reason: 'InvalidCredentials' };
+  // OAM σελίδα σφάλματος (π.χ. OAM-6 μετά από πολλές διαδοχικές συνδέσεις) — αλλιώς περνούσε ως «επιτυχές» login
+  if (/\/mylogin\/pages\/Error\.jsp/i.test(auth.url || '')) {
+    const code = ((auth.url || '').match(/p_error_code=([A-Z0-9-]+)/) || [])[1] || 'OAM-Error';
+    return { ok: false, reason: 'OAMError ' + code };
+  }
   // manual cookies (== C#): SELF_SERVICE actor role + OAM hint
   http.setCookie('www1.aade.gr', 'gr.taxisnet.infrastructure.common.web.ActorRoleCookieResolver.ACTOR_ROLE', 'SELF_SERVICE');
   http.setCookie('www1.aade.gr', 'OAMAuthnHintCookie', '1');
