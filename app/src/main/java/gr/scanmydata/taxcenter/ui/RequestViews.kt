@@ -1,27 +1,43 @@
 package gr.scanmydata.taxcenter.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -40,6 +56,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,6 +69,7 @@ import gr.scanmydata.taxcenter.gdpr.Exports
 import gr.scanmydata.taxcenter.requests.AadeRequests
 import gr.scanmydata.taxcenter.requests.RequestDetail
 import gr.scanmydata.taxcenter.requests.RequestSends
+import gr.scanmydata.taxcenter.requests.RequestSummary
 import gr.scanmydata.taxcenter.requests.RequestsRefresh
 import gr.scanmydata.taxcenter.requests.RequestsStore
 import kotlinx.coroutines.CancellationException
@@ -245,11 +263,16 @@ internal fun RequestCard(
                 DateCell("Υποβολή", request.submitted, Modifier.weight(1f))
                 DateCell("Τελευταία ενημέρωση", request.updated, Modifier.weight(1f))
             }
-            if (request.handling.isNotBlank()) {
+            // Χωρίς τη διεύθυνση της υπηρεσίας και χωρίς τμήμα που την επαναλαμβάνει.
+            val handling = listOf(
+                RequestSummary.service(request.handlingService).name,
+                RequestSummary.department(request.handlingDept, request.handlingService),
+            ).filter { it.isNotBlank() }.joinToString(" · ")
+            if (handling.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
-                Text("Διεκπεραίωση", style = MaterialTheme.typography.labelSmall, color = dim)
+                Text("Το χειρίζεται", style = MaterialTheme.typography.labelSmall, color = dim)
                 Text(
-                    request.handling,
+                    handling,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -379,6 +402,15 @@ private fun AskBox(text: String, date: String, lines: Int = Int.MAX_VALUE) {
  * κάθε φορά, και μετά από αρκετές, κίνδυνος κλειδώματος του λογαριασμού. Τώρα
  * τα αιτήματα αποθηκεύονται όλα μαζί στον έλεγχο ([RequestsRefresh.run]).
  *
+ * ## Η σειρά
+ *
+ * Από το «τι γίνεται» προς το «τι γράφει»: πρώτα η **κατάσταση** με τα βήματά
+ * της ([RequestSummary]), μετά ό,τι ζητά η ΑΑΔΕ ή ό,τι απάντησε, μετά **ποιος
+ * το έχει**, η επικοινωνία, και στο τέλος το κείμενο του αιτήματος. Τα
+ * δικαιολογητικά της διαδικασίας είναι κείμενο της πύλης, ίδιο σε κάθε αίτημα
+ * του είδους — μένουν κλειστά. Τα συνημμένα ανοίγουν σε δικό τους παράθυρο,
+ * ώστε έξι αρχεία να μην πιάνουν τρεις οθόνες ανάμεσα στα κείμενα.
+ *
  * @param reload αλλάζει όταν γράφτηκε κάτι στον δίσκο
  * @param outdated το αποθηκευμένο είναι παλαιότερο από τη λίστα
  * @param queueBusy τρέχει άλλη λήψη — η ανανέωση περιμένει
@@ -407,6 +439,7 @@ internal fun RequestDialog(
         loaded = Loaded(withContext(Dispatchers.IO) { RequestsStore.detail(context.filesDir, client.afm, request.id) })
     }
     val detail = loaded?.detail
+    var showFiles by remember(client.id, request.id) { mutableStateOf(false) }
 
     FetchBusyOverlay(
         container = container,
@@ -424,9 +457,7 @@ internal fun RequestDialog(
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 // Πίσω αριστερά, όπου το ψάχνει το χέρι· η ανανέωση δεξιά, με
-                // χρώμα, γιατί είναι η μόνη ενέργεια της οθόνης. Κάτω δεν μένει
-                // κανένα κουμπί: η μπάρα εκεί έπεφτε πάνω στην πλοήγηση του
-                // συστήματος και κοβόταν, και επαναλάμβανε τα δύο από εδώ.
+                // χρώμα, γιατί είναι η μόνη ενέργεια της οθόνης.
                 Row(
                     Modifier.fillMaxWidth().padding(start = 10.dp, top = 12.dp, end = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -435,7 +466,13 @@ internal fun RequestDialog(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Πίσω")
                     }
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text("Αίτημα προς την ΑΑΔΕ", style = MaterialTheme.typography.labelMedium, color = dim)
+                        Text(
+                            if (showClient) client.displayName else "Αίτημα προς την ΑΑΔΕ",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = dim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         Text(
                             request.title,
                             style = MaterialTheme.typography.titleMedium,
@@ -455,11 +492,11 @@ internal fun RequestDialog(
                     }
                 }
                 HorizontalDivider()
-                if (opener.status.isNotBlank() && !refreshing) {
+                if (opener.status.isNotBlank() && !refreshing && !showFiles) {
                     Text(
                         opener.status,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (refreshing) dim else MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
                     )
                 }
@@ -468,126 +505,85 @@ internal fun RequestDialog(
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 ) {
                     Spacer(Modifier.height(12.dp))
-                    // Ό,τι ζητά τώρα η ΑΑΔΕ, πριν από οτιδήποτε άλλο.
+
+                    // 1. Πού βρίσκεται.
+                    StatusHero(request, detail)
+                    Spacer(Modifier.height(6.dp))
+                    SavedNote(loaded = loaded != null, detail = detail, outdated = outdated, refreshing = refreshing)
+
+                    // 2. Ό,τι ζητά τώρα η ΑΑΔΕ, πριν από οτιδήποτε άλλο.
                     val ask = detail?.pendingAsk
                     if (ask != null) {
+                        Spacer(Modifier.height(12.dp))
                         AskBox(ask.text, RequestDetail.stamp(ask.date))
                         if (ask.files.isNotEmpty()) {
-                            Text(
-                                "Με συνημμένα: " + ask.files.joinToString(", "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = dim,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
+                            FileLinks(ask.files, onClick = { showFiles = true })
                         }
-                        Spacer(Modifier.height(10.dp))
                     } else if (request.ask.isNotBlank()) {
+                        Spacer(Modifier.height(12.dp))
                         AskBox(request.ask, request.askDate)
-                        Spacer(Modifier.height(10.dp))
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusPill(request, Modifier.weight(1f, fill = false), full = true)
-                        if (detail?.archived == true) {
-                            Spacer(Modifier.width(10.dp))
-                            Text("αρχειοθετημένο", style = MaterialTheme.typography.labelMedium, color = dim)
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
 
-                    // Πού βρισκόμαστε: αποθηκευμένο, παλιό, ή μόνο η λίστα.
-                    SavedNote(loaded = loaded != null, detail = detail, outdated = outdated, refreshing = refreshing)
-                    Spacer(Modifier.height(6.dp))
-
-                    if (showClient) Field("Πελάτης", client.displayName + " · ΑΦΜ " + client.afm)
-                    if (onOpenClient != null) {
-                        TextButton(onClick = onOpenClient, modifier = Modifier.padding(bottom = 6.dp)) {
-                            Text("Καρτέλα πελάτη")
-                        }
-                    }
-                    Field("Είδος αιτήματος", request.title)
-                    if (request.topic != request.title) Field("Θεματική ενότητα", request.topic)
-                    Field("Αριθμός υπόθεσης", request.caseNumber)
-                    Field("Υποβολή", AadeRequests.date(request.submitted))
-                    Field("Τελευταία ενημέρωση", AadeRequests.date(request.updated))
-                    // Η ανάθεση: ποιος το χειρίζεται τώρα. Από το αποθηκευμένο
-                    // αίτημα όταν είναι νεότερο από τη λίστα — βλ. RequestDetail.merge.
-                    Field("Υπηρεσία Διεκπεραίωσης Αιτήματος", request.handlingService)
-                    Field("Τμήμα Υπηρεσίας Διεκπεραίωσης", request.handlingDept.takeIf { it != request.handlingService }.orEmpty())
-                    Field("Υπηρεσία Υποβολής", request.service)
-                    Field("Σχετίζεται με το αίτημα", detail?.reference.orEmpty())
-
-                    Section("Το αίτημα")
-                    Body(detail?.text.orEmpty().ifBlank { request.text }.ifBlank { "Χωρίς κείμενο." })
-                    if (detail != null) {
-                        Attachments(
-                            title = "Συνημμένα που υποβλήθηκαν",
-                            files = detail.submitted,
-                            container = container,
-                            client = client,
-                            caseNumber = request.caseNumber,
-                            onStatus = { opener.status = it },
+                    // 3. Η απάντηση — όταν υπάρχει. «Δεν απαντήθηκε» το λέει ήδη η κατάσταση.
+                    val answer = (
+                        // Η λίστα προηγείται όταν το αποθηκευμένο είναι παλιό: η
+                        // απάντηση που ήρθε μετά υπάρχει μόνο εκεί.
+                        if (outdated) request.answer.ifBlank { detail?.answer.orEmpty() }
+                        else detail?.answer.orEmpty().ifBlank { request.answer }
                         )
-                        if (detail.supporting.isNotBlank()) {
-                            Section("Δικαιολογητικά")
+                    val replies = detail?.replies.orEmpty()
+                    val rejectReason = detail?.rejectReason.orEmpty()
+                    val reviewReason = detail?.reviewReason.orEmpty()
+                    if (answer.isNotBlank() || replies.isNotEmpty() || rejectReason.isNotBlank() ||
+                        reviewReason.isNotBlank() || request.answered
+                    ) {
+                        Spacer(Modifier.height(12.dp))
+                        AnswerCard(
+                            answer = answer.ifBlank {
+                                if (replies.isNotEmpty()) "Χωρίς κείμενο — η απάντηση είναι τα έγγραφα."
+                                else if (request.answered) "Η πύλη το δείχνει απαντημένο, χωρίς κείμενο."
+                                else ""
+                            },
+                            rejectReason = rejectReason,
+                            reviewReason = reviewReason,
+                            replies = replies.size,
+                            onFiles = { showFiles = true },
+                        )
+                    }
+
+                    // 4. Όλα τα συνημμένα, σε ένα κουμπί.
+                    if (detail != null && detail.attachments.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        AttachmentsButton(detail, onClick = { showFiles = true })
+                    }
+
+                    // 5. Ποιος το έχει, και τα στοιχεία του.
+                    Spacer(Modifier.height(12.dp))
+                    InfoCard(
+                        request = request,
+                        detail = detail,
+                        client = client,
+                        showClient = showClient,
+                        onOpenClient = onOpenClient,
+                    )
+
+                    // 6. Η επικοινωνία, ως συνομιλία.
+                    if (detail != null && detail.timeline.isNotEmpty()) {
+                        Conversation(detail.timeline, onFiles = { showFiles = true })
+                    }
+
+                    // 7. Το κείμενο του αιτήματος, και τα δικαιολογητικά κλειστά.
+                    Collapsible("Το αίτημα", initiallyOpen = true) {
+                        Body(detail?.text.orEmpty().ifBlank { request.text }.ifBlank { "Χωρίς κείμενο." })
+                    }
+                    if (detail != null && detail.supporting.isNotBlank()) {
+                        Collapsible("Δικαιολογητικά της διαδικασίας", initiallyOpen = false) {
                             Body(detail.supporting)
                         }
                     }
-
-                    Section("Η απάντηση της ΑΑΔΕ")
-                    Body(
-                        // Η λίστα προηγείται όταν το αποθηκευμένο είναι παλιό: η
-                        // απάντηση που ήρθε μετά υπάρχει μόνο εκεί.
-                        (if (outdated) request.answer.ifBlank { detail?.answer.orEmpty() }
-                        else detail?.answer.orEmpty().ifBlank { request.answer }).ifBlank {
-                            when {
-                                detail != null && detail.replies.isNotEmpty() ->
-                                    "Χωρίς κείμενο — η απάντηση είναι τα έγγραφα που ακολουθούν."
-                                request.answered ->
-                                    "Η πύλη το δείχνει απαντημένο, χωρίς κείμενο."
-                                else -> "Δεν έχει απαντηθεί ακόμη."
-                            }
-                        },
-                    )
-                    if (detail != null) {
-                        Field("Αιτιολογία απόρριψης", detail.rejectReason)
-                        Field("Παρατήρηση της υπηρεσίας", detail.reviewReason)
-                        Attachments(
-                            title = "Έγγραφα της απάντησης",
-                            files = detail.replies,
-                            container = container,
-                            client = client,
-                            caseNumber = request.caseNumber,
-                            onStatus = { opener.status = it },
-                        )
-
-                        if (detail.thread.isNotEmpty() || detail.threadFiles.isNotEmpty()) {
-                            Section("Ενδιάμεση επικοινωνία")
-                            // Νεότερη πρώτα, με το ποιος μίλησε — όπως η πύλη.
-                            detail.timeline.forEach { note ->
-                                Text(
-                                    note.label + if (note.date.isBlank()) "" else " · " + AadeRequests.date(RequestDetail.stamp(note.date)),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (note.fromAade) MaterialTheme.colorScheme.tertiary else dim,
-                                )
-                                if (note.text.isNotBlank()) Body(note.text)
-                                if (note.files.isNotEmpty()) {
-                                    Text(
-                                        "Συνημμένα: " + note.files.joinToString(", "),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = dim,
-                                    )
-                                }
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            Attachments(
-                                title = "",
-                                files = detail.threadFiles,
-                                container = container,
-                                client = client,
-                                caseNumber = request.caseNumber,
-                                onStatus = { opener.status = it },
-                            )
-                        }
+                    if (detail?.archived == true) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Αρχειοθετημένο στην πύλη.", style = MaterialTheme.typography.bodySmall, color = dim)
                     }
                     // Το τέλος του κειμένου πάνω από την πλοήγηση του συστήματος.
                     Spacer(Modifier.navigationBarsPadding().height(24.dp))
@@ -595,10 +591,133 @@ internal fun RequestDialog(
             }
         }
     }
+
+    if (showFiles && detail != null) {
+        AttachmentsDialog(
+            detail = detail,
+            container = container,
+            client = client,
+            caseNumber = request.caseNumber,
+            status = opener.status,
+            onStatus = { opener.status = it },
+            onDismiss = { showFiles = false; opener.status = "" },
+        )
+    }
 }
 
 /** Τι βρέθηκε στον δίσκο για το αίτημα — βλ. τη χρήση του στο [RequestDialog]. */
 private data class Loaded(val detail: RequestDetail.Detail?)
+
+// ------------------------------------------------------------- κατάσταση
+
+@Composable
+private fun RequestSummary.Tone.color(): Color = when (this) {
+    RequestSummary.Tone.DONE -> MaterialTheme.colorScheme.primary
+    RequestSummary.Tone.ACTION -> MaterialTheme.colorScheme.tertiary
+    RequestSummary.Tone.WORKING -> MaterialTheme.colorScheme.secondary
+    RequestSummary.Tone.BAD -> MaterialTheme.colorScheme.error
+    RequestSummary.Tone.CLOSED -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+}
+
+/**
+ * Η κατάσταση, μεγάλη και στο χρώμα της, με τα τρία βήματα από κάτω. Είναι το
+ * πρώτο που διαβάζεται, και αρκεί για να ξέρει κανείς αν πρέπει να κάνει κάτι.
+ */
+@Composable
+private fun StatusHero(request: AadeRequests.Request, detail: RequestDetail.Detail?) {
+    val headline = RequestSummary.headline(request, detail, replies = detail?.replies?.size ?: 0)
+    val color = headline.tone.color()
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.10f)),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.6f)),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    when (headline.tone) {
+                        RequestSummary.Tone.DONE -> Icons.Filled.CheckCircle
+                        RequestSummary.Tone.ACTION -> Icons.Outlined.Warning
+                        RequestSummary.Tone.WORKING -> Icons.Outlined.Schedule
+                        RequestSummary.Tone.BAD -> Icons.Filled.Error
+                        RequestSummary.Tone.CLOSED -> Icons.Outlined.Info
+                    },
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(26.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(headline.title, style = MaterialTheme.typography.titleMedium, color = color)
+                    if (headline.subtitle.isNotBlank()) {
+                        Text(
+                            headline.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Stepper(RequestSummary.steps(request), color)
+        }
+    }
+}
+
+@Composable
+private fun Stepper(steps: List<RequestSummary.Step>, accent: Color) {
+    val idle = MaterialTheme.colorScheme.outlineVariant
+    val error = MaterialTheme.colorScheme.error
+    Row(Modifier.fillMaxWidth()) {
+        steps.forEachIndexed { i, step ->
+            val dotColor = when (step.state) {
+                RequestSummary.StepState.DONE, RequestSummary.StepState.CURRENT -> accent
+                RequestSummary.StepState.FAILED -> error
+                RequestSummary.StepState.TODO -> idle
+            }
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val filled = step.state == RequestSummary.StepState.DONE || step.state == RequestSummary.StepState.FAILED
+                    Box(
+                        Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(if (filled) dotColor else Color.Transparent)
+                            .border(2.dp, dotColor, CircleShape),
+                    )
+                    if (i < steps.lastIndex) {
+                        val next = steps[i + 1].state
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp)
+                                .height(2.dp)
+                                .background(if (next == RequestSummary.StepState.TODO) idle else accent),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    step.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (step.state == RequestSummary.StepState.TODO) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+                if (step.date.isNotBlank()) {
+                    Text(
+                        step.date,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * Μία γραμμή που λέει τι βλέπει ο χρήστης: το αποθηκευμένο αίτημα και από πότε,
@@ -614,29 +733,268 @@ private fun SavedNote(loaded: Boolean, detail: RequestDetail.Detail?, outdated: 
             refreshing -> "Γίνεται λήψη από την ΑΑΔΕ…"
             detail == null ->
                 "Δεν έχει αποθηκευτεί ακόμη ολόκληρο: φαίνεται ό,τι έχει η λίστα, χωρίς συνημμένα. " +
-                    "Πάτα «Λήψη» — ή «Έλεγχος τώρα», που τα αποθηκεύει όλα μαζί."
+                    "Πάτα την ανανέωση πάνω δεξιά — ή «Έλεγχος τώρα», που τα αποθηκεύει όλα μαζί."
             outdated ->
-                "Το αίτημα άλλαξε στην ΑΑΔΕ από τότε που αποθηκεύτηκε (" +
-                    AthensDates.stamp(detail.retrievedAt) + "). Πάτα την ανανέωση πάνω δεξιά για την τωρινή του μορφή " +
-                    "και τα νέα έγγραφα."
+                "Άλλαξε στην ΑΑΔΕ από τότε που αποθηκεύτηκε (" + AthensDates.stamp(detail.retrievedAt) +
+                    ") — πάτα την ανανέωση πάνω δεξιά."
             detail.missing > 0 ->
-                "Αποθηκευμένο στη συσκευή από " + AthensDates.stamp(detail.retrievedAt) + ". " +
-                    (if (detail.missing == 1) "Ένα συνημμένο δεν κατέβηκε" else "${detail.missing} συνημμένα δεν κατέβηκαν") +
-                    " — δοκίμασε την ανανέωση πάνω δεξιά."
-            else ->
-                "Αποθηκευμένο στη συσκευή από " + AthensDates.stamp(detail.retrievedAt) +
-                    " — ανοίγει χωρίς σύνδεση."
+                "Αποθηκευμένο από " + AthensDates.stamp(detail.retrievedAt) + " · " +
+                    (if (detail.missing == 1) "ένα συνημμένο δεν κατέβηκε" else "${detail.missing} συνημμένα δεν κατέβηκαν") +
+                    " — δοκίμασε την ανανέωση."
+            else -> "Αποθηκευμένο από " + AthensDates.stamp(detail.retrievedAt) + " · ανοίγει χωρίς σύνδεση"
         },
-        style = MaterialTheme.typography.bodySmall,
-        color = if (warn && !refreshing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (warn && !refreshing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
     )
 }
 
+// ------------------------------------------------------------- απάντηση
+
+@Composable
+private fun AnswerCard(
+    answer: String,
+    rejectReason: String,
+    reviewReason: String,
+    replies: Int,
+    onFiles: () -> Unit,
+) {
+    val rejected = rejectReason.isNotBlank()
+    val color = if (rejected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.5f)),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Η απάντηση της ΑΑΔΕ", style = MaterialTheme.typography.labelLarge, color = color)
+            if (answer.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Body(answer)
+            }
+            if (rejected) {
+                Spacer(Modifier.height(8.dp))
+                Text("Αιτιολογία απόρριψης", style = MaterialTheme.typography.labelMedium, color = color)
+                Body(rejectReason)
+            }
+            if (reviewReason.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Παρατήρηση της υπηρεσίας",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                )
+                Body(reviewReason)
+            }
+            if (replies > 0) {
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = onFiles, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)) {
+                    Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (replies == 1) "1 έγγραφο απάντησης" else "$replies έγγραφα απάντησης")
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------- στοιχεία
+
+/** Ανάθεση, αριθμός υπόθεσης, ημερομηνίες και πελάτης — σε μία κάρτα. */
+@Composable
+private fun InfoCard(
+    request: AadeRequests.Request,
+    detail: RequestDetail.Detail?,
+    client: ClientEntity,
+    showClient: Boolean,
+    onOpenClient: (() -> Unit)?,
+) {
+    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    val handler = RequestSummary.service(request.handlingService)
+    val dept = RequestSummary.department(request.handlingDept, request.handlingService)
+    Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(14.dp)) {
+            // Η ανάθεση: ποιος το χειρίζεται τώρα. Από το αποθηκευμένο αίτημα
+            // όταν είναι νεότερο από τη λίστα — βλ. RequestDetail.merge.
+            Text("Το χειρίζεται", style = MaterialTheme.typography.labelSmall, color = dim)
+            if (handler.name.isBlank() && dept.isBlank()) {
+                Text("Δεν έχει ανατεθεί ακόμη", style = MaterialTheme.typography.bodyMedium, color = dim)
+            } else {
+                SelectionContainer {
+                    Column {
+                        if (handler.name.isNotBlank()) Text(handler.name, style = MaterialTheme.typography.titleSmall)
+                        if (dept.isNotBlank()) Text(dept, style = MaterialTheme.typography.bodySmall)
+                        if (handler.address.isNotBlank()) {
+                            Text(handler.address, style = MaterialTheme.typography.bodySmall, color = dim)
+                        }
+                    }
+                }
+            }
+            if (request.service.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Υποβλήθηκε σε: " + request.service,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = dim,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            Row {
+                Cell("Αρ. υπόθεσης", request.caseNumber, Modifier.weight(1f))
+                Cell("Θεματική", request.topic.takeIf { it != request.title }.orEmpty(), Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(8.dp))
+            Row {
+                Cell("Υποβολή", AadeRequests.date(request.submitted), Modifier.weight(1f))
+                Cell("Τελευταία ενημέρωση", AadeRequests.date(request.updated), Modifier.weight(1f))
+            }
+            detail?.reference?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(8.dp))
+                Cell("Σχετίζεται με το αίτημα", it)
+            }
+
+            if (showClient || onOpenClient != null) {
+                HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Πελάτης", style = MaterialTheme.typography.labelSmall, color = dim)
+                        Text(client.displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("ΑΦΜ " + client.afm, style = MaterialTheme.typography.bodySmall, color = dim)
+                    }
+                    if (onOpenClient != null) {
+                        OutlinedButton(onClick = onOpenClient) { Text("Καρτέλα") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Ετικέτα και τιμή σε κελί πλέγματος· κενή τιμή γράφεται «—», ώστε το πλέγμα να μένει ίσιο. */
+@Composable
+private fun Cell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.padding(end = 8.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        SelectionContainer {
+            Text(value.ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+// ----------------------------------------------------------- επικοινωνία
+
+/**
+ * Η ενδιάμεση επικοινωνία ως συνομιλία: η ΑΑΔΕ αριστερά, ο πελάτης δεξιά,
+ * νεότερη πρώτα. Οι δύο πιο πρόσφατες φαίνονται· οι υπόλοιπες με ένα πάτημα.
+ */
+@Composable
+private fun Conversation(notes: List<RequestDetail.Note>, onFiles: () -> Unit) {
+    var all by remember(notes) { mutableStateOf(notes.size <= 3) }
+    Section("Επικοινωνία με την ΑΑΔΕ · ${notes.size}")
+    val shown = if (all) notes else notes.take(2)
+    shown.forEach { note ->
+        val aade = note.fromAade
+        val bubble = if (aade) {
+            MaterialTheme.colorScheme.tertiaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        }
+        val onBubble = if (aade) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = if (aade) Arrangement.Start else Arrangement.End,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth(0.9f)
+                    .background(bubble, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    (if (aade) note.label else "Πελάτης · " + note.label.lowercase()) +
+                        if (note.date.isBlank()) "" else " · " + AadeRequests.date(RequestDetail.stamp(note.date)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onBubble.copy(alpha = 0.8f),
+                )
+                if (note.text.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    SelectionContainer {
+                        Text(note.text, style = MaterialTheme.typography.bodyMedium, color = onBubble)
+                    }
+                }
+                if (note.files.isNotEmpty()) FileLinks(note.files, onClick = onFiles, color = onBubble)
+            }
+        }
+    }
+    if (!all) {
+        TextButton(onClick = { all = true }) {
+            Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Όλη η επικοινωνία (${notes.size})")
+        }
+    }
+}
+
+/** Ονόματα συνημμένων ως σύνδεσμοι — ανοίγουν το παράθυρο των συνημμένων. */
+@Composable
+private fun FileLinks(names: List<String>, onClick: () -> Unit, color: Color = MaterialTheme.colorScheme.primary) {
+    Column(Modifier.padding(top = 4.dp)) {
+        names.forEach { name ->
+            Row(
+                Modifier.clickable(onClick = onClick).padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.AttachFile, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    name,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = color,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------- βοηθοί
+
 @Composable
 private fun Section(title: String) {
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(18.dp))
     Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     Spacer(Modifier.height(4.dp))
+}
+
+/** Ενότητα που ανοιγοκλείνει από τον τίτλο της. */
+@Composable
+private fun Collapsible(title: String, initiallyOpen: Boolean, content: @Composable () -> Unit) {
+    var open by remember(title) { mutableStateOf(initiallyOpen) }
+    Spacer(Modifier.height(12.dp))
+    Row(
+        Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (open) "Κλείσιμο" else "Άνοιγμα",
+            tint = MaterialTheme.colorScheme.primary,
+        )
+    }
+    if (open) content()
 }
 
 /** Κείμενο που **αντιγράφεται**: η απάντηση της ΑΑΔΕ πολύ συχνά προωθείται στον πελάτη. */
@@ -645,22 +1003,100 @@ private fun Body(text: String) {
     SelectionContainer { Text(text, style = MaterialTheme.typography.bodyMedium) }
 }
 
-/** Ετικέτα και τιμή· κενή τιμή δεν πιάνει γραμμή. */
+// ------------------------------------------------------------- συνημμένα
+
+/** Το κουμπί που ανοίγει όλα τα συνημμένα, με πόσα είναι και πόσα λείπουν. */
 @Composable
-private fun Field(label: String, value: String) {
-    if (value.isBlank()) return
-    Column(Modifier.padding(vertical = 3.dp)) {
+private fun AttachmentsButton(detail: RequestDetail.Detail, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
         Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            "Συνημμένα · ${detail.attachments.size}" +
+                if (detail.missing > 0) " (${detail.missing} δεν κατέβηκαν)" else "",
+            modifier = Modifier.weight(1f),
         )
-        SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
+        Text(
+            listOf(
+                detail.submitted.size.takeIf { it > 0 }?.let { "$it του πελάτη" },
+                detail.replies.size.takeIf { it > 0 }?.let { "$it της ΑΑΔΕ" },
+            ).filterNotNull().joinToString(" · "),
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
 /**
- * Τα συνημμένα μιας ενότητας, το καθένα με άνοιγμα και κοινοποίηση.
+ * Όλα τα συνημμένα του αιτήματος σε ένα παράθυρο, χωρισμένα σε ό,τι έστειλε ο
+ * πελάτης, ό,τι έστειλε η ΑΑΔΕ και ό,τι ήρθε με την επικοινωνία.
+ */
+@Composable
+private fun AttachmentsDialog(
+    detail: RequestDetail.Detail,
+    container: AppContainer,
+    client: ClientEntity,
+    caseNumber: String,
+    status: String,
+    onStatus: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            Modifier.fillMaxWidth().heightIn(max = 640.dp),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Συνημμένα · ${detail.attachments.size}",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = "Κλείσιμο")
+                    }
+                }
+                if (status.isNotBlank()) {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    FileGroup("Από την ΑΑΔΕ", detail.replies, container, client, caseNumber, onStatus)
+                    FileGroup("Από την επικοινωνία", detail.threadFiles, container, client, caseNumber, onStatus)
+                    FileGroup("Υποβλήθηκαν με το αίτημα", detail.submitted, container, client, caseNumber, onStatus)
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileGroup(
+    title: String,
+    files: List<RequestDetail.Attachment>,
+    container: AppContainer,
+    client: ClientEntity,
+    caseNumber: String,
+    onStatus: (String) -> Unit,
+) {
+    if (files.isEmpty()) return
+    Spacer(Modifier.height(12.dp))
+    Text(
+        "$title · ${files.size}",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    files.forEach { FileRow(it, container, client, caseNumber, onStatus) }
+}
+
+/**
+ * Ένα συνημμένο: όνομα, μέγεθος, άνοιγμα και κοινοποίηση.
  *
  * Η κοινοποίηση γράφεται **δύο φορές**, για δύο αναγνώστες. Στο αρχείο
  * ενεργειών, γιατί ένα έγγραφο πελάτη φεύγει από την εφαρμογή προς άλλη και
@@ -670,99 +1106,92 @@ private fun Field(label: String, value: String) {
  * όνομα του αρχείου όπως για κάθε έντυπο.
  */
 @Composable
-private fun Attachments(
-    title: String,
-    files: List<RequestDetail.Attachment>,
+private fun FileRow(
+    file: RequestDetail.Attachment,
     container: AppContainer,
     client: ClientEntity,
     caseNumber: String,
     onStatus: (String) -> Unit,
 ) {
-    if (files.isEmpty()) return
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-    val shape = MaterialTheme.shapes.small
-
-    if (title.isNotBlank()) {
-        Spacer(Modifier.height(10.dp))
-        Text(title, style = MaterialTheme.typography.labelMedium, color = dim)
+    fun open() {
+        val target = RequestsStore.attachment(context.filesDir, client.afm, file.saved)
+        onStatus(if (target == null) GONE else DocumentActions.open(context, target, file.saved))
     }
-    files.forEach { file ->
-        Column(
-            Modifier
-                .padding(top = 6.dp)
-                .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Text(file.name, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                listOf(RequestDetail.size(file.size), file.origin.label)
-                    .filter { it.isNotBlank() }.joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = dim,
-            )
-            if (!file.downloaded) {
+    Row(
+        Modifier
+            .padding(top = 6.dp)
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
+            .clickable(enabled = file.downloaded) { open() }
+            .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 6.dp)) {
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (file.downloaded) {
+                val size = RequestDetail.size(file.size)
+                if (size.isNotBlank()) Text(size, style = MaterialTheme.typography.bodySmall, color = dim)
+            } else {
                 Text(
-                    "Δεν κατέβηκε" + if (file.error.isBlank()) "." else " (${file.error}).",
+                    "Δεν κατέβηκε" + if (file.error.isBlank()) "" else " (${file.error})",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-            } else {
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
-                        val target = RequestsStore.attachment(context.filesDir, client.afm, file.saved)
-                        onStatus(
-                            if (target == null) GONE else DocumentActions.open(context, target, file.saved),
+            }
+        }
+        if (file.downloaded) {
+            IconButton(onClick = { open() }) {
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Άνοιγμα")
+            }
+            Spacer(Modifier.width(6.dp))
+            IconButton(onClick = {
+                val target = RequestsStore.attachment(context.filesDir, client.afm, file.saved)
+                if (target == null) {
+                    onStatus(GONE)
+                } else {
+                    onStatus("")
+                    val failure = runCatching {
+                        Exports.share(
+                            context,
+                            target,
+                            DocumentActions.mimeOf(file.saved),
+                            "Κοινοποίηση συνημμένου",
                         )
-                    }) { Text("Άνοιγμα") }
-                    TextButton(onClick = {
-                        val target = RequestsStore.attachment(context.filesDir, client.afm, file.saved)
-                        if (target == null) {
-                            onStatus(GONE)
-                        } else {
-                            onStatus("")
-                            val failure = runCatching {
-                                Exports.share(
-                                    context,
-                                    target,
-                                    DocumentActions.mimeOf(file.saved),
-                                    "Κοινοποίηση συνημμένου",
-                                )
-                            }.exceptionOrNull()
-                            if (failure != null) onStatus("Δεν άνοιξε η κοινοποίηση: ${failure.message}")
-                            scope.launch {
-                                // Και στο ημερολόγιο αποστολών: ένα έγγραφο της ΑΑΔΕ
-                                // που προωθήθηκε είναι «τι έστειλα και πότε», όπως
-                                // κάθε άλλο έντυπο.
-                                runCatching {
-                                    container.db.sends().log(
-                                        RequestSends.file(
-                                            clientId = client.id,
-                                            afm = client.afm,
-                                            clientName = client.displayName,
-                                            caseNumber = caseNumber,
-                                            fileName = file.name,
-                                            at = System.currentTimeMillis(),
-                                            error = failure?.let { it.message ?: it.toString() }.orEmpty(),
-                                        ),
-                                    )
-                                }
-                                container.db.audit().log(
-                                    AuditEntity(
-                                        ts = System.currentTimeMillis(),
-                                        action = "SHARE_REQUEST_FILE",
-                                        afm = client.afm,
-                                        detail = "συνημμένο αιτήματος ΑΑΔΕ" +
-                                            if (caseNumber.isBlank()) "" else " $caseNumber",
-                                    ),
-                                )
-                            }
+                    }.exceptionOrNull()
+                    if (failure != null) onStatus("Δεν άνοιξε η κοινοποίηση: ${failure.message}")
+                    scope.launch {
+                        // Και στο ημερολόγιο αποστολών: ένα έγγραφο της ΑΑΔΕ
+                        // που προωθήθηκε είναι «τι έστειλα και πότε», όπως
+                        // κάθε άλλο έντυπο.
+                        runCatching {
+                            container.db.sends().log(
+                                RequestSends.file(
+                                    clientId = client.id,
+                                    afm = client.afm,
+                                    clientName = client.displayName,
+                                    caseNumber = caseNumber,
+                                    fileName = file.name,
+                                    at = System.currentTimeMillis(),
+                                    error = failure?.let { it.message ?: it.toString() }.orEmpty(),
+                                ),
+                            )
                         }
-                    }) { Text("Κοινοποίηση") }
+                        container.db.audit().log(
+                            AuditEntity(
+                                ts = System.currentTimeMillis(),
+                                action = "SHARE_REQUEST_FILE",
+                                afm = client.afm,
+                                detail = "συνημμένο αιτήματος ΑΑΔΕ" +
+                                    if (caseNumber.isBlank()) "" else " $caseNumber",
+                            ),
+                        )
+                    }
                 }
+            }) {
+                Icon(Icons.Filled.Share, contentDescription = "Κοινοποίηση")
             }
         }
     }
